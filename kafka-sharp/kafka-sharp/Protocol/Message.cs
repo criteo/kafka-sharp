@@ -8,7 +8,7 @@ using Kafka.Public;
 
 namespace Kafka.Protocol
 {
-    class Message
+    struct Message
     {
         public byte[] Key;
         public byte[] Value;
@@ -41,7 +41,10 @@ namespace Kafka.Protocol
 
             // update crc
             var crc = Crc32.Compute(stream, bodyPos, stream.Position - bodyPos);
-            Basics.Update(stream, crcPos, crc);
+            var curPos = stream.Position;
+            stream.Position = crcPos;
+            BigEndianConverter.Write(stream, (int)crc);
+            stream.Position = curPos;
         }
     }
 }

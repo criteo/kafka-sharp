@@ -13,12 +13,33 @@ namespace Kafka.Public
         Snappy = 2
     }
 
+    /// <summary>
+    /// In case of network errors
+    /// </summary>
+    public enum ErrorStrategy
+    {
+        /// <summary>
+        /// Discard messages
+        /// </summary>
+        Discard,
+
+        /// <summary>
+        /// Retry sending messsages (this may end up in duplicate messages)
+        /// </summary>
+        Retry
+    }
+
     public class Configuration
     {
         /// <summary>
-        /// Maximum amount a message can stay alive before being dumped in case of errors.
+        /// Maximum amount a message can stay alive before being discard in case of pepeated errors.
         /// </summary>
         public TimeSpan MessageTtl = TimeSpan.FromMinutes(1);
+
+        /// <summary>
+        /// Strategy in case opf network errors.
+        /// </summary>
+        public ErrorStrategy ErrorStrategy = ErrorStrategy.Discard;
 
         /// <summary>
         /// Time slice for batching messages. We wait  that much time at most before processing
@@ -55,11 +76,6 @@ namespace Kafka.Public
         /// Kafka server side timeout for requests.
         /// </summary>
         public int RequestTimeoutMs = 10000;
-
-        /// <summary>
-        /// Not used.
-        /// </summary>
-        public int SendMaxRetries = 3;
 
         /// <summary>
         /// Your client name.

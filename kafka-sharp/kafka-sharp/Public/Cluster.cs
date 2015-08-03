@@ -39,15 +39,22 @@ namespace Kafka.Public
         public long NodeDead { get; internal set; }
 
         /// <summary>
-        /// Number of expired messages (not entirely accurate)
+        /// Number of expired messages.
         /// </summary>
         public long Expired { get; internal set; }
+
+        /// <summary>
+        /// Number of discarded messages.
+        /// </summary>
+        public long Discarded { get; internal set; }
+
+        public long Exit { get; internal set; }
 
         public override string ToString()
         {
             return string.Format(
-                "{{Messages successfully sent: {0} - Requests sent: {1} - Responses received: {2} - Errors: {3} - Dead nodes: {4} - Expired: {5}}}",
-                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired);
+                "{{Messages successfully sent: {0} - Requests sent: {1} - Responses received: {2} - Errors: {3} - Dead nodes: {4} - Expired: {5} - Discarded: {6} - Exit: {7}}}",
+                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exit);
         }
     }
 
@@ -103,6 +110,7 @@ namespace Kafka.Public
             _configuration = configuration;
             _logger = logger;
             _cluster = new Kafka.Cluster.Cluster(configuration, logger);
+            _cluster.InternalError += e => _logger.LogError("Cluster internal error: " + e);
             _cluster.Start();
         }
 
@@ -126,14 +134,17 @@ namespace Kafka.Public
             Produce(topic, null, data);
         }
 
+        private long _sent;
+
         public void Produce(string topic, byte[] key, byte[] data)
         {
             if (_configuration.MaxBufferedMessages > 0)
             {
-                if (_cluster.Router.WaterLevel >= _configuration.MaxBufferedMessages)
+                if (_sent - _cluster.PassedThrough >= _configuration.MaxBufferedMessages)
                 {
-                    SpinWait.SpinUntil(() => _cluster.Router.WaterLevel < _configuration.MaxBufferedMessages);
+                    SpinWait.SpinUntil(() => _sent - _cluster.PassedThrough < _configuration.MaxBufferedMessages);
                 }
+                Interlocked.Increment(ref _sent);
             }
             _cluster.Router.Route(topic, new Message {Key = key, Value = data}, DateTime.UtcNow.Add(_configuration.MessageTtl));
         }

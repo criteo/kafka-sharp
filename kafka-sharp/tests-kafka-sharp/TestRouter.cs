@@ -176,7 +176,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestRoutingTableReturnsNullForAbsentTopic()
+        public void TestRoutingTableReturnsEmptyForAbsentTopic()
         {
             var node = new NodeMock();
             var routes = new Dictionary<string, Partition[]>
@@ -185,8 +185,8 @@ namespace tests_kafka_sharp
                 };
             var routingTable = new RoutingTable(routes);
 
-            Assert.NotNull(routingTable.GetPartitions("test1p"));
-            Assert.Null(routingTable.GetPartitions("tortemoque"));
+            Assert.Less(0, routingTable.GetPartitions("test1p").Length);
+            Assert.AreEqual(0, routingTable.GetPartitions("tortemoque").Length);
         }
     }
 }

@@ -57,7 +57,13 @@ namespace tests_kafka_sharp
             var e1 = routing.GetPartitions("error1");
             var e2 = routing.GetPartitions("error2");
 
-            Assert.IsNull(e1);
+            Assert.NotNull(p1);
+            Assert.NotNull(p2);
+            Assert.NotNull(p3);
+            Assert.NotNull(e1);
+            Assert.NotNull(e2);
+
+            Assert.AreEqual(0, e1.Length);
 
             Assert.AreEqual(1, e2.Length);
             Assert.IsNotNull(e2[0].Leader);

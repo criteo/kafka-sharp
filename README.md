@@ -18,10 +18,13 @@ TODO:
 * Partitioner injection
 * Dynamic configuration change?
 * Per topic metadata fetches instead of always getting the full metadata?
+* Be verbose when sending invalid topics
 * Better handling of shutdown
 * More logging
 * Consumer
 * More tests
+* Optimizations (more memory tuning, crc32, etc.)
+* Rewrite serialization
 * Simpler design (merge Router and Cluster for less messy metadata change management?)
 * Front interface more like the Java official driver
 

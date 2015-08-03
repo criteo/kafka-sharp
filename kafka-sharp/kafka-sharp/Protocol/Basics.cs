@@ -67,11 +67,14 @@ namespace Kafka.Protocol
             return buff;
         }
 
-        public static void WriteSizeInBytes(MemoryStream stream, Action write)
+        static long ReserveHeader(MemoryStream stream)
         {
             stream.Write(Zero32, 0, 4);
-            var initPos = stream.Position;
-            write();
+            return stream.Position;
+        }
+
+        static void WriteHeader(MemoryStream stream, long initPos)
+        {
             var pos = stream.Position;
             var size = pos - initPos;
             stream.Position = initPos - 4;
@@ -79,14 +82,35 @@ namespace Kafka.Protocol
             stream.Position = pos;
         }
 
-        public static void WriteArray<T>(MemoryStream stream, IEnumerable<T> items, Action<T> write)
+        public static void WriteSizeInBytes(MemoryStream stream, Action<MemoryStream> write)
+        {
+            var initPos = ReserveHeader(stream);
+            write(stream);
+            WriteHeader(stream, initPos);
+        }
+
+        public static void WriteSizeInBytes<T>(MemoryStream stream, T t, Action<MemoryStream, T> write)
+        {
+            var initPos = ReserveHeader(stream);
+            write(stream, t);
+            WriteHeader(stream, initPos);
+        }
+
+        public static void WriteSizeInBytes<T, U>(MemoryStream stream, T t, U u, Action<MemoryStream, T, U> write)
+        {
+            var initPos = ReserveHeader(stream);
+            write(stream, t, u);
+            WriteHeader(stream, initPos);
+        }
+
+        public static void WriteArray<T>(MemoryStream stream, IEnumerable<T> items, Action<MemoryStream, T> write)
         {
             var sizePosition = stream.Position;
             stream.Write(MinusOne32, 0, 4); // placeholder for count field
             var count = 0;
             foreach (var item in items)
             {
-                write(item);
+                write(stream, item);
                 count++;
             }
             var pos = stream.Position; // update count field

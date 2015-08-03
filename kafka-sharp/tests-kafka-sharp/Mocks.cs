@@ -23,6 +23,11 @@ namespace tests_kafka_sharp
             _response = response;
         }
 
+        public string Name
+        {
+            get { return "Some node"; }
+        }
+
         public void Produce(string topic, int partition, Message message, DateTime expirationDate)
         {
             SuccessfulSent(this, topic, 1);
@@ -39,6 +44,7 @@ namespace tests_kafka_sharp
         }
 
         public event Action<INode, string, int> SuccessfulSent = (n, s, i) => { };
+        public event Action<INode, string, int> MessagesDiscarded = (n, s, i) => { };
         public event Action<INode, string> MessageExpired = (n, t) => { };
         public event Action<INode> RequestSent = n => { };
         public event Action<INode> ResponseReceived = n => { };
@@ -164,8 +170,6 @@ namespace tests_kafka_sharp
                 MessageRouted(topic);
             }
         }
-
-        public int WaterLevel { get; set; }
 
         public Task Stop()
         {

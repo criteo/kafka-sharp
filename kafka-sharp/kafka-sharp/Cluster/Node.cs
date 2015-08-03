@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -23,11 +24,14 @@ namespace Kafka.Cluster
 
     interface INode
     {
+        string Name { get; }
+
         void Produce(string topic, int partition, Message message, DateTime expirationDate);
         Task<MetadataResponse> FetchMetadata();
         Task Stop();
+
         event Action<INode, string, int> SuccessfulSent;
-        event Action<INode, string> MessageExpired;
+        event Action<INode, string, int> MessagesDiscarded;
         event Action<INode> RequestSent;
         event Action<INode> ResponseReceived;
         event Action<INode, Exception> ConnectionError;
@@ -52,10 +56,35 @@ namespace Kafka.Cluster
         class ProduceMessage
         {
             public string Topic;
-            public int Partition;
             public Message Message;
             public DateTime ExpirationDate;
-            internal bool Expired;
+            public int Partition;
+
+            // Those objects are pooled to minimize stress on the GC.
+            // Use New/Release for managing lifecycle.
+
+            private ProduceMessage() { }
+
+            public static ProduceMessage New(string topic, int partition, Message message, DateTime expirationDate)
+            {
+                ProduceMessage reserved;
+                if (!_produceMessagePool.TryDequeue(out reserved))
+                {
+                    reserved = new ProduceMessage();
+                }
+                reserved.Topic = topic;
+                reserved.Partition = partition;
+                reserved.Message = message;
+                reserved.ExpirationDate = expirationDate;
+                return reserved;
+            }
+
+            public static void Release(ProduceMessage message)
+            {
+                _produceMessagePool.Enqueue(message);
+            }
+
+            static readonly ConcurrentQueue<ProduceMessage> _produceMessagePool = new ConcurrentQueue<ProduceMessage>();
         }
 
         struct ProduceBatchRequest
@@ -159,7 +188,6 @@ namespace Kafka.Cluster
         {
             var subject = new Subject<ProduceMessage>();
             subject
-                .Where(m => m.ExpirationDate > DateTime.UtcNow)
                 .Buffer(bufferingTime, bufferingCount)
                 .Where(batch => batch.Count > 0)
                 .Select(batch => batch.GroupBy(m => m.Topic))
@@ -174,8 +202,11 @@ namespace Kafka.Cluster
             return subject;
         }
 
-        public Node(byte[] clientId, ConnectionFactory connectionFactory, IRouter router, Configuration configuration)
+        public string Name { get; internal set; }
+
+        public Node(string name, byte[] clientId, ConnectionFactory connectionFactory, IRouter router, Configuration configuration)
         {
+            Name = name ?? "[Unknown]";
             _configuration = configuration;
             _connectionFactory = connectionFactory;
             _router = router;
@@ -207,15 +238,10 @@ namespace Kafka.Cluster
             if (IsDead())
             {
                 _router.Route(topic, message, expirationDate);
+                return;
             }
 
-            _produceMessages.OnNext(new ProduceMessage
-                {
-                    Topic = topic,
-                    Partition = partition,
-                    Message = message,
-                    ExpirationDate = expirationDate
-                });
+            _produceMessages.OnNext(ProduceMessage.New(topic, partition, message, expirationDate));
         }
 
         public Task<MetadataResponse> FetchMetadata()
@@ -355,24 +381,18 @@ namespace Kafka.Cluster
         private Request SerializeProduceRequest(Request request, int correlationId)
         {
             var batch = request.RequestValue.ProduceBatchRequest.Batch;
-            foreach (var message in batch.SelectMany(b => b).Where(m => m.ExpirationDate < DateTime.UtcNow))
-            {
-                message.Expired = true;
-                OnMessageExpired(message.Topic);
-            }
-
             var produceRequest = new ProduceRequest
                 {
                     RequiredAcks = (short)_configuration.RequiredAcks,
                     Timeout = _configuration.RequestTimeoutMs,
-                    CompressionCodec = _configuration.CompressionCodec,
                     TopicData = batch.Select(gt => new TopicData
                         {
                             TopicName = gt.Key,
                             PartitionsData = gt.GroupBy(m => m.Partition).Select(gp => new PartitionData
                                 {
                                     Partition = gp.Key,
-                                    Messages = gp.Where(pm => !pm.Expired).Select(pm => pm.Message)
+                                    Messages = gp.Select(pm => pm.Message),
+                                    CompressionCodec = _configuration.CompressionCodec,
                                 })
                         })
                 };
@@ -411,12 +431,15 @@ namespace Kafka.Cluster
                         switch (pending.Request.RequestType)
                         {
                             case RequestType.Produce:
-                                ProcessProduceResponse(response.ResponseValue.ResponseData.Data,
-                                                      pending.Request.RequestValue.ProduceBatchRequest);
+                                ProcessProduceResponse(
+                                    response.ResponseValue.ResponseData.Data,
+                                    pending.Request.RequestValue.ProduceBatchRequest);
+                               
                                 break;
                             case RequestType.Metadata:
-                                ProcessMetadataResponse(response.ResponseValue.ResponseData.Data,
-                                                       pending.Request.RequestValue.MetadataRequest);
+                                ProcessMetadataResponse(
+                                    response.ResponseValue.ResponseData.Data,
+                                    pending.Request.RequestValue.MetadataRequest);
                                 break;
                         }
                     }
@@ -430,70 +453,98 @@ namespace Kafka.Cluster
             ClearCorrelationIds(connection);
         }
 
-        private readonly List<int> _tmpPartitionsInError = new List<int>();
-        private readonly List<int> _tmpPartitionsInRecoverableError = new List<int>(); 
+        private readonly Dictionary<string, HashSet<int>> _tmpPartitionsInError = new Dictionary<string, HashSet<int>>();
+        private readonly Dictionary<string, HashSet<int>> _tmpPartitionsInRecoverableError = new Dictionary<string, HashSet<int>>();
+
+        private static readonly HashSet<int> NullHash = new HashSet<int>(); 
 
         private void ProcessProduceResponse(byte[] responseData, ProduceBatchRequest originalRequest)
         {
             // The whole point of deserializing the response is to search for errors.
-            // We try to optimize for the standard case (no error) when scaning the response.
+            ProduceResponse produceResponse;
             try
             {
-                var produceResponse = ProduceResponse.Deserialize(responseData);
-                int errors = 0;
-                foreach (var tr in produceResponse.TopicsResponse)
-                {
-                    _tmpPartitionsInError.Clear();
-                    _tmpPartitionsInRecoverableError.Clear();
-                    foreach (var p in tr.Partitions.Where(p => p.ErrorCode != ErrorCode.NoError && p.ErrorCode != ErrorCode.ReplicaNotAvailable))
-                    {
-                        if (++errors == 1)
-                        {
-                            OnRecoverableError();
-                        }
-                        _tmpPartitionsInError.Add(p.Partition);
-                        switch (p.ErrorCode)
-                        {
-                                // Recoverable errors
-                            case ErrorCode.BrokerNotAvailable:
-                            case ErrorCode.LeaderNotAvailable:
-                            case ErrorCode.NotLeaderForPartition:
-                                _tmpPartitionsInRecoverableError.Add(p.Partition);
-                                break;
-
-                            default:
-                                break;
-                        }
-                    }
-                    if (_tmpPartitionsInError.Count == 0) continue;
-                    int sent = 0;
-                    foreach (var m in originalRequest.Batch.Where(b => b.Key == tr.TopicName).SelectMany(b => b))
-                    {
-                        if (_tmpPartitionsInError.Contains(m.Partition))
-                        {
-                            if (_tmpPartitionsInRecoverableError.Contains(m.Partition))
-                            {
-                                _router.Route(tr.TopicName, m.Message, m.ExpirationDate);
-                            }
-                        }
-                        else
-                        {
-                            ++sent;
-                        }
-                    }
-                    OnMessagesSent(tr.TopicName, sent);
-                }
-                if (errors != 0) return;
-                foreach (var grouping in originalRequest.Batch)
-                {
-                    OnMessagesSent(grouping.Key, grouping.Count());
-                }
+                produceResponse = ProduceResponse.Deserialize(responseData);
             }
             catch (Exception ex)
             {
                 // Corrupted data.
-                // TODO: What do we do? Dump connection?
                 OnDecodeError(ex);
+                DrainOrDiscard(new Request
+                {
+                    RequestType = RequestType.Produce,
+                    RequestValue = new RequestValue {ProduceBatchRequest = originalRequest}
+                });
+                return;
+            }
+
+            // Fill partitions in error caches
+            _tmpPartitionsInError.Clear();
+            _tmpPartitionsInRecoverableError.Clear();
+            foreach (var tr in produceResponse.TopicsResponse)
+            {
+                bool errors = false;
+                foreach (var p in tr.Partitions.Where(p => !Error.IsPartitionOkForProducer(p.ErrorCode)))
+                {
+                    if (!errors)
+                    {
+                        errors = true;
+                        OnRecoverableError();
+                        _tmpPartitionsInError[tr.TopicName] = new HashSet<int>();
+                        _tmpPartitionsInRecoverableError[tr.TopicName] = new HashSet<int>();
+                    }
+
+                    if (Error.IsPartitionErrorRecoverable(p.ErrorCode))
+                    {
+                        _tmpPartitionsInRecoverableError[tr.TopicName].Add(p.Partition);
+                    }
+                    else
+                    {
+                        _tmpPartitionsInError[tr.TopicName].Add(p.Partition);
+                    }
+                }
+            }
+
+            // Scan messages for errors and release memory
+            foreach (var grouping in originalRequest.Batch)
+            {
+                int sent = 0;
+                int discarded = 0;
+                HashSet<int> errPartitions;
+                if (!_tmpPartitionsInError.TryGetValue(grouping.Key, out errPartitions))
+                {
+                    errPartitions = NullHash;
+                }
+                HashSet<int> recPartitions;
+                if (!_tmpPartitionsInRecoverableError.TryGetValue(grouping.Key, out recPartitions))
+                {
+                    recPartitions = NullHash;
+                }
+
+                foreach (var pm in grouping)
+                {
+                    if (recPartitions.Contains(pm.Partition))
+                    {
+                        _router.Route(pm.Topic, pm.Message, pm.ExpirationDate);
+                    }
+                    else if (errPartitions.Contains(pm.Partition))
+                    {
+                        ++discarded;
+                    }
+                    else
+                    {
+                        ++sent;
+                    }
+                    ProduceMessage.Release(pm);
+                }
+                if (sent > 0)
+                {
+                    OnMessagesSent(grouping.Key, sent);
+                }
+                if (discarded > 0)
+                {
+                    OnMessagesDiscarded(grouping.Key, discarded);
+                }
             }
         }
 
@@ -516,9 +567,29 @@ namespace Kafka.Cluster
             ConcurrentQueue<Pending> pendings;
             if (_pendings.TryRemove(connection, out pendings))
             {
-                foreach (var pending in pendings.Where(p => p.Request.RequestType == RequestType.Metadata))
+                foreach (var pending in pendings)
                 {
-                    pending.Request.RequestValue.MetadataRequest.Promise.SetCanceled();
+                    DrainOrDiscard(pending.Request);
+                }
+            }
+        }
+
+        private void DrainOrDiscard(Request request)
+        {
+            if (_configuration.ErrorStrategy == ErrorStrategy.Retry ||
+                request.RequestType == RequestType.Metadata)
+            {
+                Drain(request);
+            }
+            else
+            {
+                foreach (var grouping in request.RequestValue.ProduceBatchRequest.Batch)
+                {
+                    OnMessagesDiscarded(grouping.Key, grouping.Count());
+                    foreach (var message in grouping)
+                    {
+                        ProduceMessage.Release(message);
+                    }
                 }
             }
         }
@@ -566,6 +637,7 @@ namespace Kafka.Cluster
                         foreach (var message in grouping)
                         {
                             _router.Route(grouping.Key, message.Message, message.ExpirationDate);
+                            ProduceMessage.Release(message);
                         }
                     }
                     break;
@@ -608,10 +680,10 @@ namespace Kafka.Cluster
             Dead(this);
         }
 
-        public event Action<INode, string> MessageExpired = (n, t) => { };
-        private void OnMessageExpired(string topic)
+        public event Action<INode, string, int> MessagesDiscarded = (n, t, c) => { };
+        private void OnMessagesDiscarded(string topic, int number)
         {
-            MessageExpired(this, topic);
+            MessagesDiscarded(this, topic, number);
         }
 
         public event Action<INode> Connected = n => { };

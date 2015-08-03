@@ -2,6 +2,7 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -21,7 +22,6 @@ namespace Kafka.Routing
         void ChangeRoutingTable(RoutingTable table);
         void Route(string topic, Message message, DateTime expirationDate);
         void Route(string topic, IEnumerable<Message> messages, DateTime expirationDate);
-        int WaterLevel { get; }
         Task Stop();
         event Action<string> MessageRouted;
         event Action<string> MessageExpired;
@@ -55,8 +55,33 @@ namespace Kafka.Routing
             public string Topic;
             public IEnumerable<Message> Messages;
             public DateTime ExpirationDate;
-        }
 
+            // Those objects are pooled to minimize stress on the GC.
+            // Use New/Release for managing lifecycle.
+
+            private ProduceMessage() { }
+
+            public static ProduceMessage New(string topic, IEnumerable<Message> messages, DateTime expirationDate)
+            {
+                ProduceMessage reserved;
+                if (!_produceMessagePool.TryDequeue(out reserved))
+                {
+                    reserved = new ProduceMessage();
+                }
+                reserved.Topic = topic;
+                reserved.Messages = messages;
+                reserved.ExpirationDate = expirationDate;
+                return reserved;
+            }
+
+            public static void Release(ProduceMessage message)
+            {
+                _produceMessagePool.Enqueue(message);
+            }
+
+            static readonly ConcurrentQueue<ProduceMessage> _produceMessagePool = new ConcurrentQueue<ProduceMessage>();
+        }
+        
         [StructLayout(LayoutKind.Explicit)]
         struct RouterMessageValue
         {
@@ -88,11 +113,6 @@ namespace Kafka.Routing
         public event Action<string> MessageExpired = _ => { };
         public event Action<string> MessageRouted = _ => { };
         public event Action RoutingTableRequired = () => { };
-
-        public int WaterLevel
-        {
-            get { return _messages.InputCount; }
-        }
 
         public Router(ICluster cluster, Configuration configuration)
         {
@@ -126,20 +146,18 @@ namespace Kafka.Routing
 
         public void Route(string topic, IEnumerable<Message> messages, DateTime expirationDate)
         {
-            _messages.Post(new RouterMessage
+            var posted = _messages.Post(new RouterMessage
                 {
                     MessageType = RouterMessageType.Produce,
                     MessageValue = new RouterMessageValue
                         {
-                            ProduceMessage = new ProduceMessage
-                                {
-                                    Topic = topic,
-                                    Messages = messages,
-                                    ExpirationDate = expirationDate
-                                }
+                            ProduceMessage = ProduceMessage.New(topic, messages, expirationDate)
                         }
                 });
-            MessageEnqueued(topic);
+            if (posted)
+            {
+                MessageEnqueued(topic);
+            }
         }
 
         private void ReEnqueue(ProduceMessage message)
@@ -261,11 +279,11 @@ namespace Kafka.Routing
             }
 
             var partitions = _routingTable.GetPartitions(produceMessage.Topic);
-            if (partitions == null)
+            if (partitions.Length == 0)
             {
                 await EnsureHasRoutingTable();
                 partitions = _routingTable.GetPartitions(produceMessage.Topic);
-                if (partitions == null)
+                if (partitions.Length == 0)
                 {
                     ReEnqueue(produceMessage);
                     return;
@@ -278,6 +296,7 @@ namespace Kafka.Routing
                 partition.Leader.Produce(produceMessage.Topic, partition.Id, message, produceMessage.ExpirationDate);
                 MessageRouted(produceMessage.Topic);
             }
+            ProduceMessage.Release(produceMessage);
         }
     }
 }

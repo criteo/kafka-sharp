@@ -6,7 +6,7 @@ using Kafka.Common;
 
 namespace Kafka.Protocol
 {
-    internal class ProduceResponse
+    struct ProduceResponse
     {
         public TopicResponse[] TopicsResponse;
 
@@ -25,15 +25,14 @@ namespace Kafka.Protocol
         }
     }
 
-    class TopicResponse
+    struct TopicResponse
     {
         public string TopicName;
         public PartitionResponse[] Partitions;
 
         public static TopicResponse Deserialize(MemoryStream stream)
         {
-            var resp = new TopicResponse();
-            resp.TopicName = Basics.DeserializeString(stream);
+            var resp = new TopicResponse {TopicName = Basics.DeserializeString(stream)};
             var count = BigEndianConverter.ReadInt32(stream);
             resp.Partitions = new PartitionResponse[count];
             for (int i = 0; i < count; i++)
@@ -42,7 +41,7 @@ namespace Kafka.Protocol
         }
     }
 
-    class PartitionResponse
+    struct PartitionResponse
     {
         public int Partition;
         public ErrorCode ErrorCode;

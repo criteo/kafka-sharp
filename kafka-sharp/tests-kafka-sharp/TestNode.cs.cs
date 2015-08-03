@@ -18,7 +18,7 @@ namespace tests_kafka_sharp
         {
             var config = new Configuration {BatchSize = 1, BufferingTime = TimeSpan.FromMilliseconds(15)};
             var node =
-                new Node(_clientId, () => new ConnectFailingConnectionMock(), new RouterMock(), config).SetResolution(1);
+                new Node("[Failing node]", _clientId, () => new ConnectFailingConnectionMock(), new RouterMock(), config).SetResolution(1);
             bool dead = false;
             node.Dead += _ =>
             {
@@ -42,7 +42,7 @@ namespace tests_kafka_sharp
         {
             var config = new Configuration { BatchSize = 1, BufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
-                new Node(_clientId, () => new SendFailingConnectionMock(), new RouterMock(), config).SetResolution(1);
+                new Node("[Failing node]", _clientId, () => new SendFailingConnectionMock(), new RouterMock(), config).SetResolution(1);
             try
             {
                 var m = await node.FetchMetadata();
@@ -59,7 +59,7 @@ namespace tests_kafka_sharp
         {
             var config = new Configuration { BatchSize = 1, BufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
-                new Node(_clientId, () => new ReceiveFailingConnectionMock(), new RouterMock(), config).SetResolution(1);
+                new Node("[Failing node]", _clientId, () => new ReceiveFailingConnectionMock(), new RouterMock(), config).SetResolution(1);
             try
             {
                 var m = await node.FetchMetadata();
@@ -86,7 +86,7 @@ namespace tests_kafka_sharp
             };
             var config = new Configuration { BatchSize = 1, BufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
-                new Node(_clientId, () => new ConnectFailingConnectionMock(), router, config).SetResolution(1);
+                new Node("[Failing node]", _clientId, () => new ConnectFailingConnectionMock(), router, config).SetResolution(1);
             bool dead = false;
             node.Dead += _ =>
             {

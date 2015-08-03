@@ -15,6 +15,7 @@ namespace Kafka.Routing
     class RoutingTable
     {
         private readonly Dictionary<string, Partition[]> _routes;
+        private static Partition[] NullPartition = new Partition[0];
 
         public RoutingTable(Dictionary<string, Partition[]> routes)
         {
@@ -25,7 +26,7 @@ namespace Kafka.Routing
         {
             Partition[] partitions;
             _routes.TryGetValue(topic, out partitions);
-            return partitions;
+            return partitions ?? NullPartition;
         }
     }
 }

@@ -81,7 +81,7 @@ namespace DamienG.Security.Cryptography
             return ~CalculateHash(InitializeTable(polynomial), seed, buffer, 0, buffer.Length);
         }
 
-        public static byte[] Compute(MemoryStream stream, long start, long size)
+        public static UInt32 Compute(MemoryStream stream, long start, long size)
         {
             var initPos = stream.Position;
             var crc = DefaultSeed;
@@ -91,7 +91,7 @@ namespace DamienG.Security.Cryptography
                 crc = (crc >> 8) ^ defaultTable[stream.ReadByte() ^ crc & 0xff];
 
             stream.Position = initPos;
-            return UInt32ToBigEndianBytes(~crc);
+            return ~crc;
         }
 
         static UInt32[] InitializeTable(UInt32 polynomial)

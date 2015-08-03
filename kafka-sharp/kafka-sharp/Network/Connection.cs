@@ -100,7 +100,7 @@ namespace Kafka.Network
                 {
                     Blocking = false,
                     SendBufferSize = sendBufferSize,
-                    ReceiveBufferSize = receiveBufferSize
+                    ReceiveBufferSize = receiveBufferSize,
                 };
             _sendArgs = new SocketAsyncEventArgs();
             _sendArgs.Completed += OnSendCompleted;
