@@ -340,6 +340,7 @@ namespace Kafka.Network
 
         public void Dispose()
         {
+            _socket.Shutdown(SocketShutdown.Both);
             _socket.Close();
             _socket.Dispose();
         }
