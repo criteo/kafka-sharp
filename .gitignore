@@ -35,4 +35,3 @@ vagrant/files
 /Build.proj
 /src/Properties/AssemblyInfoGenerated.cs
 nuget/*.nupkg
-kafka-sharp/sample-kafka-sharp

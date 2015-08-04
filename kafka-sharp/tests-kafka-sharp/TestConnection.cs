@@ -128,7 +128,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestSendWithoutConnect()
+        public async Task TestSendWithoutConnect()
         {
             var server = new FakeServer(SimulationMode.Success);
             var connection = new Connection(server.EndPoint);

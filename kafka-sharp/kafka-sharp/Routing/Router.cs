@@ -41,7 +41,8 @@ namespace Kafka.Routing
         enum RouterMessageType
         {
             Partitioner,
-            Produce
+            Produce,
+            CheckPostponed
         }
 
         class PartitionerMessage
@@ -102,11 +103,14 @@ namespace Kafka.Routing
         }
 
         private readonly ICluster _cluster;
+        private readonly Configuration _configuration;
 
         private RoutingTable _routingTable = new RoutingTable(new Dictionary<string, Partition[]>());
         private Partitioners _partitioners = new Partitioners();
-
+        
         private readonly ActionBlock<RouterMessage> _messages;
+        private readonly Dictionary<string, Queue<ProduceMessage>> _postponedMessages = new Dictionary<string, Queue<ProduceMessage>>();
+        private Timer _checkPostponedMessages;
 
         public event Action<string> MessageEnqueued = _ => { };
         public event Action<string> MessageReEnqueued = _ => { };
@@ -117,6 +121,7 @@ namespace Kafka.Routing
         public Router(ICluster cluster, Configuration configuration)
         {
             _cluster = cluster;
+            _configuration = configuration;
             _messages = new ActionBlock<RouterMessage>(m => ProcessMessage(m),
                                                        new ExecutionDataflowBlockOptions
                                                            {
@@ -137,6 +142,7 @@ namespace Kafka.Routing
         public void ChangeRoutingTable(RoutingTable table)
         {
             Interlocked.Exchange(ref _routingTable, table);
+            _messages.Post(new RouterMessage {MessageType = RouterMessageType.CheckPostponed});
         }
 
         public void Route(string topic, Message message,  DateTime expirationDate)
@@ -164,7 +170,7 @@ namespace Kafka.Routing
         {
             if (message.ExpirationDate < DateTime.UtcNow)
             {
-                MessageExpired(message.Topic);
+                OnMessageExpired(message);
                 return;
             }
 
@@ -248,6 +254,10 @@ namespace Kafka.Routing
                 case RouterMessageType.Produce:
                     await HandleProduceMessage(message.MessageValue.ProduceMessage);
                     break;
+
+                case RouterMessageType.CheckPostponed:
+                    HandlePostponedMessages();
+                    break;
             }
         }
 
@@ -267,7 +277,13 @@ namespace Kafka.Routing
         {
             if (produceMessage.ExpirationDate < DateTime.UtcNow)
             {
-                MessageExpired(produceMessage.Topic);
+                OnMessageExpired(produceMessage);
+                return;
+            }
+
+            if (IsPostponedTopic(produceMessage.Topic))
+            {
+                PostponeMessage(produceMessage);
                 return;
             }
 
@@ -285,7 +301,7 @@ namespace Kafka.Routing
                 partitions = _routingTable.GetPartitions(produceMessage.Topic);
                 if (partitions.Length == 0)
                 {
-                    ReEnqueue(produceMessage);
+                    PostponeMessage(produceMessage);
                     return;
                 }
             }
@@ -297,6 +313,79 @@ namespace Kafka.Routing
                 MessageRouted(produceMessage.Topic);
             }
             ProduceMessage.Release(produceMessage);
+        }
+
+        private int _numberOfPostponedMessages;
+
+        private void HandlePostponedMessages()
+        {
+            foreach (var kv in _postponedMessages)
+            {
+                var postponed = kv.Value;
+                if (_routingTable.GetPartitions(kv.Key).Length > 0)
+                {
+                    while (postponed.Count > 0)
+                    {
+                        ReEnqueue(postponed.Dequeue());
+                        --_numberOfPostponedMessages;
+                    }
+                }
+                else
+                {
+                    while (postponed.Count > 0)
+                    {
+                        if (postponed.Peek().ExpirationDate >= DateTime.UtcNow)
+                        {
+                            // Messages are queued in order or close enough
+                            // so just get out of the loop on the first non expired
+                            // message encountered
+                            break;
+                        }
+                        OnMessageExpired(postponed.Dequeue());
+                        --_numberOfPostponedMessages;
+                    }
+                }
+            }
+
+            if (_numberOfPostponedMessages == 0 && _checkPostponedMessages != null)
+            {
+                _checkPostponedMessages.Dispose();
+                _checkPostponedMessages = null;
+            }
+        }
+
+        private bool IsPostponedTopic(string topic)
+        {
+            Queue<ProduceMessage> postponed;
+            if (_postponedMessages.TryGetValue(topic, out postponed) && postponed.Count > 0)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private void PostponeMessage(ProduceMessage produceMessage)
+        {
+            Queue<ProduceMessage> postponedQueue;
+            if (!_postponedMessages.TryGetValue(produceMessage.Topic, out postponedQueue))
+            {
+                postponedQueue = new Queue<ProduceMessage>();
+                _postponedMessages.Add(produceMessage.Topic, postponedQueue);
+                ++_numberOfPostponedMessages;
+            }
+            postponedQueue.Enqueue(produceMessage);
+            if (_checkPostponedMessages == null)
+            {
+                _checkPostponedMessages =
+                    new Timer(_ => _messages.Post(new RouterMessage {MessageType = RouterMessageType.CheckPostponed}),
+                              null, _configuration.MessageTtl, _configuration.MessageTtl);
+            }
+        }
+
+        private void OnMessageExpired(ProduceMessage message)
+        {
+            MessageExpired(message.Topic);
+            ProduceMessage.Release(message);
         }
     }
 }
