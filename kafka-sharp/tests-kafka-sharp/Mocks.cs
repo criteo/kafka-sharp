@@ -28,9 +28,9 @@ namespace tests_kafka_sharp
             get { return "Some node"; }
         }
 
-        public void Produce(string topic, int partition, Message message, DateTime expirationDate)
+        public void Produce(ProduceMessage message)
         {
-            SuccessfulSent(this, topic, 1);
+            SuccessfulSent(this, message.Topic, 1);
         }
 
         public Task<MetadataResponse> FetchMetadata()
@@ -160,15 +160,12 @@ namespace tests_kafka_sharp
 
         public void Route(string topic, Message message, DateTime expirationDate)
         {
-            Route(topic, Enumerable.Repeat(message, 1), expirationDate);
+            Route(ProduceMessage.New(topic, message, expirationDate));
         }
 
-        public void Route(string topic, IEnumerable<Message> messages, DateTime expirationDate)
+        public void Route(ProduceMessage message)
         {
-            foreach (var _ in messages)
-            {
-                MessageRouted(topic);
-            }
+            MessageRouted(message.Topic);
         }
 
         public Task Stop()

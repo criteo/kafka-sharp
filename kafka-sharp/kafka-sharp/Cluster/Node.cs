@@ -26,7 +26,7 @@ namespace Kafka.Cluster
     {
         string Name { get; }
 
-        void Produce(string topic, int partition, Message message, DateTime expirationDate);
+        void Produce(ProduceMessage message);
         Task<MetadataResponse> FetchMetadata();
         Task Stop();
 
@@ -53,40 +53,6 @@ namespace Kafka.Cluster
     /// </summary>
     class Node : INode
     {
-        class ProduceMessage
-        {
-            public string Topic;
-            public Message Message;
-            public DateTime ExpirationDate;
-            public int Partition;
-
-            // Those objects are pooled to minimize stress on the GC.
-            // Use New/Release for managing lifecycle.
-
-            private ProduceMessage() { }
-
-            public static ProduceMessage New(string topic, int partition, Message message, DateTime expirationDate)
-            {
-                ProduceMessage reserved;
-                if (!_produceMessagePool.TryDequeue(out reserved))
-                {
-                    reserved = new ProduceMessage();
-                }
-                reserved.Topic = topic;
-                reserved.Partition = partition;
-                reserved.Message = message;
-                reserved.ExpirationDate = expirationDate;
-                return reserved;
-            }
-
-            public static void Release(ProduceMessage message)
-            {
-                _produceMessagePool.Enqueue(message);
-            }
-
-            static readonly ConcurrentQueue<ProduceMessage> _produceMessagePool = new ConcurrentQueue<ProduceMessage>();
-        }
-
         struct ProduceBatchRequest
         {
             public IEnumerable<IGrouping<string, ProduceMessage>> Batch;
@@ -233,15 +199,15 @@ namespace Kafka.Cluster
             return this;
         }
 
-        public void Produce(string topic, int partition, Message message, DateTime expirationDate)
+        public void Produce(ProduceMessage message)
         {
             if (IsDead())
             {
-                _router.Route(topic, message, expirationDate);
+                _router.Route(message);
                 return;
             }
 
-            _produceMessages.OnNext(ProduceMessage.New(topic, partition, message, expirationDate));
+            _produceMessages.OnNext(message);
         }
 
         public Task<MetadataResponse> FetchMetadata()
@@ -632,13 +598,9 @@ namespace Kafka.Cluster
 
                     // Reroute produce requests
                 case RequestType.Produce:
-                    foreach (var grouping in request.RequestValue.ProduceBatchRequest.Batch)
+                    foreach (var message in request.RequestValue.ProduceBatchRequest.Batch.SelectMany(grouping => grouping))
                     {
-                        foreach (var message in grouping)
-                        {
-                            _router.Route(grouping.Key, message.Message, message.ExpirationDate);
-                            ProduceMessage.Release(message);
-                        }
+                        _router.Route(message);
                     }
                     break;
             }

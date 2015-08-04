@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
+using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
 using ICluster = Kafka.Cluster.ICluster;
@@ -21,7 +22,7 @@ namespace Kafka.Routing
     {
         void ChangeRoutingTable(RoutingTable table);
         void Route(string topic, Message message, DateTime expirationDate);
-        void Route(string topic, IEnumerable<Message> messages, DateTime expirationDate);
+        void Route(ProduceMessage produceMessage);
         Task Stop();
         event Action<string> MessageRouted;
         event Action<string> MessageExpired;
@@ -49,38 +50,6 @@ namespace Kafka.Routing
         {
             public string Topic;
             public object PartitionerInfo;
-        }
-
-        class ProduceMessage
-        {
-            public string Topic;
-            public IEnumerable<Message> Messages;
-            public DateTime ExpirationDate;
-
-            // Those objects are pooled to minimize stress on the GC.
-            // Use New/Release for managing lifecycle.
-
-            private ProduceMessage() { }
-
-            public static ProduceMessage New(string topic, IEnumerable<Message> messages, DateTime expirationDate)
-            {
-                ProduceMessage reserved;
-                if (!_produceMessagePool.TryDequeue(out reserved))
-                {
-                    reserved = new ProduceMessage();
-                }
-                reserved.Topic = topic;
-                reserved.Messages = messages;
-                reserved.ExpirationDate = expirationDate;
-                return reserved;
-            }
-
-            public static void Release(ProduceMessage message)
-            {
-                _produceMessagePool.Enqueue(message);
-            }
-
-            static readonly ConcurrentQueue<ProduceMessage> _produceMessagePool = new ConcurrentQueue<ProduceMessage>();
         }
         
         [StructLayout(LayoutKind.Explicit)]
@@ -147,22 +116,26 @@ namespace Kafka.Routing
 
         public void Route(string topic, Message message,  DateTime expirationDate)
         {
-            Route(topic, Enumerable.Repeat(message, 1), expirationDate);
+            Route(ProduceMessage.New(topic, message, expirationDate));
         }
 
-        public void Route(string topic, IEnumerable<Message> messages, DateTime expirationDate)
+        public void Route(ProduceMessage message)
         {
             var posted = _messages.Post(new RouterMessage
+            {
+                MessageType = RouterMessageType.Produce,
+                MessageValue = new RouterMessageValue
                 {
-                    MessageType = RouterMessageType.Produce,
-                    MessageValue = new RouterMessageValue
-                        {
-                            ProduceMessage = ProduceMessage.New(topic, messages, expirationDate)
-                        }
-                });
+                    ProduceMessage = message
+                }
+            });
             if (posted)
             {
-                MessageEnqueued(topic);
+                MessageEnqueued(message.Topic);
+            }
+            else
+            {
+                ProduceMessage.Release(message);
             }
         }
 
@@ -281,38 +254,39 @@ namespace Kafka.Routing
                 return;
             }
 
-            if (IsPostponedTopic(produceMessage.Topic))
+            var topic = produceMessage.Topic;
+
+            if (IsPostponedTopic(topic))
             {
                 PostponeMessage(produceMessage);
                 return;
             }
 
             IPartitioner partitioner;
-            if (!_partitioners.TryGetValue(produceMessage.Topic, out partitioner))
+            if (!_partitioners.TryGetValue(topic, out partitioner))
             {
                 partitioner = new DefaultPartitioner();
-                _partitioners[produceMessage.Topic] = partitioner;
+                _partitioners[topic] = partitioner;
             }
 
-            var partitions = _routingTable.GetPartitions(produceMessage.Topic);
+            var partitions = _routingTable.GetPartitions(topic);
             if (partitions.Length == 0)
             {
                 await EnsureHasRoutingTable();
-                partitions = _routingTable.GetPartitions(produceMessage.Topic);
+                partitions = _routingTable.GetPartitions(topic);
                 if (partitions.Length == 0)
                 {
+                    // Message for topics with no partition available are postponed.
+                    // They will be checked again when the routing table is updated.
                     PostponeMessage(produceMessage);
                     return;
                 }
             }
 
-            foreach (var message in produceMessage.Messages)
-            {
-                var partition = partitioner.GetPartition(message, partitions);
-                partition.Leader.Produce(produceMessage.Topic, partition.Id, message, produceMessage.ExpirationDate);
-                MessageRouted(produceMessage.Topic);
-            }
-            ProduceMessage.Release(produceMessage);
+            var partition = partitioner.GetPartition(produceMessage.Message, partitions);
+            produceMessage.Partition = partition.Id;
+            partition.Leader.Produce(produceMessage);
+            MessageRouted(topic);
         }
 
         private int _numberOfPostponedMessages;

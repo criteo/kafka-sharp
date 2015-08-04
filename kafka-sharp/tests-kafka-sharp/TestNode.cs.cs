@@ -94,8 +94,8 @@ namespace tests_kafka_sharp
                 dead = true;
             };
 
-            node.Produce("poulpe", 1, new Message(), DateTime.UtcNow.AddMinutes(5));
-            node.Produce("poulpe", 2, new Message(), DateTime.UtcNow.AddMinutes(5));
+            node.Produce(ProduceMessage.New("poulpe", 1, new Message(), DateTime.UtcNow.AddMinutes(5)));
+            node.Produce(ProduceMessage.New("poulpe", 2, new Message(), DateTime.UtcNow.AddMinutes(5)));
 
             ev.WaitOne();
             Assert.IsTrue(dead);
