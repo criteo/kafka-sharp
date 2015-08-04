@@ -1,9 +1,11 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
+
 using Kafka.Protocol;
 
 namespace Kafka.Public
@@ -97,6 +99,11 @@ namespace Kafka.Public
         /// Current statistics if the cluster.
         /// </summary>
         Statistics Statistics { get; }
+
+        /// <summary>
+        /// Shutdown the cluster connection
+        /// </summary>
+        Task Shutdown();
     }
 
     public class Cluster : ICluster
@@ -149,11 +156,16 @@ namespace Kafka.Public
             _cluster.Router.Route(topic, new Message {Key = key, Value = data}, DateTime.UtcNow.Add(_configuration.MessageTtl));
         }
 
+        public Task Shutdown()
+        {
+            return _cluster.Stop();
+        }
+
         public void Dispose()
         {
             try
             {
-                _cluster.Stop().Wait();
+                this.Shutdown().Wait();
             }
             catch (Exception ex)
             {
