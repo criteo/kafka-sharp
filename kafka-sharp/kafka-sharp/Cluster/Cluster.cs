@@ -79,7 +79,6 @@ namespace Kafka.Cluster
         private readonly ActionBlock<ClusterMessage> _agent;
         private readonly Subject<Void> _throttledRecoverableErrors = new Subject<Void>();
         private readonly Random _random = new Random((int)(DateTime.Now.Ticks & 0xffffffff));
-        private readonly byte[] _clientId;
         private readonly string _seeds;
 
         private Timer _refreshMetadataTimer;
@@ -135,7 +134,7 @@ namespace Kafka.Cluster
         public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, RouterFactory routerFactory)
         {
             _seeds = configuration.Seeds;
-            _clientId = Encoding.UTF8.GetBytes(configuration.ClientId);
+            
             Logger = logger;
 
             Router = routerFactory != null ? routerFactory() : new Router(this, new Configuration());
@@ -145,12 +144,15 @@ namespace Kafka.Cluster
                 Interlocked.Increment(ref _exited);
             };
 
+            var clientId = Encoding.UTF8.GetBytes(configuration.ClientId);
+            var serializer = new Node.Serializer(clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
+                                                 configuration.CompressionCodec);
             _nodeFactory = nodeFactory ??
                            ((h, p) =>
                             new Node(string.Format("[{0}:{1}]", h, p),
-                                     _clientId,
                                      () =>
                                      new Connection(h, p, configuration.SendBufferSize, configuration.ReceiveBufferSize),
+                                     serializer,
                                      Router, configuration).SetResolution(_resolution));
             _nodeFactory = DecorateFactory(_nodeFactory);
             

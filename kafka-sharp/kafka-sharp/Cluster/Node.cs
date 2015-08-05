@@ -53,20 +53,90 @@ namespace Kafka.Cluster
     /// </summary>
     class Node : INode
     {
-        struct ProduceBatchRequest
+        /// <summary>
+        /// This is pretty much just to allow injection for testing. This is a bit awkward
+        /// not to encapsulate that into a wider "connection" object but we want
+        /// to keep deserialization out of IO completion threads without introducing
+        /// too much complexity.
+        /// Anyway, remember it's for testing without having to code broker side ser/deser.
+        /// </summary>
+        internal interface ISerializer
         {
-            public IEnumerable<IGrouping<string, ProduceMessage>> Batch;
-            public byte[] Serialized;
+            byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch);
+            byte[] SerializeMetadataAllRequest(int correlationId);
+
+            ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data);
+            MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data);
         }
 
-        struct MetadataRequest
+        internal class Serializer : ISerializer
+        {
+            private readonly byte[] _allTopicsRequest;
+            private readonly byte[] _clientId;
+            private readonly short _requiredAcks;
+            private readonly int _timeoutInMs;
+            private readonly CompressionCodec _compressionCodec;
+
+            public Serializer(byte[] clientId, short requiredAcks, int timeoutInMs, CompressionCodec compressionCodec)
+            {
+                _clientId = clientId;
+                _allTopicsRequest = new TopicRequest().Serialize(0, clientId);
+                _requiredAcks = requiredAcks;
+                _timeoutInMs = timeoutInMs;
+                _compressionCodec = compressionCodec;
+            }
+
+            public byte[] SerializeMetadataAllRequest(int correlationId)
+            {
+                // Header is: size(4) - apikey(2) - apiversion(2)
+                BigEndianConverter.Write(_allTopicsRequest, correlationId, 8);
+                return _allTopicsRequest;
+            }
+
+            public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+            {
+                var produceRequest = new ProduceRequest
+                {
+                    RequiredAcks = _requiredAcks,
+                    Timeout = _timeoutInMs,
+                    TopicData = batch.Select(gt => new TopicData
+                    {
+                        TopicName = gt.Key,
+                        PartitionsData = gt.GroupBy(m => m.Partition).Select(gp => new PartitionData
+                        {
+                            Partition = gp.Key,
+                            Messages = gp.Select(pm => pm.Message),
+                            CompressionCodec = _compressionCodec,
+                        })
+                    })
+                };
+                return produceRequest.Serialize(correlationId, _clientId);
+            }
+
+            public ProduceResponse DeserializeProduceResponse(int notUsed, byte[] data)
+            {
+                return ProduceResponse.Deserialize(data);
+            }
+
+            public MetadataResponse DeserializeMetadataResponse(int notUsed, byte[] data)
+            {
+                return MetadataResponse.Deserialize(data);
+            }
+        }
+
+        internal struct ProduceBatchRequest
+        {
+            public IEnumerable<IGrouping<string, ProduceMessage>> Batch;
+        }
+
+        internal struct MetadataRequest
         {
             public string Topic;
             public TaskCompletionSource<MetadataResponse> Promise;
         }
 
         [StructLayout(LayoutKind.Explicit)]
-        struct RequestValue
+        internal struct RequestValue
         {
             [FieldOffset(0)]
             public ProduceBatchRequest ProduceBatchRequest;
@@ -75,13 +145,13 @@ namespace Kafka.Cluster
             public MetadataRequest MetadataRequest;
         }
 
-        enum RequestType
+        internal enum RequestType
         {
             Produce,
             Metadata
         }
 
-        struct Request
+        internal struct Request
         {
             public RequestType RequestType;
             public RequestValue RequestValue;
@@ -134,9 +204,8 @@ namespace Kafka.Cluster
         private readonly ConcurrentQueue<Request> _nonMetadata = new ConcurrentQueue<Request>();
         private readonly ActionBlock<Ping> _requestQueue;
         private readonly ActionBlock<Response> _responseQueue;
-        private readonly byte[] _clientId;
-        private readonly byte[] _metadataRequest;
         private readonly Configuration _configuration;
+        private readonly ISerializer _serializer;
 
         class Pending
         {
@@ -170,7 +239,7 @@ namespace Kafka.Cluster
 
         public string Name { get; internal set; }
 
-        public Node(string name, byte[] clientId, ConnectionFactory connectionFactory, IRouter router, Configuration configuration)
+        public Node(string name, ConnectionFactory connectionFactory, ISerializer serializer, IRouter router, Configuration configuration)
         {
             Name = name ?? "[Unknown]";
             _configuration = configuration;
@@ -184,8 +253,7 @@ namespace Kafka.Cluster
             _requestQueue = new ActionBlock<Ping>(r => ProcessRequest(r), options);
             _responseQueue = new ActionBlock<Response>(r => ProcessResponse(r), options);
             _produceMessages = InitProduceSubject(configuration.BatchSize, configuration.BufferingTime);
-            _clientId = clientId;
-            _metadataRequest = new TopicRequest().Serialize(0, _clientId);
+            _serializer = serializer;
         }
 
         /// <summary>
@@ -309,22 +377,19 @@ namespace Kafka.Cluster
                     Post(request);
                     return;
                 }
-                
+
                 byte[] buffer = null;
                 switch (request.RequestType)
                 {
                     case RequestType.Metadata:
-                        buffer = _metadataRequest;
-                        // Header is: size(4) - apikey(2) - apiversion(2)
-                        BigEndianConverter.Write(buffer, correlationId, 8);
+                        buffer = _serializer.SerializeMetadataAllRequest(correlationId);
                         break;
 
                     case RequestType.Produce:
-                        request = SerializeProduceRequest(request, correlationId);
-                        buffer = request.RequestValue.ProduceBatchRequest.Serialized;
+                        buffer = _serializer.SerializeProduceBatch(correlationId,
+                                                                   request.RequestValue.ProduceBatchRequest.Batch);
                         break;
                 }
-
                 pendingsQueue.Enqueue(new Pending { CorrelationId = correlationId, Request = request });
                 await connection.SendAsync(correlationId, buffer, true);
                 Interlocked.Exchange(ref _successiveErrors, 0);
@@ -342,28 +407,6 @@ namespace Kafka.Cluster
             {
                 HandleConnectionError(connection, ex);
             }
-        }
-
-        private Request SerializeProduceRequest(Request request, int correlationId)
-        {
-            var batch = request.RequestValue.ProduceBatchRequest.Batch;
-            var produceRequest = new ProduceRequest
-                {
-                    RequiredAcks = (short)_configuration.RequiredAcks,
-                    Timeout = _configuration.RequestTimeoutMs,
-                    TopicData = batch.Select(gt => new TopicData
-                        {
-                            TopicName = gt.Key,
-                            PartitionsData = gt.GroupBy(m => m.Partition).Select(gp => new PartitionData
-                                {
-                                    Partition = gp.Key,
-                                    Messages = gp.Select(pm => pm.Message),
-                                    CompressionCodec = _configuration.CompressionCodec,
-                                })
-                        })
-                };
-            request.RequestValue.ProduceBatchRequest.Serialized = produceRequest.Serialize(correlationId, _clientId);
-            return request;
         }
 
         private void ProcessResponse(Response response)
@@ -398,12 +441,14 @@ namespace Kafka.Cluster
                         {
                             case RequestType.Produce:
                                 ProcessProduceResponse(
+                                    pending.CorrelationId,
                                     response.ResponseValue.ResponseData.Data,
                                     pending.Request.RequestValue.ProduceBatchRequest);
                                
                                 break;
                             case RequestType.Metadata:
                                 ProcessMetadataResponse(
+                                    pending.CorrelationId,
                                     response.ResponseValue.ResponseData.Data,
                                     pending.Request.RequestValue.MetadataRequest);
                                 break;
@@ -424,13 +469,13 @@ namespace Kafka.Cluster
 
         private static readonly HashSet<int> NullHash = new HashSet<int>(); 
 
-        private void ProcessProduceResponse(byte[] responseData, ProduceBatchRequest originalRequest)
+        private void ProcessProduceResponse(int correlationId, byte[] responseData, ProduceBatchRequest originalRequest)
         {
             // The whole point of deserializing the response is to search for errors.
             ProduceResponse produceResponse;
             try
             {
-                produceResponse = ProduceResponse.Deserialize(responseData);
+                produceResponse = _serializer.DeserializeProduceResponse(correlationId, responseData);
             }
             catch (Exception ex)
             {
@@ -455,13 +500,13 @@ namespace Kafka.Cluster
                     if (!errors)
                     {
                         errors = true;
-                        OnRecoverableError();
                         _tmpPartitionsInError[tr.TopicName] = new HashSet<int>();
                         _tmpPartitionsInRecoverableError[tr.TopicName] = new HashSet<int>();
                     }
 
-                    if (Error.IsPartitionErrorRecoverable(p.ErrorCode))
+                    if (Error.IsPartitionErrorRecoverableForProducer(p.ErrorCode))
                     {
+                        OnRecoverableError();
                         _tmpPartitionsInRecoverableError[tr.TopicName].Add(p.Partition);
                     }
                     else
@@ -514,17 +559,17 @@ namespace Kafka.Cluster
             }
         }
 
-        private void ProcessMetadataResponse(byte[] responseData, MetadataRequest originalRequest)
+        private void ProcessMetadataResponse(int correlationId, byte[] responseData, MetadataRequest originalRequest)
         {
             try
             {
-                var metadataResponse = MetadataResponse.Deserialize(responseData);
+                var metadataResponse = _serializer.DeserializeMetadataResponse(correlationId, responseData);
                 originalRequest.Promise.SetResult(metadataResponse);
             }
             catch (Exception ex)
             {
-                originalRequest.Promise.SetException(ex);
                 OnDecodeError(ex);
+                originalRequest.Promise.SetException(ex);
             }
         }
 

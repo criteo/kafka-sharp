@@ -110,14 +110,28 @@ namespace tests_kafka_sharp
     {
         public override Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
         {
-            if (acknowledge)
-            {
-            }
             return Task.FromResult(true);
         }
 
         public override Task ConnectAsync()
         {
+            return Task.FromResult(true);
+        }
+    }
+
+    /// <summary>
+    /// This has to be used with a custom ISerializer that won't
+    /// actually use the returned buffer but takes advantage of the
+    /// correlation id to "deserialize" proper responses.
+    /// </summary>
+    class EchoConnectionMock : SuccessConnectionMock
+    {
+        public override Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
+        {
+            if (acknowledge)
+            {
+                OnResponse(correlationId, buffer);
+            }
             return Task.FromResult(true);
         }
     }
@@ -178,4 +192,86 @@ namespace tests_kafka_sharp
         public event Action<RoutingTable> OnChangeRouting = _ => { };
     }
 
+    class DummySerializer : Node.ISerializer
+    {
+        public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        {
+            return new byte[0];
+        }
+
+        public byte[] SerializeMetadataAllRequest(int correlationId)
+        {
+            return new byte[0];
+        }
+
+        public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
+        {
+            return new ProduceResponse();
+        }
+
+        public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        {
+            return new MetadataResponse();
+        }
+    }
+
+    class MetadataSerializer : Node.ISerializer
+    {
+        private readonly MetadataResponse _metadataResponse;
+
+        public MetadataSerializer(MetadataResponse returned)
+        {
+            _metadataResponse = returned;
+        }
+
+        public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        {
+            throw new NotImplementedException();
+        }
+
+        public byte[] SerializeMetadataAllRequest(int correlationId)
+        {
+            return new byte[0];
+        }
+
+        public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
+        {
+            throw new NotImplementedException();
+        }
+
+        public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        {
+            return _metadataResponse;
+        }
+    }
+
+    class ProduceSerializer : Node.ISerializer
+    {
+        private readonly ProduceResponse _produceResponse;
+
+        public ProduceSerializer(ProduceResponse returned)
+        {
+            _produceResponse = returned;
+        }
+
+        public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        {
+            return new byte[0];
+        }
+
+        public byte[] SerializeMetadataAllRequest(int correlationId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
+        {
+            return _produceResponse;
+        }
+
+        public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        {
+            throw new NotImplementedException();
+        }
+    }
 }

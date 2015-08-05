@@ -11,14 +11,14 @@ namespace Kafka.Protocol
                    || code == ErrorCode.ReplicaNotAvailable;
         }
 
-        public static bool IsPartitionErrorRecoverable(ErrorCode code)
+        public static bool IsPartitionErrorRecoverableForProducer(ErrorCode code)
         {
             switch (code)
             {
-                case ErrorCode.BrokerNotAvailable:
                 case ErrorCode.LeaderNotAvailable:
                 case ErrorCode.NotLeaderForPartition:
                 case ErrorCode.RequestTimedOut:
+                case ErrorCode.UnknownTopicOrPartition:
                     return true;
 
                 default:

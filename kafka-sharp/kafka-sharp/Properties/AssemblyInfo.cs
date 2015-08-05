@@ -36,6 +36,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyFileVersion("1.0.0.0")]
 
 // For testing purpose
-[assembly: InternalsVisibleTo("tests-kafka-sharp")]
+[assembly: InternalsVisibleTo("kafka-sharp.UTest")]
 
 

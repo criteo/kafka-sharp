@@ -70,7 +70,7 @@ namespace Kafka.Public
         /// <summary>
         /// Acknowledgements required.
         /// </summary>
-        public int RequiredAcks = 1;
+        public short RequiredAcks = 1;
 
         /// <summary>
         /// Kafka server side timeout for requests.

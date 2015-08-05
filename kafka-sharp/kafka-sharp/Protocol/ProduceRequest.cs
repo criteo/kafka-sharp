@@ -100,33 +100,30 @@ namespace Kafka.Protocol
         {
             if (compressionCodec != CompressionCodec.None)
             {
+                var m = new Message {Key = null};
                 using (var msgsetStream = new MemoryStream())
                 {
                     SerializeMessagesUncompressed(msgsetStream, messages);
-                    byte[] buffer;
+
                     if (compressionCodec == CompressionCodec.Gzip)
                     {
                         using (var compressed = new MemoryStream())
                         {
                             using (var gzip = new GZipStream(compressed, CompressionMode.Compress, true))
                             {
+                                msgsetStream.Position = 0;
                                 msgsetStream.CopyTo(gzip);
                             }
-                            buffer = compressed.ToArray();
+                            m.Value = compressed.ToArray();
                         }
                     }
                     else // Snappy
                     {
-                        buffer = Snappy.SnappyCodec.Compress(msgsetStream.ToArray());
+                        m.Value = Snappy.SnappyCodec.Compress(msgsetStream.ToArray());
                     }
-                    var m = new Message
-                    {
-                        Key = null,
-                        Value = buffer
-                    };
-                    stream.Write(Basics.Zero64, 0, 8);
-                    Basics.WriteSizeInBytes(stream, m, compressionCodec, SerializeMessageWithCodec);
                 }
+                stream.Write(Basics.Zero64, 0, 8);
+                    Basics.WriteSizeInBytes(stream, m, compressionCodec, SerializeMessageWithCodec);
             }
             else
             {
