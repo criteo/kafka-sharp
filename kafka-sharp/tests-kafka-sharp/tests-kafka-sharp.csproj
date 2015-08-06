@@ -48,8 +48,10 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="TestCluster.cs" />
     <Compile Include="TestConnection.cs" />
+    <Compile Include="TestPartitioner.cs" />
     <Compile Include="TestNode.cs.cs" />
     <Compile Include="TestRouter.cs" />
+    <Compile Include="TestRoutingTable.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

@@ -57,16 +57,16 @@ namespace tests_kafka_sharp
 
     class ClusterMock : ICluster
     {
-        private readonly Dictionary<string, Partition[]> _partitions;
+        public Dictionary<string, Partition[]> Partitions { private get; set; }
 
         public ClusterMock(Dictionary<string, Partition[]> partitions)
         {
-            _partitions = partitions;
+            Partitions = partitions;
         }
 
         public Task<RoutingTable> RequireNewRoutingTable()
         {
-            var r = new RoutingTable(_partitions);
+            var r = new RoutingTable(Partitions);
             return Task.FromResult(r);
         }
 

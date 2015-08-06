@@ -1,0 +1,4 @@
+inherited: true
+owners:
+- scala-webscale@criteo.com
+- l.jolibois@criteo.com

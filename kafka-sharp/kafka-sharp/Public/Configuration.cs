@@ -32,7 +32,7 @@ namespace Kafka.Public
     public class Configuration
     {
         /// <summary>
-        /// Maximum amount a message can stay alive before being discard in case of pepeated errors.
+        /// Maximum amount a message can stay alive before being discard in case of repeated errors.
         /// </summary>
         public TimeSpan MessageTtl = TimeSpan.FromMinutes(1);
 
