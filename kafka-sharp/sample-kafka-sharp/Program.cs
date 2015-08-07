@@ -39,32 +39,30 @@ namespace sample_kafka_sharp
         }
 
         private static volatile bool _running = true;
-        private static Random _random = new Random();
+
         private static string[] _values =
-        {
-            "loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong",
-            "The quick brown fox jumps over the lazy dog.",
-            "Some random data",
-            @"fhsdjatrgfvbnuhuvhi\\jfdgh dahgilsdah wlFIWE TGFHJERFLHS\\KDB OGFDLSKNLFD,GJLFSKDGHJFDLKHJLKFDHKK\\HFLKH KHFLHSDGLFSKDGHLFDKGjskghjlfkdgnfdlgndkkdlghb",
-            "bulbe",
-            "ujdifhgob m",
-            @"hlfkdhshgf
+            {
+                "loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong"
+                ,
+                "The quick brown fox jumps over the lazy dog.",
+                "Some random data",
+                @"fhsdjatrgfvbnuhuvhi\\jfdgh dahgilsdah wlFIWE TGFHJERFLHS\\KDB OGFDLSKNLFD,GJLFSKDGHJFDLKHJLKFDHKK\\HFLKH KHFLHSDGLFSKDGHLFDKGjskghjlfkdgnfdlgndkkdlghb"
+                ,
+                "bulbe",
+                "ujdifhgob m",
+                @"hlfkdhshgf
 dshfhjfsgj
 dfhfdhjgfjgfsj
 adghfhfdhfdhda
 dagfhefdghafdahfh",
-                  "carcajou",
-                  "e6692333-8e76-4b7b-b3f6-5fd5c20cb741"
-        };
+                "carcajou",
+                "e6692333-8e76-4b7b-b3f6-5fd5c20cb741",
+                "This is Spartaaaaaaaaaaaaaaaaaaaaaaaaaaaa!",
+                "42",
+                "sdafaeawafe3w"
+            };
 
-        private static string[] _topics =
-        {
-            "rep-1-p-3",
-            "rep-2-p-1",
-            "rep-2-p-2",
-            "rep-2-p-3",
-            "test"
-        };
+        private static string[] _topics;
 
         enum Mode
         {
@@ -73,24 +71,142 @@ dagfhefdghafdahfh",
             Profile
         }
 
+        private static void Usage()
+        {
+            const string options = @"
+   --seeds ""host1:port,host2:port2,...,hostn:portn"" => broker nodes to bootstrap the cluster - MANDATORY
+   --topics ""topic1,...,topicn"" => topics to dispatch messages on - MANDATORY
+   --stress              => moderate amount of stress on  the system
+   --hard                => hard stress on the system
+   --discard             => discard messages in case of transport errors
+   --retry               => retry send in case of transport errors
+   --gzip                => use gzip compression
+   --snappy              => use snappy compression
+   --no-ack              => tell broker to not send acks (default is ack on sync leader only)
+   --all-sync-ack        => tell broker to send ack when all live replicas have been synced
+   --ttl TTL             => message time to live before been expired when retrying
+   --batch SIZE          => size of message batches
+   --time TIME           => max time to wait for batches to fill (in ms)
+   --max-messages MAX    => max number of messages in the system before blocking producers
+   --clientid ID         => client id of the producer
+   --concurrency PAR     =>  max concurrency used by the system
+   --timeout TIME        => Kafka request timeout (broker side)
+   --send-buffer SIZE    => socket system buffer size for send
+   --receive-buffer SIZE => socket system buffer size for receive";
+            Console.WriteLine("Options are:");
+            Console.WriteLine(options);
+        }
+
         private static void Main(string[] args)
         {
-            var cluster =
-                new Cluster(
-                    new Configuration
+            Mode mode = Mode.Profile;
+            var configuration = new Configuration();
+
+            // Ugly command line parsing
+            string curOpt = "";
+            try
+            {
+                bool seeds = false;
+                bool topics = false;
+                for (int i = 0; i < args.Length; ++i)
+                {
+                    curOpt = args[i];
+                    switch (args[i])
                     {
-                        BatchSize = 5000,
-                        BufferingTime = TimeSpan.FromMilliseconds(200),
-                        MessageTtl = TimeSpan.FromSeconds(30),
-                        ErrorStrategy = ErrorStrategy.Discard,
-                        //Seeds = "192.168.0.215:9092,192.168.0.215:9093,192.168.0.215:9094",
-                        Seeds = "192.168.18.48:9092,192.168.18.48:9093,192.168.18.48:9094",
-                        MaxBufferedMessages = -1, //30000,
-                        CompressionCodec = CompressionCodec.Snappy,
-                        RequiredAcks = RequiredAcks.AllInSyncReplicas,
-                        //MaximumConcurrency = 1
-                    }, new ConsoleLogger());
-            var mode = Mode.Stress;
+                        case "--stress":
+                            mode = Mode.Stress;
+                            break;
+
+                        case "--hard":
+                            mode = Mode.StressHard;
+                            break;
+
+                        case "--discard":
+                            configuration.ErrorStrategy = ErrorStrategy.Discard;
+                            break;
+
+                        case "--retry":
+                            configuration.ErrorStrategy = ErrorStrategy.Retry;
+                            break;
+
+                        case "--gzip":
+                            configuration.CompressionCodec = CompressionCodec.Gzip;
+                            break;
+
+                        case "--snappy":
+                            configuration.CompressionCodec = CompressionCodec.Snappy;
+                            break;
+
+                        case "--no-ack":
+                            configuration.RequiredAcks = RequiredAcks.None;
+                            break;
+
+                        case "--all-sync-ack":
+                            configuration.RequiredAcks = RequiredAcks.AllInSyncReplicas;
+                            break;
+
+                        case "--ttl":
+                            configuration.MessageTtl = TimeSpan.FromSeconds(int.Parse(args[++i]));
+                            break;
+
+                        case "--batch":
+                            configuration.BatchSize = int.Parse(args[++i]);
+                            break;
+
+                        case "--time":
+                            configuration.BufferingTime = TimeSpan.FromMilliseconds(int.Parse(args[++i]));
+                            break;
+
+                        case "--max-messages":
+                            configuration.MaxBufferedMessages = int.Parse(args[++i]);
+                            break;
+
+                        case "--topics":
+                            topics = true;
+                            _topics = args[++i].Split(',');
+                            break;
+
+                        case "--seeds":
+                            seeds = true;
+                            configuration.Seeds = args[++i];
+                            break;
+
+                        case "--clientid":
+                            configuration.ClientId = args[++i];
+                            break;
+
+                        case "--concurrency":
+                            configuration.MaximumConcurrency = int.Parse(args[++i]);
+                            break;
+
+                        case "--send-buffer":
+                            configuration.SendBufferSize = int.Parse(args[++i]);
+                            break;
+
+                        case "--receive-buffer":
+                            configuration.ReceiveBufferSize = int.Parse(args[++i]);
+                            break;
+
+                        case "--timeout":
+                            configuration.RequestTimeoutMs = int.Parse(args[++i]);
+                            break;
+                    }
+                }
+                // Minimal error management
+                if (args.Length < 1 || !seeds || !topics)
+                    throw new ArgumentException();
+            }
+            catch
+            {
+                // Minimal error management
+                Console.WriteLine("Syntax error in option {0}", curOpt);
+                Usage();
+                Environment.Exit(-1);
+            }
+
+            var cluster =
+                new Cluster(configuration, new ConsoleLogger());
+
             var task = Start(mode, cluster);
             Console.ReadKey();
             _running = false;
