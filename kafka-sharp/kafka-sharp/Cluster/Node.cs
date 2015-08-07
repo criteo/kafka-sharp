@@ -302,7 +302,10 @@ namespace Kafka.Cluster
             _requestQueue.Complete();
             _responseQueue.Complete();
             await Task.WhenAll(_requestQueue.Completion, _responseQueue.Completion);
-            _connection.Dispose();
+            if (_connection != null)
+            {
+                _connection.Dispose();
+            }
         }
 
         private bool IsDead()
