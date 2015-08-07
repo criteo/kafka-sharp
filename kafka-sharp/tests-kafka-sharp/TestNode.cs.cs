@@ -25,7 +25,7 @@ namespace tests_kafka_sharp
         public async Task TestMetadataDecodeError()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serializer(new byte[0], 1, 1, CompressionCodec.None), new RouterMock(),
+                                new Node.Serializer(new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None), new RouterMock(),
                                 new Configuration());
             Exception ex = null;
             node.DecodeError += (n, e) =>
@@ -91,7 +91,7 @@ namespace tests_kafka_sharp
         {
             var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerializer(produceResponse),
                                 new RouterMock(),
-                                new Configuration()).SetResolution(1);
+                                new Configuration {BufferingTime = TimeSpan.FromMilliseconds(15)}).SetResolution(1);
             var ev = new ManualResetEvent(false);
             node.SuccessfulSent += (n, t, i) =>
                 {
@@ -110,8 +110,13 @@ namespace tests_kafka_sharp
         public void TestProduceDecodeErrorDiscard()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serializer(new byte[0], 1, 1, CompressionCodec.None), new RouterMock(),
-                                new Configuration {ErrorStrategy = ErrorStrategy.Discard});
+                                new Node.Serializer(new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None),
+                                new RouterMock(),
+                                new Configuration
+                                    {
+                                        ErrorStrategy = ErrorStrategy.Discard,
+                                        BufferingTime = TimeSpan.FromMilliseconds(15)
+                                    }).SetResolution(1);
             Exception ex = null;
             var ev = new ManualResetEvent(false);
             int rec = 0;
@@ -153,8 +158,12 @@ namespace tests_kafka_sharp
                         ev.Set();
                 };
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serializer(new byte[0], 1, 1, CompressionCodec.None), router,
-                                new Configuration {ErrorStrategy = ErrorStrategy.Retry});
+                                new Node.Serializer(new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None), router,
+                                new Configuration
+                                    {
+                                        ErrorStrategy = ErrorStrategy.Retry,
+                                        BufferingTime = TimeSpan.FromMilliseconds(15)
+                                    });
             node.DecodeError += (n, e) =>
                 {
                     Assert.AreSame(node, n);
@@ -207,7 +216,7 @@ namespace tests_kafka_sharp
             };
             var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerializer(produceResponse),
                                 new RouterMock(),
-                                new Configuration()).SetResolution(1);
+                                new Configuration {BufferingTime = TimeSpan.FromMilliseconds(15)}).SetResolution(1);
             var ev = new ManualResetEvent(false);
             int rec = 0;
             int success = 0;
@@ -300,7 +309,7 @@ namespace tests_kafka_sharp
                 };
             var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerializer(produceResponse),
                                 router,
-                                new Configuration()).SetResolution(1);
+                                new Configuration {BufferingTime = TimeSpan.FromMilliseconds(15)}).SetResolution(1);
             node.SuccessfulSent += (n, t, i) =>
                 {
                     Interlocked.Add(ref success, i);

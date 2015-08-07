@@ -345,9 +345,9 @@ namespace Kafka.Routing
             {
                 postponedQueue = new Queue<ProduceMessage>();
                 _postponedMessages.Add(produceMessage.Topic, postponedQueue);
-                ++_numberOfPostponedMessages;
             }
             postponedQueue.Enqueue(produceMessage);
+            ++_numberOfPostponedMessages;
             if (_checkPostponedMessages == null)
             {
                 _checkPostponedMessages =

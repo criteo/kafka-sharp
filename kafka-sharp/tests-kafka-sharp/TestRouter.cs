@@ -193,7 +193,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
 
             _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            await Task.Delay(TimeSpan.FromSeconds(1));
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
 
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
             CheckCounters(expectedMessagesEnqueued: 1, expectedMessagesReEnqueued: 0, expectedMessagesRouted: 1, expectedMessagesExpired: 0, expectedRoutingTableRequired: 1);
@@ -206,10 +206,10 @@ namespace tests_kafka_sharp
 
             using (_finished = new CountdownEvent(5))
             {
-                _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-                _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-                _router.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5));
-                _finished.Wait(TimeSpan.FromSeconds(1));
+                _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageRenqueued, 1x RoutingTableRequired
+                _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageRenqueued, no routing table required because postponed
+                _router.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageRenqueued, 1x RoutingTableRequired
+                _finished.Wait();
             }
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
@@ -218,8 +218,8 @@ namespace tests_kafka_sharp
 
             using (_finished = new CountdownEvent(6))
             {
-                _router.ChangeRoutingTable(new RoutingTable(_routes));
-                _finished.Wait(TimeSpan.FromSeconds(1));
+                _router.ChangeRoutingTable(new RoutingTable(_routes)); // => 3x Renqueued, 3x Routed
+                _finished.Wait();
             }
 
             Assert.AreEqual(2, _messagesSentByTopic["test1p"]);
@@ -232,8 +232,8 @@ namespace tests_kafka_sharp
         {
             _cluster.Partitions = new Dictionary<string, Partition[]>();
 
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddSeconds(1));
-            await Task.Delay(TimeSpan.FromSeconds(1));
+            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(50));
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
             CheckCounters(expectedMessagesEnqueued: 1, expectedMessagesReEnqueued: 0, expectedMessagesRouted: 0, expectedMessagesExpired: 0, expectedRoutingTableRequired: 1);
@@ -253,9 +253,9 @@ namespace tests_kafka_sharp
         {
             _cluster.Partitions = new Dictionary<string, Partition[]>();
 
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddSeconds(1));
+            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(50));
             _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            await Task.Delay(TimeSpan.FromSeconds(1));
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
             CheckCounters(expectedMessagesEnqueued: 2, expectedMessagesReEnqueued: 0, expectedMessagesRouted: 0, expectedMessagesExpired: 0, expectedRoutingTableRequired: 1);
@@ -263,8 +263,8 @@ namespace tests_kafka_sharp
             //trigger check postponed
             using (_finished = new CountdownEvent(3))
             {
-                _router.ChangeRoutingTable(new RoutingTable(_routes));
-                _finished.Wait(TimeSpan.FromSeconds(1));
+                _router.ChangeRoutingTable(new RoutingTable(_routes)); // => 1x renqueue, 1x routed, 1x expired
+                _finished.Wait();
             }
 
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);

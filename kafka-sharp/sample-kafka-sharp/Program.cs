@@ -87,7 +87,8 @@ dagfhefdghafdahfh",
                         Seeds = "192.168.18.48:9092,192.168.18.48:9093,192.168.18.48:9094",
                         MaxBufferedMessages = -1, //30000,
                         CompressionCodec = CompressionCodec.Snappy,
-                        RequiredAcks = -1
+                        RequiredAcks = RequiredAcks.AllInSyncReplicas,
+                        //MaximumConcurrency = 1
                     }, new ConsoleLogger());
             var mode = Mode.Stress;
             var task = Start(mode, cluster);

@@ -68,6 +68,7 @@
   <ItemGroup>
     <Compile Include="Cluster\Cluster.cs" />
     <Compile Include="Cluster\ProduceMessage.cs" />
+    <Compile Include="Common\ActionBlockTaskScheduler.cs" />
     <Compile Include="Network\Connection.cs" />
     <Compile Include="Common\Crc32.cs" />
     <Compile Include="Protocol\Basics.cs" />

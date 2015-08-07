@@ -77,11 +77,11 @@ namespace Kafka.Cluster
             private readonly int _timeoutInMs;
             private readonly CompressionCodec _compressionCodec;
 
-            public Serializer(byte[] clientId, short requiredAcks, int timeoutInMs, CompressionCodec compressionCodec)
+            public Serializer(byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec)
             {
                 _clientId = clientId;
                 _allTopicsRequest = new TopicRequest().Serialize(0, clientId);
-                _requiredAcks = requiredAcks;
+                _requiredAcks = (short) requiredAcks;
                 _timeoutInMs = timeoutInMs;
                 _compressionCodec = compressionCodec;
             }

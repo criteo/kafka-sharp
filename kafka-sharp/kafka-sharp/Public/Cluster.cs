@@ -5,7 +5,7 @@ using System;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-
+using Kafka.Common;
 using Kafka.Protocol;
 
 namespace Kafka.Public
@@ -114,6 +114,27 @@ namespace Kafka.Public
 
         public Cluster(Configuration configuration, ILogger logger)
         {
+            configuration = new Configuration
+                {
+                    BatchSize = configuration.BatchSize,
+                    BufferingTime = configuration.BufferingTime,
+                    ClientId = configuration.ClientId,
+                    CompressionCodec = configuration.CompressionCodec,
+                    ErrorStrategy = configuration.ErrorStrategy,
+                    MaxBufferedMessages = configuration.MaxBufferedMessages,
+                    MessageTtl = configuration.MessageTtl,
+                    ReceiveBufferSize = configuration.ReceiveBufferSize,
+                    MaximumConcurrency = configuration.MaximumConcurrency,
+                    RequestTimeoutMs = configuration.RequestTimeoutMs,
+                    RequiredAcks = configuration.RequiredAcks,
+                    Seeds = configuration.Seeds,
+                    SendBufferSize = configuration.SendBufferSize,
+                    TaskScheduler = configuration.TaskScheduler
+                };
+            if (configuration.TaskScheduler == TaskScheduler.Default && configuration.MaximumConcurrency > 0)
+            {
+                configuration.TaskScheduler = new ActionBlockTaskScheduler(configuration.MaximumConcurrency);
+            }
             _configuration = configuration;
             _logger = logger;
             _cluster = new Kafka.Cluster.Cluster(configuration, logger);
