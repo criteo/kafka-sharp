@@ -248,6 +248,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        [Explicit]
         public async Task TestPostponedExpiredMessagesAreRemovedWhenNoPartition()
         {
             _cluster.Partitions = new Dictionary<string, Partition[]>();
