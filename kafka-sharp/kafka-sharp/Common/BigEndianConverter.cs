@@ -35,7 +35,7 @@ namespace Kafka.Common
 
             var res = 0L;
             for (int i = 0; i < 8; i++)
-                res = res << 8 | stream.ReadByte();
+                res = res << 8 | (uint) stream.ReadByte();
             return res;
         }
 

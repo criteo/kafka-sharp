@@ -206,7 +206,7 @@ namespace Kafka.Routing
             {
                 _routingTable = await _cluster.RequireNewRoutingTable();
             }
-            catch(Exception ex)
+            catch
             {
                 hasError = true;
             }
