@@ -18,7 +18,7 @@ using Kafka.Routing;
 
 namespace Kafka.Cluster
 {
-    using RouterFactory = Func<IRouter>;
+    using RouterFactory = Func<IProduceRouter>;
     using NodeFactory = Func<string, int, INode>;
 
     interface ICluster
@@ -44,8 +44,6 @@ namespace Kafka.Cluster
 
     class Cluster : ICluster
     {
-        private static readonly RoutingTable NullTable = new RoutingTable(new Dictionary<string, Partition[]>());
-
         enum MessageType
         {
             Metadata,
@@ -68,16 +66,11 @@ namespace Kafka.Cluster
             public MessageValue MessageValue;
         }
 
-        private struct Void
-        {
-        }
-
         private readonly NodeFactory _nodeFactory;
         private readonly Dictionary<INode, BrokerMeta> _nodes = new Dictionary<INode, BrokerMeta>();
         private readonly Dictionary<int, INode> _nodesById = new Dictionary<int, INode>();
         private readonly Dictionary<string, INode> _nodesByHostPort = new Dictionary<string, INode>();
         private readonly ActionBlock<ClusterMessage> _agent;
-        private readonly Subject<Void> _throttledRecoverableErrors = new Subject<Void>();
         private readonly Random _random = new Random((int)(DateTime.Now.Ticks & 0xffffffff));
         private readonly string _seeds;
 
@@ -113,7 +106,7 @@ namespace Kafka.Cluster
             }
         }
 
-        public IRouter Router { get; private set; }
+        public IProduceRouter ProduceRouter { get; private set; }
         public ILogger Logger { get; private set; }
 
         public event Action<Exception> InternalError = _ => { };
@@ -137,11 +130,21 @@ namespace Kafka.Cluster
             
             Logger = logger;
 
-            Router = routerFactory != null ? routerFactory() : new Router(this, new Configuration());
-            Router.MessageExpired += _ =>
+            ProduceRouter = routerFactory != null ? routerFactory() : new ProduceRouter(this, new Configuration());
+            ProduceRouter.MessageExpired += _ =>
             {
                 Interlocked.Increment(ref _expired);
                 Interlocked.Increment(ref _exited);
+            };
+            ProduceRouter.MessagesSent += (t, c) =>
+            {
+                Interlocked.Add(ref _successfulSent, c);
+                Interlocked.Add(ref _exited, c);
+            };
+            ProduceRouter.MessagesDiscarded += (t, c) =>
+            {
+                Interlocked.Add(ref _discarded, c);
+                Interlocked.Add(ref _exited, c);
             };
 
             var clientId = Encoding.UTF8.GetBytes(configuration.ClientId);
@@ -153,17 +156,10 @@ namespace Kafka.Cluster
                                      () =>
                                      new Connection(h, p, configuration.SendBufferSize, configuration.ReceiveBufferSize),
                                      serializer,
-                                     Router, configuration).SetResolution(_resolution));
+                                     configuration).SetResolution(_resolution));
             _nodeFactory = DecorateFactory(_nodeFactory);
             
             _agent = new ActionBlock<ClusterMessage>(r => ProcessMessage(r));
-
-            // Full pipelining (not waiting ack before sending next request on a given connection)
-            // makes managing recoverable errors (which need metadata refresh) tricky due to asynchrony.
-            // We "solve" that by throttling "metadata refresh needed" events.
-            _throttledRecoverableErrors.Buffer(TimeSpan.FromMilliseconds(500), 10000)
-                                       .Where(g => g.Count > 0)
-                                       .Subscribe(_ => Router.ChangeRoutingTable(NullTable));
 
             // Bootstrap
             BuildNodesFromSeeds();
@@ -195,21 +191,11 @@ namespace Kafka.Cluster
             node.Dead += n => OnNodeEvent(() => ProcessDeadNode(n));
             node.ConnectionError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
-            node.SuccessfulSent += (_1, _2, c) =>
-            {
-                Interlocked.Add(ref _successfulSent, c);
-                Interlocked.Add(ref _exited, c);
-            };
             node.RequestSent += _ => Interlocked.Increment(ref _requestsSent);
             node.ResponseReceived += _ => Interlocked.Increment(ref _responseReceived);
             node.Connected +=
                 n => OnNodeEvent(() => Logger.LogInformation(string.Format("Connected to {0}", GetNodeName(n))));
-            node.MessagesDiscarded += (_1, _2, c) =>
-            {
-                Interlocked.Add(ref _discarded, c);
-                Interlocked.Add(ref _exited, c);
-            };
-            node.RecoverableError += _ => _throttledRecoverableErrors.OnNext(new Void());
+            node.ProduceAcknowledgement += (n, ack) => ProduceRouter.Acknowledge(ack);
             return node;
         }
 
@@ -292,8 +278,7 @@ namespace Kafka.Cluster
         {
             if (!_started) return;
             _refreshMetadataTimer.Dispose();
-            await Router.Stop();
-            _throttledRecoverableErrors.Dispose();
+            await ProduceRouter.Stop();
             _agent.Complete();
             await _agent.Completion;
             foreach (var node in _nodes.Keys)
@@ -370,7 +355,7 @@ namespace Kafka.Cluster
                 ResponseToRoutingTable(response);
                 if (message.MessageValue.Promise == null)
                 {
-                    Router.ChangeRoutingTable(_routingTable);
+                    ProduceRouter.ChangeRoutingTable(_routingTable);
                 }
                 else
                 {

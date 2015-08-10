@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,6 +13,46 @@ using ICluster = Kafka.Cluster.ICluster;
 namespace tests_kafka_sharp
 {
     struct Void {}
+
+    static class TestData
+    {
+        public static readonly MetadataResponse TestMetadataResponse = new MetadataResponse
+        {
+            BrokersMeta = new[]
+            {
+                new BrokerMeta {Id = 1, Host = "localhost", Port = 1},
+                new BrokerMeta {Id = 2, Host = "localhost", Port = 2},
+                new BrokerMeta {Id = 3, Host = "localhost", Port = 3}
+            },
+            TopicsMeta = new[]
+            {
+                new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
+                {
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                }},
+                new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
+                {
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                }},
+                new TopicMeta {TopicName = "topic3", ErrorCode = ErrorCode.NoError, Partitions = new []
+                {
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
+                }},
+                new TopicMeta {TopicName = "error1", ErrorCode = ErrorCode.Unknown, Partitions = new []
+                {
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                }},
+                new TopicMeta {TopicName = "error2", ErrorCode = ErrorCode.NoError, Partitions = new []
+                {
+                    new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                }},
+            }
+        };    
+    }
 
     class NodeMock : INode
     {
@@ -28,9 +69,38 @@ namespace tests_kafka_sharp
             get { return "Some node"; }
         }
 
-        public void Produce(ProduceMessage message)
+        public bool Produce(ProduceMessage message)
         {
-            SuccessfulSent(this, message.Topic, 1);
+            MessageReceived(message.Topic);
+            var ack = new ProduceAcknowledgement
+                {
+                    OriginalBatch = new[] {new BatchMock {Key = message.Topic, Messages = new[] {message}}},
+                    ProduceResponse =
+                        new ProduceResponse
+                            {
+                                TopicsResponse =
+                                    new[]
+                                        {
+                                            new TopicResponse
+                                                {
+                                                    TopicName = message.Topic,
+                                                    Partitions =
+                                                        new[]
+                                                            {
+                                                                new PartitionResponse
+                                                                    {
+                                                                        ErrorCode = ErrorCode.NoError,
+                                                                        Offset = 0,
+                                                                        Partition = message.Partition
+                                                                    }
+                                                            }
+                                                }
+                                        }
+                            },
+                    ReceiveDate = DateTime.UtcNow
+                };
+            ProduceAcknowledgement(this, ack);
+            return true;
         }
 
         public Task<MetadataResponse> FetchMetadata()
@@ -43,16 +113,15 @@ namespace tests_kafka_sharp
             return Task.FromResult(new Void());
         }
 
-        public event Action<INode, string, int> SuccessfulSent = (n, s, i) => { };
-        public event Action<INode, string, int> MessagesDiscarded = (n, s, i) => { };
-        public event Action<INode, string> MessageExpired = (n, t) => { };
         public event Action<INode> RequestSent = n => { };
         public event Action<INode> ResponseReceived = n => { };
         public event Action<INode, Exception> ConnectionError = (n, e) => { };
         public event Action<INode, Exception> DecodeError = (n, e) => { };
         public event Action<INode> Dead = _ => { };
         public event Action<INode> Connected = _ => { };
-        public event Action<INode> RecoverableError = _ => { };
+        public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
+
+        public event Action<string> MessageReceived = _ => { };
     }
 
     class ClusterMock : ICluster
@@ -165,7 +234,7 @@ namespace tests_kafka_sharp
         }
     }
 
-    class RouterMock : IRouter
+    class ProduceRouterMock : IProduceRouter
     {
         public void ChangeRoutingTable(RoutingTable table)
         {
@@ -182,6 +251,11 @@ namespace tests_kafka_sharp
             MessageRouted(message.Topic);
         }
 
+        public void Acknowledge(ProduceAcknowledgement acknowledgement)
+        {
+            // do nothing
+        }
+
         public Task Stop()
         {
             return Task.FromResult(new Void());
@@ -189,6 +263,8 @@ namespace tests_kafka_sharp
 
         public event Action<string> MessageRouted;
         public event Action<string> MessageExpired;
+        public event Action<string, int> MessagesDiscarded;
+        public event Action<string, int> MessagesSent = (t, c) => { };
         public event Action<RoutingTable> OnChangeRouting = _ => { };
     }
 
@@ -272,6 +348,111 @@ namespace tests_kafka_sharp
         public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
         {
             throw new NotImplementedException();
+        }
+    }
+
+    class BatchMock : IGrouping<string, ProduceMessage>
+    {
+        public string Key { get; internal set; }
+        internal ProduceMessage[] Messages;
+
+        public IEnumerator<ProduceMessage> GetEnumerator()
+        {
+            return Messages.AsEnumerable().GetEnumerator();
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+        {
+            return Messages.GetEnumerator();
+        }
+    }
+
+    class ScenarioSerializerMock : Node.ISerializer
+    {
+        readonly ConcurrentDictionary<int, ProduceResponse> _produceResponses = new ConcurrentDictionary<int, ProduceResponse>(); 
+        private readonly MetadataResponse _metadataResponse;
+
+        public ScenarioSerializerMock(MetadataResponse returned)
+        {
+            _metadataResponse = returned;
+        }
+
+        public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        {
+            var r = new ProduceResponse
+            {
+                TopicsResponse = batch.Select(g => new TopicResponse
+                {
+                    TopicName = g.Key,
+                    Partitions = g.GroupBy(m => m.Partition).Select(pg => new PartitionResponse
+                    {
+                        ErrorCode =
+                            _metadataResponse.TopicsMeta.Where(tm => tm.TopicName == g.Key)
+                                .Select(tm => tm.Partitions.First(p => p.Id == pg.Key).ErrorCode)
+                                .First(),
+                        Offset = 0,
+                        Partition = pg.Key
+                    }).ToArray()
+                }).ToArray()
+            };
+
+            _produceResponses[correlationId] = r;
+
+            return new byte[0];
+        }
+
+        public byte[] SerializeMetadataAllRequest(int correlationId)
+        {
+            return new byte[0];
+        }
+
+        public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
+        {
+            ProduceResponse pr;
+            _produceResponses.TryRemove(correlationId, out pr);
+            return pr;
+        }
+
+        public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        {
+            return _metadataResponse;
+        }
+    }
+
+    class TestLogger : ILogger
+    {
+        private readonly ConcurrentQueue<string> _information = new ConcurrentQueue<string>();
+        private readonly ConcurrentQueue<string> _warning = new ConcurrentQueue<string>();
+        private readonly ConcurrentQueue<string> _error = new ConcurrentQueue<string>();
+
+        public IEnumerable<string> InformationLog
+        {
+            get { return _information; }
+        }
+
+        public IEnumerable<string> WarningLog
+        {
+            get { return _warning; }
+        }
+
+        public IEnumerable<string> ErrorLog
+        {
+            get { return _error; }
+        }
+
+        public void LogInformation(string message)
+        {
+            _information.Enqueue(message);
+        }
+
+        public void LogWarning(string message)
+        {
+            _warning.Enqueue(message);
+        }
+
+        public void LogError(string message)
+        {
+            _error.Enqueue(message);
         }
     }
 }

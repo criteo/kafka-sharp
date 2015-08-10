@@ -28,5 +28,13 @@ namespace tests_kafka_sharp
             Assert.AreEqual(partitions[0], partitioner.GetPartition(new Message(), partitions));
         }
 
+
+        [Test]
+        public void TestDefaultPartitionerNoPartitionReturnsNull()
+        {
+            var partitions = new Partition[0];
+            var partitioner = new DefaultPartitioner();
+            Assert.IsNull(partitioner.GetPartition(new Message(), partitions));
+        }
     }
 }

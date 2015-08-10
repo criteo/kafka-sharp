@@ -26,19 +26,17 @@ namespace Kafka.Cluster
     {
         string Name { get; }
 
-        void Produce(ProduceMessage message);
+        bool Produce(ProduceMessage message);
         Task<MetadataResponse> FetchMetadata();
         Task Stop();
 
-        event Action<INode, string, int> SuccessfulSent;
-        event Action<INode, string, int> MessagesDiscarded;
         event Action<INode> RequestSent;
         event Action<INode> ResponseReceived;
         event Action<INode, Exception> ConnectionError;
         event Action<INode, Exception> DecodeError;
         event Action<INode> Dead;
         event Action<INode> Connected;
-        event Action<INode> RecoverableError;
+        event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement;
     }
 
     /// <summary>
@@ -51,7 +49,7 @@ namespace Kafka.Cluster
     /// State change shared between send and receive actors is kept minimal (mainly correlation ids matching).
     /// Connection setup is always handled in the Send actor.
     /// </summary>
-    class Node : INode
+    sealed class Node : INode
     {
         /// <summary>
         /// This is pretty much just to allow injection for testing. This is a bit awkward
@@ -198,13 +196,11 @@ namespace Kafka.Cluster
         private static int _correlationId;
 
         private readonly ConnectionFactory _connectionFactory;
-        private readonly IRouter _router;
         private readonly Subject<ProduceMessage> _produceMessages;
         private readonly ConcurrentQueue<Request> _metadata = new ConcurrentQueue<Request>();
         private readonly ConcurrentQueue<Request> _nonMetadata = new ConcurrentQueue<Request>();
         private readonly ActionBlock<Ping> _requestQueue;
         private readonly ActionBlock<Response> _responseQueue;
-        private readonly Configuration _configuration;
         private readonly ISerializer _serializer;
 
         class Pending
@@ -239,12 +235,10 @@ namespace Kafka.Cluster
 
         public string Name { get; internal set; }
 
-        public Node(string name, ConnectionFactory connectionFactory, ISerializer serializer, IRouter router, Configuration configuration)
+        public Node(string name, ConnectionFactory connectionFactory, ISerializer serializer, Configuration configuration)
         {
             Name = name ?? "[Unknown]";
-            _configuration = configuration;
             _connectionFactory = connectionFactory;
-            _router = router;
             var options = new ExecutionDataflowBlockOptions
                 {
                     MaxMessagesPerTask = 1,
@@ -267,15 +261,15 @@ namespace Kafka.Cluster
             return this;
         }
 
-        public void Produce(ProduceMessage message)
+        public bool Produce(ProduceMessage message)
         {
             if (IsDead())
             {
-                _router.Route(message);
-                return;
+                return false;
             }
 
             _produceMessages.OnNext(message);
+            return true;
         }
 
         public Task<MetadataResponse> FetchMetadata()
@@ -358,7 +352,7 @@ namespace Kafka.Cluster
             
             if (IsDead())
             {
-                Drain(request);
+                Drain(request, false);
                 return;
             }
 
@@ -467,99 +461,25 @@ namespace Kafka.Cluster
             ClearCorrelationIds(connection);
         }
 
-        private readonly Dictionary<string, HashSet<int>> _tmpPartitionsInError = new Dictionary<string, HashSet<int>>();
-        private readonly Dictionary<string, HashSet<int>> _tmpPartitionsInRecoverableError = new Dictionary<string, HashSet<int>>();
-
-        private static readonly HashSet<int> NullHash = new HashSet<int>(); 
-
         private void ProcessProduceResponse(int correlationId, byte[] responseData, ProduceBatchRequest originalRequest)
         {
-            // The whole point of deserializing the response is to search for errors.
-            ProduceResponse produceResponse;
+            var acknowledgement = new ProduceAcknowledgement
+                {
+                    OriginalBatch = originalRequest.Batch,
+                    ReceiveDate = DateTime.UtcNow
+                };
             try
             {
-                produceResponse = _serializer.DeserializeProduceResponse(correlationId, responseData);
+                acknowledgement.ProduceResponse = _serializer.DeserializeProduceResponse(correlationId, responseData);
             }
             catch (Exception ex)
             {
                 // Corrupted data.
                 OnDecodeError(ex);
-                DrainOrDiscard(new Request
-                {
-                    RequestType = RequestType.Produce,
-                    RequestValue = new RequestValue {ProduceBatchRequest = originalRequest}
-                });
-                return;
+                acknowledgement.ProduceResponse = new ProduceResponse();
             }
 
-            // Fill partitions in error caches
-            _tmpPartitionsInError.Clear();
-            _tmpPartitionsInRecoverableError.Clear();
-            foreach (var tr in produceResponse.TopicsResponse)
-            {
-                bool errors = false;
-                foreach (var p in tr.Partitions.Where(p => !Error.IsPartitionOkForProducer(p.ErrorCode)))
-                {
-                    if (!errors)
-                    {
-                        errors = true;
-                        _tmpPartitionsInError[tr.TopicName] = new HashSet<int>();
-                        _tmpPartitionsInRecoverableError[tr.TopicName] = new HashSet<int>();
-                    }
-
-                    if (Error.IsPartitionErrorRecoverableForProducer(p.ErrorCode))
-                    {
-                        OnRecoverableError();
-                        _tmpPartitionsInRecoverableError[tr.TopicName].Add(p.Partition);
-                    }
-                    else
-                    {
-                        _tmpPartitionsInError[tr.TopicName].Add(p.Partition);
-                    }
-                }
-            }
-
-            // Scan messages for errors and release memory
-            foreach (var grouping in originalRequest.Batch)
-            {
-                int sent = 0;
-                int discarded = 0;
-                HashSet<int> errPartitions;
-                if (!_tmpPartitionsInError.TryGetValue(grouping.Key, out errPartitions))
-                {
-                    errPartitions = NullHash;
-                }
-                HashSet<int> recPartitions;
-                if (!_tmpPartitionsInRecoverableError.TryGetValue(grouping.Key, out recPartitions))
-                {
-                    recPartitions = NullHash;
-                }
-
-                foreach (var pm in grouping)
-                {
-                    if (recPartitions.Contains(pm.Partition))
-                    {
-                        _router.Route(pm.Topic, pm.Message, pm.ExpirationDate);
-                    }
-                    else if (errPartitions.Contains(pm.Partition))
-                    {
-                        ++discarded;
-                    }
-                    else
-                    {
-                        ++sent;
-                    }
-                    ProduceMessage.Release(pm);
-                }
-                if (sent > 0)
-                {
-                    OnMessagesSent(grouping.Key, sent);
-                }
-                if (discarded > 0)
-                {
-                    OnMessagesDiscarded(grouping.Key, discarded);
-                }
-            }
+            OnProduceAcknowledgement(acknowledgement);
         }
 
         private void ProcessMetadataResponse(int correlationId, byte[] responseData, MetadataRequest originalRequest)
@@ -583,27 +503,7 @@ namespace Kafka.Cluster
             {
                 foreach (var pending in pendings)
                 {
-                    DrainOrDiscard(pending.Request);
-                }
-            }
-        }
-
-        private void DrainOrDiscard(Request request)
-        {
-            if (_configuration.ErrorStrategy == ErrorStrategy.Retry ||
-                request.RequestType == RequestType.Metadata)
-            {
-                Drain(request);
-            }
-            else
-            {
-                foreach (var grouping in request.RequestValue.ProduceBatchRequest.Batch)
-                {
-                    OnMessagesDiscarded(grouping.Key, grouping.Count());
-                    foreach (var message in grouping)
-                    {
-                        ProduceMessage.Release(message);
-                    }
+                    Drain(pending.Request, true);
                 }
             }
         }
@@ -635,7 +535,7 @@ namespace Kafka.Cluster
             }
         }
 
-        private void Drain(Request request)
+        private void Drain(Request request, bool wasSent)
         {
             switch (request.RequestType)
             {
@@ -646,18 +546,14 @@ namespace Kafka.Cluster
 
                     // Reroute produce requests
                 case RequestType.Produce:
-                    foreach (var message in request.RequestValue.ProduceBatchRequest.Batch.SelectMany(grouping => grouping))
-                    {
-                        _router.Route(message);
-                    }
+                    var ack = new ProduceAcknowledgement
+                        {
+                            OriginalBatch = request.RequestValue.ProduceBatchRequest.Batch,
+                            ReceiveDate = wasSent ? DateTime.UtcNow : default(DateTime)
+                        };
+                    OnProduceAcknowledgement(ack);
                     break;
             }
-        }
-
-        public event Action<INode, string, int> SuccessfulSent = (n, s, i) => { };
-        private void OnMessagesSent(string topic, int count)
-        {
-            SuccessfulSent(this, topic, count);
         }
 
         public event Action<INode> RequestSent = n => { };
@@ -690,22 +586,16 @@ namespace Kafka.Cluster
             Dead(this);
         }
 
-        public event Action<INode, string, int> MessagesDiscarded = (n, t, c) => { };
-        private void OnMessagesDiscarded(string topic, int number)
+        public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
+        private void OnProduceAcknowledgement(ProduceAcknowledgement ack)
         {
-            MessagesDiscarded(this, topic, number);
+            ProduceAcknowledgement(this, ack);
         }
 
         public event Action<INode> Connected = n => { };
         private void OnConnected()
         {
             Connected(this);
-        }
-
-        public event Action<INode> RecoverableError = n => { };
-        private void OnRecoverableError()
-        {
-            RecoverableError(this);
         }
     }
 }

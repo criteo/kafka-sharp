@@ -86,7 +86,7 @@
     <Compile Include="Public\Configuration.cs" />
     <Compile Include="Public\ILogger.cs" />
     <Compile Include="Routing\Partitioner.cs" />
-    <Compile Include="Routing\Router.cs" />
+    <Compile Include="Routing\ProducerRouter.cs" />
     <Compile Include="Routing\RoutingTable.cs" />
   </ItemGroup>
   <ItemGroup>

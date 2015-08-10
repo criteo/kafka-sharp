@@ -12,42 +12,7 @@ namespace tests_kafka_sharp
     [TestFixture]
     class TestCluster
     {
-        private readonly MetadataResponse _testMetadataResponse = new MetadataResponse
-        {
-            BrokersMeta = new[]
-            {
-                new BrokerMeta {Id = 1, Host = "localhost", Port = 1},
-                new BrokerMeta {Id = 2, Host = "localhost", Port = 2},
-                new BrokerMeta {Id = 3, Host = "localhost", Port = 3}
-            },
-            TopicsMeta = new[]
-            {
-                new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
-                {
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                }},
-                new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
-                {
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
-                }},
-                new TopicMeta {TopicName = "topic3", ErrorCode = ErrorCode.NoError, Partitions = new []
-                {
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
-                }},
-                new TopicMeta {TopicName = "error1", ErrorCode = ErrorCode.Unknown, Partitions = new []
-                {
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                }},
-                new TopicMeta {TopicName = "error2", ErrorCode = ErrorCode.NoError, Partitions = new []
-                {
-                    new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
-                }},
-            }
-        };
+        
 
         void AssertRouting(RoutingTable routing)
         {
@@ -98,8 +63,8 @@ namespace tests_kafka_sharp
         {
             int errors = 0;
             var cluster = new Cluster(new Configuration {Seeds = "localhost:1"}, new DevNullLogger(),
-                                      (h, p) => new NodeMock(_testMetadataResponse),
-                                      () => new RouterMock());
+                                      (h, p) => new NodeMock(TestData.TestMetadataResponse),
+                                      () => new ProduceRouterMock());
             cluster.InternalError += _ => ++errors;
             cluster.Start();
             var routing = await cluster.RequireNewRoutingTable();
@@ -114,14 +79,14 @@ namespace tests_kafka_sharp
             int errors = 0;
             var ev = new ManualResetEvent(false);
             RoutingTable route = null;
-            var router = new RouterMock();
+            var router = new ProduceRouterMock();
             router.OnChangeRouting += r =>
                 {
                     route = r;
                     ev.Set();
                 };
             var cluster = new Cluster(new Configuration {Seeds = "localhost:1"}, new DevNullLogger(),
-                                      (h, p) => new NodeMock(_testMetadataResponse),
+                                      (h, p) => new NodeMock(TestData.TestMetadataResponse),
                                       () => router);
             cluster.InternalError += _ => ++errors;
             cluster.Start();

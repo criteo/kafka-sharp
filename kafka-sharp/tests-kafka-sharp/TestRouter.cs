@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
 using Kafka.Routing;
@@ -15,7 +17,7 @@ namespace tests_kafka_sharp
         private NodeMock[] _nodes;
         private ClusterMock _cluster;
         private Dictionary<string, Partition[]> _routes;
-        private Router _router;
+        private ProduceRouter _produceRouter;
         private Dictionary<string, int> _messagesSentByTopic;
         private int MessagesEnqueued;
         private int MessagesReEnqueued;
@@ -26,12 +28,48 @@ namespace tests_kafka_sharp
 
         private AsyncCountdownEvent _finished;
 
+        private void InitRouter(ProduceRouter produceRouter)
+        {
+            _produceRouter = produceRouter;
+            _produceRouter.MessageEnqueued += _ =>
+            {
+                ++MessagesEnqueued;
+                if (_finished != null) _finished.Signal();
+            };
+            _produceRouter.MessageReEnqueued += _ =>
+            {
+                ++MessagesReEnqueued;
+                if (_finished != null) _finished.Signal();
+            };
+            _produceRouter.MessageExpired += _ =>
+            {
+                ++MessagesExpired;
+                if (_finished != null) _finished.Signal();
+            };
+            _produceRouter.MessageRouted += _ =>
+            {
+                ++MessagesRouted;
+                if (_finished != null) _finished.Signal();
+            };
+            _produceRouter.MessagePostponed += _ =>
+            {
+                ++MessagesPostponed;
+                if (_finished != null) _finished.Signal();
+            };
+            _produceRouter.RoutingTableRequired += () =>
+            {
+                ++RoutingTableRequired;
+                if (_finished != null) _finished.Signal();
+            };
+        }
 
         [SetUp]
         public void SetUp()
         {
             _messagesSentByTopic = new Dictionary<string, int>
                 {
+                    {"test", 0},
+                    {"test2", 0},
                     {"test1p", 0},
                     {"test2p", 0},
                     {"testallp", 0}
@@ -39,9 +77,8 @@ namespace tests_kafka_sharp
             _nodes = new NodeMock[5];
             for (int i = 0; i < _nodes.Length; ++i)
             {
-                int n = i;
-                _nodes[n] = new NodeMock();
-                _nodes[n].SuccessfulSent += (_, t, m) => _messagesSentByTopic[t] += m; // No need to interlock, NodeMock is synchronous
+                _nodes[i] = new NodeMock();
+                _nodes[i].MessageReceived += t => _messagesSentByTopic[t] += 1; // No need to use interlocked, NodeMock is synchronous
             }
 
             _routes = new Dictionary<string, Partition[]>
@@ -61,38 +98,7 @@ namespace tests_kafka_sharp
             _cluster = new ClusterMock(_routes);
 
             MessagesEnqueued = MessagesExpired = MessagesReEnqueued = MessagesRouted = MessagesPostponed = RoutingTableRequired = 0;
-            _router = new Router(_cluster, new Configuration());
-            _router.MessageEnqueued += _ =>
-                {
-                    ++MessagesEnqueued;
-                    if(_finished != null) _finished.Signal();
-                };
-            _router.MessageReEnqueued += _ =>
-                {
-                    ++MessagesReEnqueued;
-                    if (_finished != null) _finished.Signal();
-                };
-            _router.MessageExpired += _ =>
-                {
-                    ++MessagesExpired;
-                    if (_finished != null) _finished.Signal();
-                };
-            _router.MessageRouted += _ =>
-                {
-                    ++MessagesRouted;
-                    if (_finished != null) _finished.Signal();
-                };
-            _router.MessagePostponed += _ =>
-            {
-                ++MessagesPostponed;
-                if (_finished != null) _finished.Signal();
-            };
-            _router.RoutingTableRequired += () =>
-                {
-                    ++RoutingTableRequired;
-                    if (_finished != null) _finished.Signal();
-                };
-
+            InitRouter(new ProduceRouter(_cluster, new Configuration()));
             _finished = null;
         }
 
@@ -106,14 +112,14 @@ namespace tests_kafka_sharp
         [Test]
         public async Task TestMessagesAreSent()
         {
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _router.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _router.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _router.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _router.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
 
-            await _router.Stop();
+            await _produceRouter.Stop();
 
             Assert.AreEqual(2, _messagesSentByTopic["test1p"]);
             Assert.AreEqual(2, _messagesSentByTopic["test2p"]);
@@ -151,27 +157,27 @@ namespace tests_kafka_sharp
         public void TestPartitionerChanges()
         {
             var ev = new AutoResetEvent(false);
-            _router.MessageRouted += _ => ev.Set();
+            _produceRouter.MessageRouted += _ => ev.Set();
             int node3rec = 0;
-            _nodes[3].SuccessfulSent += (_1, _2, n) => node3rec += n;
+            _nodes[3].ProduceAcknowledgement += (_, ack) => node3rec += ack.OriginalBatch.SelectMany(g => g).Count();
             int node2rec = 0;
-            _nodes[2].SuccessfulSent += (_1, _2, n) => node2rec += n;
+            _nodes[2].ProduceAcknowledgement += (_, ack) => node2rec += ack.OriginalBatch.SelectMany(g => g).Count();
 
-            _router.SetPartitioners(new Dictionary<string, IPartitioner> {{"testallp", new TestPartitioner(3)}});
-            _router.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.SetPartitioners(new Dictionary<string, IPartitioner> {{"testallp", new TestPartitioner(3)}});
+            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
             ev.WaitOne();
-            _router.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
             ev.WaitOne();
 
             Assert.AreEqual(2, node3rec);
             Assert.AreEqual(0, node2rec);
 
-            _router.SetPartitioner("testallp", new TestPartitioner(2));
-            _router.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.SetPartitioner("testallp", new TestPartitioner(2));
+            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
             ev.WaitOne();
-            _router.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
             ev.WaitOne();
-            _router.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
             ev.WaitOne();
 
             Assert.AreEqual(2, node3rec);
@@ -181,12 +187,477 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestAcknowledgementNoError()
+        {
+            var acknowledgement = new ProduceAcknowledgement
+            {
+                ProduceResponse = new ProduceResponse
+                {
+                    TopicsResponse = new[]
+                                {
+                                    new TopicResponse
+                                        {
+                                            TopicName = "test",
+                                            Partitions = new[]
+                                                {
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.NoError,
+                                                            Offset = 0,
+                                                            Partition = 0
+                                                        }
+                                                }
+                                        }
+                                }
+                },
+                OriginalBatch =
+                    new[]
+                            {
+                                new BatchMock
+                                    {
+                                        Key = "test",
+                                        Messages =
+                                            new[]
+                                                {
+                                                    ProduceMessage.New("test", 0, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1))
+                                                }
+                                    }
+                            }
+
+            };
+
+            _TestAcknowledgementNoError(acknowledgement, 1);
+        }
+
+        [Test]
+        public void TestProduceReplicaNotAvailableIsNotAnError()
+        {
+            var acknowledgement = new ProduceAcknowledgement
+            {
+                ProduceResponse = new ProduceResponse
+                {
+                    TopicsResponse = new[]
+                                {
+                                    new TopicResponse
+                                        {
+                                            TopicName = "test",
+                                            Partitions = new[]
+                                                {
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.ReplicaNotAvailable,
+                                                            Offset = 0,
+                                                            Partition = 0
+                                                        }
+                                                }
+                                        }
+                                }
+                },
+                OriginalBatch =
+                    new[]
+                            {
+                                new BatchMock
+                                    {
+                                        Key = "test",
+                                        Messages =
+                                            new[]
+                                                {
+                                                    ProduceMessage.New("test", 0, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1))
+                                                }
+                                    }
+                            }
+
+            };
+
+            _TestAcknowledgementNoError(acknowledgement, 1);
+        }
+
+        [Test]
+        public void TestAcknowledgementMultipleNoError()
+        {
+            var acknowledgement = new ProduceAcknowledgement
+                {
+                    ProduceResponse = new ProduceResponse
+                        {
+                            TopicsResponse = new[]
+                                {
+                                    new TopicResponse
+                                        {
+                                            TopicName = "test",
+                                            Partitions = new[]
+                                                {
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.NoError,
+                                                            Offset = 0,
+                                                            Partition = 0
+                                                        },
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.NoError,
+                                                            Offset = 0,
+                                                            Partition = 1
+                                                        },
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.NoError,
+                                                            Offset = 0,
+                                                            Partition = 2
+                                                        }
+                                                }
+                                        }
+                                }
+                        },
+                    OriginalBatch =
+                        new[]
+                            {
+                                new BatchMock
+                                    {
+                                        Key = "test",
+                                        Messages =
+                                            new[]
+                                                {
+                                                    ProduceMessage.New("test", 0, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1)),
+                                                    ProduceMessage.New("test", 1, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1)),
+                                                    ProduceMessage.New("test", 2, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1))
+                                                }
+                                    },
+                                new BatchMock
+                                    {
+                                        Key = "test2",
+                                        Messages =
+                                            new[]
+                                                {
+                                                    ProduceMessage.New("test", 0, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1)),
+                                                    ProduceMessage.New("test", 1, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1))
+                                                }
+                                    }
+                            }
+
+                };
+
+            _TestAcknowledgementNoError(acknowledgement, 5);
+        }
+
+        public void _TestAcknowledgementNoError(ProduceAcknowledgement acknowledgement, int expected)
+        {
+            var ev = new ManualResetEvent(false);
+            int rec = 0;
+            int success = 0;
+            int discarded = 0;
+            _produceRouter.MessagesSent += (t, i) =>
+            {
+                Interlocked.Add(ref success, i);
+                if (Interlocked.Add(ref rec, i) == expected)
+                {
+                    ev.Set();
+                }
+            };
+            _produceRouter.MessagesDiscarded += (t, i) =>
+            {
+                Interlocked.Add(ref discarded, i);
+                if (Interlocked.Add(ref rec, i) == expected)
+                {
+                    ev.Set();
+                }
+            };
+
+            _produceRouter.Acknowledge(acknowledgement);
+
+            ev.WaitOne();
+            Assert.AreEqual(expected, rec);
+            Assert.AreEqual(expected, success);
+            Assert.AreEqual(0, discarded);
+        }
+
+        [Test]
+        public async Task TestAcknowledgementResponseNoneProduceWasNotSent()
+        {
+            _finished = new AsyncCountdownEvent(3);
+            var acknowledgement = new ProduceAcknowledgement
+                {
+                    OriginalBatch =
+                        new[]
+                            {
+                                new BatchMock
+                                    {
+                                        Key = "test1p",
+                                        Messages =
+                                            new[] {ProduceMessage.New("test1p", 0, new Message(), DateTime.UtcNow.AddDays(1))}
+                                    }
+                            }
+                };
+            _produceRouter.Acknowledge(acknowledgement);
+            await _finished.WaitAsync();
+            CheckCounters(expectedMessagesReEnqueued: 1, expectedMessagesRouted: 1, expectedRoutingTableRequired: 1);
+        }
+
+        [Test]
+        public async Task TestAcknowledgementResponseNoneProduceWasSentDiscard()
+        {
+            _finished = new AsyncCountdownEvent(1);
+            int discarded = 0;
+            _produceRouter.MessagesDiscarded += (t, n) =>
+                {
+                    discarded += n;
+                    for (int i = 0; i < n; ++i)
+                        _finished.Signal();
+                };
+            var acknowledgement = new ProduceAcknowledgement
+                {
+                    OriginalBatch =
+                        new[]
+                            {
+                                new BatchMock
+                                    {
+                                        Key = "test1p",
+                                        Messages =
+                                            new[]
+                                                {
+                                                    ProduceMessage.New("test1p", 0, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1))
+                                                }
+                                    }
+                            },
+                    ReceiveDate = DateTime.UtcNow
+                };
+            _produceRouter.Acknowledge(acknowledgement);
+            await _finished.WaitAsync();
+            Assert.AreEqual(1, discarded);
+        }
+
+        [Test]
+        public async Task TestAcknowledgementResponseNoneProduceWasSentRetry()
+        {
+            InitRouter(new ProduceRouter(_cluster, new Configuration{ErrorStrategy = ErrorStrategy.Retry}));
+            _finished = new AsyncCountdownEvent(3);
+            var acknowledgement = new ProduceAcknowledgement
+            {
+                OriginalBatch =
+                    new[]
+                            {
+                                new BatchMock
+                                    {
+                                        Key = "test1p",
+                                        Messages =
+                                            new[]
+                                                {
+                                                    ProduceMessage.New("test1p", 0, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1))
+                                                }
+                                    }
+                            },
+                ReceiveDate = DateTime.UtcNow
+            };
+            _produceRouter.Acknowledge(acknowledgement);
+            await _finished.WaitAsync();
+            CheckCounters(expectedMessagesReEnqueued: 1, expectedMessagesRouted: 1, expectedRoutingTableRequired: 1);
+        }
+
+        [Test]
+        public void TestNonRecoverableErrorsAreDiscarded()
+        {
+            var acknowledgement = new ProduceAcknowledgement
+                {
+                    ProduceResponse = new ProduceResponse
+                        {
+                            TopicsResponse = new[]
+                                {
+                                    new TopicResponse
+                                        {
+                                            TopicName = "test",
+                                            Partitions = new[]
+                                                {
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.NoError,
+                                                            Offset = 0,
+                                                            Partition = 0
+                                                        },
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.MessageSizeTooLarge,
+                                                            Offset = 0,
+                                                            Partition = 1
+                                                        }
+                                                }
+                                        }
+                                }
+                        },
+                    OriginalBatch =
+                        new[]
+                            {
+                                new BatchMock
+                                    {
+                                        Key = "test",
+                                        Messages =
+                                            new[]
+
+                                                {
+                                                    ProduceMessage.New("test", 0, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1)),
+                                                    ProduceMessage.New("test", 1, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1))
+                                                }
+                                    }
+                            }
+                };
+
+            var ev = new ManualResetEvent(false);
+            int rec = 0;
+            int success = 0;
+            int discarded = 0;
+            _produceRouter.MessagesSent += (t, i) =>
+            {
+                Interlocked.Add(ref success, i);
+                if (Interlocked.Add(ref rec, i) == 2)
+                {
+                    ev.Set();
+                }
+            };
+            _produceRouter.MessagesDiscarded += (t, i) =>
+            {
+                Interlocked.Add(ref discarded, i);
+                if (Interlocked.Add(ref rec, i) == 2)
+                {
+                    ev.Set();
+                }
+            };
+
+            _produceRouter.Acknowledge(acknowledgement);
+
+            ev.WaitOne();
+            Assert.AreEqual(2, rec);
+            Assert.AreEqual(1, success);
+            Assert.AreEqual(1, discarded);
+        }
+
+        [Test]
+        public void TestProduceRecoverableErrorsAreRerouted()
+        {
+            var acknowledgement = new ProduceAcknowledgement
+                {
+                    ProduceResponse = new ProduceResponse
+                        {
+                            TopicsResponse = new[]
+                                {
+                                    new TopicResponse
+                                        {
+                                            TopicName = "test",
+                                            Partitions = new[]
+                                                {
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.NoError,
+                                                            Offset = 0,
+                                                            Partition = 0
+                                                        },
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.NotLeaderForPartition,
+                                                            Offset = 0,
+                                                            Partition = 1
+                                                        },
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.LeaderNotAvailable,
+                                                            Offset = 0,
+                                                            Partition = 2
+                                                        },
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.RequestTimedOut,
+                                                            Offset = 0,
+                                                            Partition = 3
+                                                        },
+                                                    new PartitionResponse
+                                                        {
+                                                            ErrorCode = ErrorCode.UnknownTopicOrPartition,
+                                                            Offset = 0,
+                                                            Partition = 4
+                                                        }
+                                                }
+                                        }
+                                }
+                        },
+                    OriginalBatch =
+                        new[]
+                            {
+                                new BatchMock
+                                    {
+                                        Key = "test",
+                                        Messages =
+                                            new[]
+                                                {
+                                                    ProduceMessage.New("test", 0, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1)),
+                                                    ProduceMessage.New("test", 1, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1)),
+                                                    ProduceMessage.New("test", 2, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1)),
+                                                    ProduceMessage.New("test", 3, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1)),
+                                                    ProduceMessage.New("test", 4, new Message(),
+                                                                       DateTime.UtcNow.AddDays(1))
+                                                }
+                                    }
+                            }
+                };
+
+            const int exp = 5;
+            var ev = new ManualResetEvent(false);
+            int rec = 0;
+            int success = 0;
+            int discarded = 0;
+            int rerouted = 0;
+            _produceRouter.MessageReEnqueued += t =>
+            {
+                Interlocked.Increment(ref rerouted);
+                if (Interlocked.Increment(ref rec) == exp)
+                {
+                    ev.Set();
+                }
+            };
+            _produceRouter.MessagesSent += (t, i) =>
+            {
+                Interlocked.Add(ref success, i);
+                if (Interlocked.Add(ref rec, i) == exp)
+                {
+                    ev.Set();
+                }
+            };
+            _produceRouter.MessagesDiscarded += (t, i) =>
+            {
+                Interlocked.Add(ref discarded, i);
+                if (Interlocked.Add(ref rec, i) == exp)
+                {
+                    ev.Set();
+                }
+            };
+
+            _produceRouter.Acknowledge(acknowledgement);
+
+            ev.WaitOne();
+            Assert.AreEqual(5, rec);
+            Assert.AreEqual(1, success);
+            Assert.AreEqual(0, discarded);
+            Assert.AreEqual(4, rerouted);
+        }
+
+        [Test]
         public async Task TestExpiredMessagesAreNotRouted()
         {
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(-1));
-            _router.Route("test2p", new Message(), DateTime.UtcNow.AddMilliseconds(-1));
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(-1));
+            _produceRouter.Route("test2p", new Message(), DateTime.UtcNow.AddMilliseconds(-1));
 
-            await _router.Stop();
+            await _produceRouter.Stop();
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
             Assert.AreEqual(0, _messagesSentByTopic["test2p"]);
@@ -196,11 +667,11 @@ namespace tests_kafka_sharp
         [Test]
         public async Task TestNoMessageIsSentAfterStop()
         {
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            await _router.Stop();
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            await _produceRouter.Stop();
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
 
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
             await Task.Delay(TimeSpan.FromMilliseconds(100));
 
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
@@ -213,9 +684,9 @@ namespace tests_kafka_sharp
             _cluster.Partitions = new Dictionary<string, Partition[]>();
 
             _finished = new AsyncCountdownEvent(8);
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, 1x RoutingTableRequired
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, no routing table required because postponed
-            _router.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, 1x RoutingTableRequired
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, 1x RoutingTableRequired
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, no routing table required because postponed
+            _produceRouter.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, 1x RoutingTableRequired
             await _finished.WaitAsync();
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
@@ -224,7 +695,7 @@ namespace tests_kafka_sharp
 
             _finished = new AsyncCountdownEvent(6);
             _cluster.Partitions = _routes;
-            _router.ChangeRoutingTable(new RoutingTable(_routes)); // => 3x Renqueued, 3x Routed
+            _produceRouter.ChangeRoutingTable(new RoutingTable(_routes)); // => 3x Renqueued, 3x Routed
             await _finished.WaitAsync();
 
             Assert.AreEqual(2, _messagesSentByTopic["test1p"]);
@@ -238,7 +709,7 @@ namespace tests_kafka_sharp
             _cluster.Partitions = new Dictionary<string, Partition[]>();
 
             _finished = new AsyncCountdownEvent(3);
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(50));
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(50));
             await _finished.WaitAsync();
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
@@ -248,9 +719,9 @@ namespace tests_kafka_sharp
 
             //trigger check postponed
             _cluster.Partitions = _routes;
-            _router.ChangeRoutingTable(new RoutingTable(_routes));
+            _produceRouter.ChangeRoutingTable(new RoutingTable(_routes));
 
-            await _router.Stop();
+            await _produceRouter.Stop();
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
             CheckCounters(expectedMessagesEnqueued: 1, expectedMessagesExpired: 1, expectedMessagesPostponed: 1, expectedRoutingTableRequired: 1);
@@ -262,8 +733,8 @@ namespace tests_kafka_sharp
             _cluster.Partitions = new Dictionary<string, Partition[]>();
 
             _finished = new AsyncCountdownEvent(5);
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(50));
-            _router.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(50));
+            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
             await _finished.WaitAsync();
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
@@ -273,7 +744,7 @@ namespace tests_kafka_sharp
             //trigger check postponed
             _finished = new AsyncCountdownEvent(3);
             _cluster.Partitions = _routes;
-            _router.ChangeRoutingTable(new RoutingTable(_routes)); // => 1x renqueue, 1x routed, 1x expired
+            _produceRouter.ChangeRoutingTable(new RoutingTable(_routes)); // => 1x renqueue, 1x routed, 1x expired
             await _finished.WaitAsync();
 
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);

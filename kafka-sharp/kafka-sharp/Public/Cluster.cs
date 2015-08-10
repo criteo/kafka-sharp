@@ -174,7 +174,7 @@ namespace Kafka.Public
                 }
                 Interlocked.Increment(ref _sent);
             }
-            _cluster.Router.Route(topic, new Message {Key = key, Value = data}, DateTime.UtcNow.Add(_configuration.MessageTtl));
+            _cluster.ProduceRouter.Route(topic, new Message {Key = key, Value = data}, DateTime.UtcNow.Add(_configuration.MessageTtl));
         }
 
         public Task Shutdown()

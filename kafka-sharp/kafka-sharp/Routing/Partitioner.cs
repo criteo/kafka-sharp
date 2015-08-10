@@ -7,16 +7,26 @@ namespace Kafka.Routing
 {
     interface IPartitioner
     {
+        /// <summary>
+        /// Assign a message to a partition for produce requests.
+        /// If no partition is available this must return null.
+        /// </summary>
+        /// <param name="message">Message to assign to a partition</param>
+        /// <param name="partitions">The list of available partitions. IT should not be null.</param>
+        /// <returns>An available partition or null if none found.</returns>
         Partition GetPartition(Message message, Partition[] partitions);
     }
 
+    /// <summary>
+    /// rond robin partitioner.
+    /// </summary>
     class DefaultPartitioner : IPartitioner
     {
         private ulong _next;
 
         public Partition GetPartition(Message dummy, Partition[] partitions)
         {
-            return partitions[(int)(_next++)%partitions.Length];
+            return partitions.Length == 0 ? null : partitions[(int)(_next++)%partitions.Length];
         }
     }
 }
