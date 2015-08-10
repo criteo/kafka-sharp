@@ -85,6 +85,7 @@ namespace Kafka.Routing
         public event Action<string> MessageReEnqueued = _ => { };
         public event Action<string> MessageExpired = _ => { };
         public event Action<string> MessageRouted = _ => { };
+        public event Action<string> MessagePostponed = _ => { };
         public event Action RoutingTableRequired = () => { };
 
         public Router(ICluster cluster, Configuration configuration)
@@ -348,6 +349,8 @@ namespace Kafka.Routing
             }
             postponedQueue.Enqueue(produceMessage);
             ++_numberOfPostponedMessages;
+            MessagePostponed(produceMessage.Topic);
+
             if (_checkPostponedMessages == null)
             {
                 _checkPostponedMessages =
