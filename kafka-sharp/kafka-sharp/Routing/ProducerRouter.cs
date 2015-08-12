@@ -1,4 +1,4 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
@@ -18,9 +18,11 @@ namespace Kafka.Routing
     using Partitioners = Dictionary<string, IPartitioner>;
 
     /// <summary>
-    /// Acknowledgement class for produce request. Produce requests
+    /// Acknowledgement class for produce requests. Produce requests
     /// are batched by the nodes, so this is an acknowlegement for
-    /// multiple messages.
+    /// multiple messages. It contains both the response and the original batch.
+    /// It is stamped with the date of reception (or default(DateTime) if
+    /// we never sent the batch).
     /// </summary>
     struct ProduceAcknowledgement
     {
@@ -44,17 +46,64 @@ namespace Kafka.Routing
         public DateTime ReceiveDate;
     }
 
+    /// <summary>
+    /// Interface to the producer router, which route lessages to available nodes.
+    /// </summary>
     interface IProduceRouter
     {
+        /// <summary>
+        /// Provides a new routing table.
+        /// </summary>
+        /// <param name="table">The new table.</param>
         void ChangeRoutingTable(RoutingTable table);
+
+        /// <summary>
+        /// Route a new message to Kafka brokers.
+        /// </summary>
+        /// <param name="topic">Message topic.</param>
+        /// <param name="message">Message Key/Body.</param>
+        /// <param name="expirationDate">A date after which the message will not be tried
+        /// again in case of errors</param>
         void Route(string topic, Message message, DateTime expirationDate);
+
+        /// <summary>
+        /// Route an already created ProduceMessage.
+        /// </summary>
+        /// <param name="produceMessage"></param>
         void Route(ProduceMessage produceMessage);
+
+        /// <summary>
+        /// Acknowledge a response from a Kafka broker.
+        /// </summary>
+        /// <param name="acknowledgement"></param>
         void Acknowledge(ProduceAcknowledgement acknowledgement);
+
+        /// <summary>
+        /// Stop the producer router. Should try to flush all currently pending
+        /// messages.
+        /// </summary>
+        /// <returns></returns>
         Task Stop();
-        event Action<string> MessageRouted;
-        event Action<string> MessageExpired;
-        event Action<string, int> MessagesDiscarded;
-        event Action<string, int> MessagesSent;
+
+        /// <summary>
+        /// Raised when a message has been successfully routed to a node.
+        /// </summary>
+        event Action<string /* topic */> MessageRouted;
+
+        /// <summary>
+        /// Raised when a message has expired and we discarded it.
+        /// </summary>
+        event Action<string /* topic */> MessageExpired;
+
+        /// <summary>
+        /// Raised when a bunch of messages have been discarded due to errors (but not expired).
+        /// </summary>
+        event Action<string /* topic */, int /* number */> MessagesDiscarded;
+
+        /// <summary>
+        /// Raised when a bunch of messages has been successfully acknowledged.
+        /// </summary>
+        event Action<string /* topic */, int /* number */> MessagesAcknowledged;
     }
 
     /// <summary>
@@ -70,15 +119,50 @@ namespace Kafka.Routing
         /// </summary>
         enum RouterMessageType
         {
+            /// <summary>
+            /// New partitioners have been provided.
+            /// Note: partitioner change feature is not exposed yet by the public API.
+            /// </summary>
             PartitionerEvent,
+
+            /// <summary>
+            /// A produce message is required to be sent or an
+            /// acknowledgement has been received. We want to prioritize
+            /// acknowledgement treatment over produce routing, so for
+            /// implementation reasons we only use one enum slot to handle
+            /// the two cases (because ActionBlock does not support priorities).
+            /// </summary>
             ProduceEvent,
+
+            /// <summary>
+            /// Check for metadata and if postponed messages can be sent again.
+            /// This is used by the timer that is set up when messages
+            /// are postponed.
+            /// </summary>
             CheckPostponed,
+
+            /// <summary>
+            /// Check is postponed events can be sent again after the routing
+            /// table has been refreshed.
+            /// </summary>
             CheckPostponedFollowingRoutingTableChange
         }
 
-        class PartitionerMessage
+        /// <summary>
+        /// This is used to describe a partitioner change.
+        /// </summary>
+        struct PartitionerMessage
         {
+            /// <summary>
+            /// Topic associated to the new partitioner,
+            /// or null to describe a change on multiple topics.
+            /// </summary>
             public string Topic;
+
+            /// <summary>
+            /// If Topic is not null this is assumed to be a IPartitioner.
+            /// If Topic is null this is assumed to be a Dictionary&lt;string, IPartitioner&gt;
+            /// </summary>
             public object PartitionerInfo;
         }
 
@@ -88,23 +172,60 @@ namespace Kafka.Routing
         private RoutingTable _routingTable = new RoutingTable(new Dictionary<string, Partition[]>());
         private Partitioners _partitioners = new Partitioners();
 
+        // The queue of produce messages waiting to be routed
         private readonly ConcurrentQueue<ProduceMessage> _produceMessages = new ConcurrentQueue<ProduceMessage>();
+
+        // The queue of received acknowledgements
         private readonly ConcurrentQueue<ProduceAcknowledgement> _produceResponses = new ConcurrentQueue<ProduceAcknowledgement>();
+
+        // The queue of partitioner changes waiting to be processed
         private readonly ConcurrentQueue<PartitionerMessage> _partitionerMessages = new ConcurrentQueue<PartitionerMessage>();
 
+        // The actor used to orchestrate all processing
         private readonly ActionBlock<RouterMessageType> _messages;
+
+        // Postponed messages, stored by topics
         private readonly Dictionary<string, Queue<ProduceMessage>> _postponedMessages = new Dictionary<string, Queue<ProduceMessage>>();
+
+        // Active when there are some postponed messages, it checks regurlarly
+        // if they can be sent again
         private Timer _checkPostponedMessages;
 
-        public event Action<string> MessageEnqueued = _ => { };
-        public event Action<string> MessageReEnqueued = _ => { };
+        #region events from IProducerRouter
+
+        public event Action<string> MessageRouted = _ => { };
         public event Action<string> MessageExpired = _ => { };
         public event Action<string, int> MessagesDiscarded = (t, c) => { };
-        public event Action<string, int> MessagesSent = (t, c) => { };
-        public event Action<string> MessageRouted = _ => { };
+        public event Action<string, int> MessagesAcknowledged = (t, c) => { };
+
+        #endregion
+
+        /// <summary>
+        /// Raised when a message has been enqueued for routing.
+        /// </summary>
+        public event Action<string> MessageEnqueued = _ => { };
+
+        /// <summary>
+        /// Raised when a message is reenqueued following a recoverable error.
+        /// </summary>
+        public event Action<string> MessageReEnqueued = _ => { };
+
+        /// <summary>
+        /// Raised when a message is postponed following a recoverable error.
+        /// </summary>
         public event Action<string> MessagePostponed = _ => { };
+
+        /// <summary>
+        /// Raised when we asked for new metadata.
+        /// </summary>
         public event Action RoutingTableRequired = () => { };
 
+        /// <summary>
+        /// Create a ProducerRouter with the given cluster and configuration.
+        /// Will start the internal actor.
+        /// </summary>
+        /// <param name="cluster"></param>
+        /// <param name="configuration"></param>
         public ProduceRouter(ICluster cluster, Configuration configuration)
         {
             _cluster = cluster;
@@ -126,17 +247,34 @@ namespace Kafka.Routing
             await _messages.Completion;
         }
 
+        /// <summary>
+        /// Signal a routing table change. We do this using an Interlocked
+        /// operation to avoid having to manage yet another prioritized message
+        /// in the actor loop. Will also initiate a check of postponed messages.
+        /// </summary>
+        /// <param name="table"></param>
         public void ChangeRoutingTable(RoutingTable table)
         {
             Interlocked.Exchange(ref _routingTable, table);
             _messages.Post(RouterMessageType.CheckPostponedFollowingRoutingTableChange);
         }
 
+        /// <summary>
+        /// Prepare a new message for routing.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="message"></param>
+        /// <param name="expirationDate"></param>
         public void Route(string topic, Message message,  DateTime expirationDate)
         {
             Route(ProduceMessage.New(topic, message, expirationDate));
         }
 
+        /// <summary>
+        /// Prepare a message for routing. If we're not in Stop state
+        /// the MessageEnqueued event will be raised.
+        /// </summary>
+        /// <param name="message"></param>
         public void Route(ProduceMessage message)
         {
             if (Post(message))
@@ -145,6 +283,11 @@ namespace Kafka.Routing
             }
         }
 
+        /// <summary>
+        /// Reenqueue a message. Check for expiration date and raise MessageExpired if needed.
+        /// Raise the MessageReEnqueued if message effectively reenqueued.
+        /// </summary>
+        /// <param name="message"></param>
         private void ReEnqueue(ProduceMessage message)
         {
             if (message.ExpirationDate < DateTime.UtcNow)
@@ -159,6 +302,12 @@ namespace Kafka.Routing
             }
         }
 
+        /// <summary>
+        /// Inner Post produce implementation. Post a ProduceEvent message
+        /// to the inner actor.
+        /// </summary>
+        /// <param name="produceMessage"></param>
+        /// <returns>True if effectiveley posted, false otherwise</returns>
         private bool Post(ProduceMessage produceMessage)
         {
             if (_messages.Completion.IsCompleted)
@@ -170,12 +319,21 @@ namespace Kafka.Routing
             return _messages.Post(RouterMessageType.ProduceEvent);
         }
 
+        /// <summary>
+        /// Accept an acknowledgement request. Post a ProduceEvent message
+        /// to the inner actor.
+        /// </summary>
+        /// <param name="acknowledgement"></param>
         public void Acknowledge(ProduceAcknowledgement acknowledgement)
         {
             _produceResponses.Enqueue(acknowledgement);
             _messages.Post(RouterMessageType.ProduceEvent);
         }
 
+        /// <summary>
+        /// Post a partitioner change event for multiple topics.
+        /// </summary>
+        /// <param name="partitioners"></param>
         public void SetPartitioners(Partitioners partitioners)
         {
             if (partitioners == null)
@@ -184,6 +342,11 @@ namespace Kafka.Routing
             Post(new PartitionerMessage {PartitionerInfo = partitioners});
         }
 
+        /// <summary>
+        /// Post a partitioner change event for a single topic.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partitioner"></param>
         public void SetPartitioner(string topic, IPartitioner partitioner)
         {
             if (topic == null)
@@ -209,6 +372,10 @@ namespace Kafka.Routing
             _messages.Post(RouterMessageType.PartitionerEvent);
         }
 
+        /// <summary>
+        /// Request a metadata refresh from the cluster.
+        /// </summary>
+        /// <returns></returns>
         private async Task EnsureHasRoutingTable()
         {
             RoutingTableRequired();
@@ -226,7 +393,7 @@ namespace Kafka.Routing
         }
 
         /// <summary>
-        /// Actor loop.
+        /// Actor loop. In case of produce events we prioritize the acknowledgements.
         /// </summary>
         private async Task ProcessMessage(RouterMessageType messageType)
         {
@@ -278,6 +445,7 @@ namespace Kafka.Routing
                     }
                     break;
 
+                    // Refresh metadata, then check posponed messages
                 case RouterMessageType.CheckPostponed:
                     await EnsureHasRoutingTable();
                     goto case RouterMessageType.CheckPostponedFollowingRoutingTableChange;
@@ -288,6 +456,8 @@ namespace Kafka.Routing
             }
         }
 
+        // Simply swap partitioners. No need to check the type casts, it has
+        // already been taken care of by strictly typed SetPartitioner(s) methods.
         private void HandlePartitionerMessage(PartitionerMessage message)
         {
             if (message.Topic != null)
@@ -300,6 +470,18 @@ namespace Kafka.Routing
             }
         }
 
+        /// <summary>
+        /// Handle a produce message:
+        ///  - check if expired,
+        ///  - check if the topic is currenlty postponed, in which case we postpone the message,
+        ///  - get the partitioner, using the default one if needed,
+        ///  - if no partition is available for the topic we refresh metadata once,
+        ///  - if still no partition are available we postpone the message else we route it.
+        ///
+        /// The MessageRouted event is raised in case of successful routing.
+        /// </summary>
+        /// <param name="produceMessage"></param>
+        /// <returns></returns>
         private async Task HandleProduceMessage(ProduceMessage produceMessage)
         {
             if (produceMessage.ExpirationDate < DateTime.UtcNow)
@@ -351,6 +533,13 @@ namespace Kafka.Routing
             }
         }
 
+        /// <summary>
+        /// Handles an acknowlegement in the case there is no associated ProduceResponse.
+        /// Messages are reenqueued if they were never sent in the first place or if we
+        /// are in Retry mode. They're discarded otherwise, in which case the MessageDiscarded
+        /// event is raised.
+        /// </summary>
+        /// <param name="acknowledgement"></param>
         private void HandleProduceAcknowledgementNone(ProduceAcknowledgement acknowledgement)
         {
             if (_configuration.ErrorStrategy == ErrorStrategy.Retry || acknowledgement.ReceiveDate == default(DateTime))
@@ -375,11 +564,19 @@ namespace Kafka.Routing
             }
         }
 
+        // temp variables used in the following method, avoid reallocating them each time
         private readonly Dictionary<string, HashSet<int>> _tmpPartitionsInError = new Dictionary<string, HashSet<int>>();
         private readonly Dictionary<string, HashSet<int>> _tmpPartitionsInRecoverableError = new Dictionary<string, HashSet<int>>();
 
-        private static readonly HashSet<int> NullHash = new HashSet<int>();
+        private static readonly HashSet<int> NullHash = new HashSet<int>(); // A sentinel object
 
+        /// <summary>
+        /// Handle an acknowledgement with a ProduceResponse. Essentially search for errors and discard/retry
+        /// accordingly. The logic is rather painful and boring. We try to be as efficient as possible
+        /// in the standard case (i.e. no error).
+        /// </summary>
+        /// <param name="acknowledgement"></param>
+        /// <returns></returns>
         private async Task HandleProduceAcknowledgement(ProduceAcknowledgement acknowledgement)
         {
             // The whole point of scanning the response is to search for errors
@@ -458,7 +655,7 @@ namespace Kafka.Routing
                 }
                 if (sent > 0)
                 {
-                    MessagesSent(grouping.Key, sent);
+                    MessagesAcknowledged(grouping.Key, sent);
                 }
                 if (discarded > 0)
                 {
@@ -467,7 +664,7 @@ namespace Kafka.Routing
             }
         }
 
-        private int _numberOfPostponedMessages;
+        private int _numberOfPostponedMessages; // The current number of postponed messages
 
         /// <summary>
         /// Check all postponed messages:
@@ -517,6 +714,11 @@ namespace Kafka.Routing
             return _postponedMessages.TryGetValue(topic, out postponed) && postponed.Count > 0;
         }
 
+        /// <summary>
+        /// Postpone a message for later check and start the check timer if needed.
+        /// The MessagePostponed event is raised.
+        /// </summary>
+        /// <param name="produceMessage"></param>
         private void PostponeMessage(ProduceMessage produceMessage)
         {
             Queue<ProduceMessage> postponedQueue;
@@ -537,6 +739,7 @@ namespace Kafka.Routing
             }
         }
 
+        // Raise the MessageExpired event and release a message.
         private void OnMessageExpired(ProduceMessage message)
         {
             MessageExpired(message.Topic);

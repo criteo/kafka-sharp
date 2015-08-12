@@ -352,7 +352,7 @@ namespace tests_kafka_sharp
             int rec = 0;
             int success = 0;
             int discarded = 0;
-            _produceRouter.MessagesSent += (t, i) =>
+            _produceRouter.MessagesAcknowledged += (t, i) =>
             {
                 Interlocked.Add(ref success, i);
                 if (Interlocked.Add(ref rec, i) == expected)
@@ -514,7 +514,7 @@ namespace tests_kafka_sharp
             int rec = 0;
             int success = 0;
             int discarded = 0;
-            _produceRouter.MessagesSent += (t, i) =>
+            _produceRouter.MessagesAcknowledged += (t, i) =>
             {
                 Interlocked.Add(ref success, i);
                 if (Interlocked.Add(ref rec, i) == 2)
@@ -625,7 +625,7 @@ namespace tests_kafka_sharp
                     ev.Set();
                 }
             };
-            _produceRouter.MessagesSent += (t, i) =>
+            _produceRouter.MessagesAcknowledged += (t, i) =>
             {
                 Interlocked.Add(ref success, i);
                 if (Interlocked.Add(ref rec, i) == exp)

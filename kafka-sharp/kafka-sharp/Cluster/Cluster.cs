@@ -136,7 +136,7 @@ namespace Kafka.Cluster
                 Interlocked.Increment(ref _expired);
                 Interlocked.Increment(ref _exited);
             };
-            ProduceRouter.MessagesSent += (t, c) =>
+            ProduceRouter.MessagesAcknowledged += (t, c) =>
             {
                 Interlocked.Add(ref _successfulSent, c);
                 Interlocked.Add(ref _exited, c);
