@@ -1,4 +1,4 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 namespace Kafka.Protocol
@@ -19,6 +19,8 @@ namespace Kafka.Protocol
                 case ErrorCode.NotLeaderForPartition:
                 case ErrorCode.RequestTimedOut:
                 case ErrorCode.UnknownTopicOrPartition:
+                case ErrorCode.InvalidMessage:
+                case ErrorCode.InvalidMessageSize:
                     return true;
 
                 default:
@@ -38,7 +40,7 @@ namespace Kafka.Protocol
             }
         }
     }
-    
+
     enum ErrorCode : short
     {
         ///<summary>No error--it worked!</summary>
@@ -47,7 +49,7 @@ namespace Kafka.Protocol
         ///<summary>An unexpected server error</summary>
         Unknown = -1,
 
-        ///<summary>The requested offset is outside the range of offsets maintained by the server for the given 
+        ///<summary>The requested offset is outside the range of offsets maintained by the server for the given
         /// topic/partition.</summary>
         OffsetOutOfRange = 1,
 
@@ -60,25 +62,25 @@ namespace Kafka.Protocol
         ///<summary>The message has a negative size</summary>
         InvalidMessageSize = 4,
 
-        ///<summary>This error is thrown if we are in the middle of a leadership election and there is currently 
+        ///<summary>This error is thrown if we are in the middle of a leadership election and there is currently
         /// no leader for this partition and hence it is unavailable for writes.</summary>
         LeaderNotAvailable = 5,
 
-        ///<summary>This error is thrown if the client attempts to send messages to a replica that is not 
+        ///<summary>This error is thrown if the client attempts to send messages to a replica that is not
         /// the leader for some partition. It indicates that the clients metadata is out of date.</summary>
         NotLeaderForPartition = 6,
 
         ///<summary>This error is thrown if the request exceeds the user-specified time limit in the request</summary>
         RequestTimedOut = 7,
 
-        ///<summary>This is not a client facing error and is used only internally by intra-cluster 
+        ///<summary>This is not a client facing error and is used only internally by intra-cluster
         /// broker communication</summary>
         BrokerNotAvailable = 8,
 
         ///<summary>Unused</summary>
         ReplicaNotAvailable = 9,
 
-        ///<summary>The server has a configurable maximum message size to avoid unbounded memory allocation. 
+        ///<summary>The server has a configurable maximum message size to avoid unbounded memory allocation.
         /// This error is thrown if the client attempt to produce a message larger than this maximum.</summary>
         MessageSizeTooLarge = 10,
 
@@ -91,7 +93,7 @@ namespace Kafka.Protocol
         /// <summary> The broker returns this error code for an offset fetch request if it is still loading offsets (after a leader change for that offsets topic partition) </summary>
         OffsetsLoadInProgress = 14,
 
-        /// <summary> The broker returns this error code for consumer metadata requests or offset commit requests 
+        /// <summary> The broker returns this error code for consumer metadata requests or offset commit requests
         /// if the offsets topic has not yet been created </summary>
         ConsumerCoordinatorNotAvailable = 15,
 

@@ -2,6 +2,8 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
 using Kafka.Network;
@@ -51,7 +53,13 @@ namespace tests_kafka_sharp
                     new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
                 }},
             }
-        };    
+        };
+
+        public static void Reset()
+        {
+            EchoConnectionMock.Reset();
+            ScenarioSerializerMock.Reset();
+        }
     }
 
     class NodeMock : INode
@@ -195,8 +203,37 @@ namespace tests_kafka_sharp
     /// </summary>
     class EchoConnectionMock : SuccessConnectionMock
     {
+        private readonly bool _forceErrors;
+        private static int _count;
+
+        public static void Reset()
+        {
+            _count = 1;
+        }
+
+        public EchoConnectionMock(bool forceErrors = false)
+        {
+            _forceErrors = forceErrors;
+        }
+
         public override Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
         {
+            if (_forceErrors)
+            {
+                if (Interlocked.Increment(ref _count)%3 == 0)
+                {
+                    OnReceiveError(new SocketException((int) SocketError.Interrupted));
+                    return Task.FromResult(true);
+                }
+
+                if (Interlocked.Increment(ref _count)%4 == 0)
+                {
+                    var tcs = new TaskCompletionSource<Void>();
+                    tcs.SetException(new SocketException((int) SocketError.Interrupted));
+                    return tcs.Task;
+                }
+            }
+
             if (acknowledge)
             {
                 OnResponse(correlationId, buffer);
@@ -369,12 +406,20 @@ namespace tests_kafka_sharp
 
     class ScenarioSerializerMock : Node.ISerializer
     {
-        readonly ConcurrentDictionary<int, ProduceResponse> _produceResponses = new ConcurrentDictionary<int, ProduceResponse>(); 
+        readonly ConcurrentDictionary<int, ProduceResponse> _produceResponses = new ConcurrentDictionary<int, ProduceResponse>();
         private readonly MetadataResponse _metadataResponse;
+        private readonly bool _forceErrors;
+        private static int _count;
 
-        public ScenarioSerializerMock(MetadataResponse returned)
+        public static void Reset()
+        {
+            _count = 1;
+        }
+
+        public ScenarioSerializerMock(MetadataResponse returned, bool forceErrors = false)
         {
             _metadataResponse = returned;
+            _forceErrors = forceErrors;
         }
 
         public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
@@ -386,10 +431,13 @@ namespace tests_kafka_sharp
                     TopicName = g.Key,
                     Partitions = g.GroupBy(m => m.Partition).Select(pg => new PartitionResponse
                     {
-                        ErrorCode =
-                            _metadataResponse.TopicsMeta.Where(tm => tm.TopicName == g.Key)
-                                .Select(tm => tm.Partitions.First(p => p.Id == pg.Key).ErrorCode)
-                                .First(),
+                        ErrorCode = _forceErrors && Interlocked.Increment(ref _count)%2 == 0
+                            ? ErrorCode.LeaderNotAvailable
+                            : _forceErrors && Interlocked.Increment(ref _count)%3 == 0
+                                ? ErrorCode.MessageSizeTooLarge
+                                : _metadataResponse.TopicsMeta.Where(tm => tm.TopicName == g.Key)
+                                    .Select(tm => tm.Partitions.First(p => p.Id == pg.Key).ErrorCode)
+                                    .First(),
                         Offset = 0,
                         Partition = pg.Key
                     }).ToArray()

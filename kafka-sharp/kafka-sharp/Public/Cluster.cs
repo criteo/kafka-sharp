@@ -31,7 +31,7 @@ namespace Kafka.Public
         public long ResponseReceived { get; internal set; }
 
         /// <summary>
-        /// Number of errors encountered
+        /// Number of hard errors encountered (network errors or decode errors)
         /// </summary>
         public long Errors { get; internal set; }
 
@@ -112,32 +112,42 @@ namespace Kafka.Public
         private readonly Configuration _configuration;
         private readonly ILogger _logger;
 
-        public Cluster(Configuration configuration, ILogger logger)
+        private static Configuration CloneConfig(Configuration configuration)
         {
             configuration = new Configuration
-                {
-                    BatchSize = configuration.BatchSize,
-                    BufferingTime = configuration.BufferingTime,
-                    ClientId = configuration.ClientId,
-                    CompressionCodec = configuration.CompressionCodec,
-                    ErrorStrategy = configuration.ErrorStrategy,
-                    MaxBufferedMessages = configuration.MaxBufferedMessages,
-                    MessageTtl = configuration.MessageTtl,
-                    ReceiveBufferSize = configuration.ReceiveBufferSize,
-                    MaximumConcurrency = configuration.MaximumConcurrency,
-                    RequestTimeoutMs = configuration.RequestTimeoutMs,
-                    RequiredAcks = configuration.RequiredAcks,
-                    Seeds = configuration.Seeds,
-                    SendBufferSize = configuration.SendBufferSize,
-                    TaskScheduler = configuration.TaskScheduler
-                };
+            {
+                BatchSize = configuration.BatchSize,
+                BufferingTime = configuration.BufferingTime,
+                ClientId = configuration.ClientId,
+                CompressionCodec = configuration.CompressionCodec,
+                ErrorStrategy = configuration.ErrorStrategy,
+                MaxBufferedMessages = configuration.MaxBufferedMessages,
+                MessageTtl = configuration.MessageTtl,
+                ReceiveBufferSize = configuration.ReceiveBufferSize,
+                MaximumConcurrency = configuration.MaximumConcurrency,
+                RequestTimeoutMs = configuration.RequestTimeoutMs,
+                RequiredAcks = configuration.RequiredAcks,
+                Seeds = configuration.Seeds,
+                SendBufferSize = configuration.SendBufferSize,
+                TaskScheduler = configuration.TaskScheduler
+            };
             if (configuration.TaskScheduler == TaskScheduler.Default && configuration.MaximumConcurrency > 0)
             {
                 configuration.TaskScheduler = new ActionBlockTaskScheduler(configuration.MaximumConcurrency);
             }
+            return configuration;
+        }
+
+        public Cluster(Configuration configuration, ILogger logger)
+            : this(CloneConfig(configuration), logger, null)
+        {
+        }
+
+        internal Cluster(Configuration configuration, ILogger logger, Kafka.Cluster.Cluster cluster)
+        {
             _configuration = configuration;
             _logger = logger;
-            _cluster = new Kafka.Cluster.Cluster(configuration, logger);
+            _cluster = cluster ?? new Kafka.Cluster.Cluster(configuration, logger);
             _cluster.InternalError += e => _logger.LogError("Cluster internal error: " + e);
             _cluster.Start();
         }
