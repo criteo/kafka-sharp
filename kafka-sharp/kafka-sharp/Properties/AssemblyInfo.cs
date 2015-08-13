@@ -37,5 +37,6 @@ using System.Runtime.InteropServices;
 
 // For testing purpose
 [assembly: InternalsVisibleTo("kafka-sharp.UTest")]
+[assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]
 
 

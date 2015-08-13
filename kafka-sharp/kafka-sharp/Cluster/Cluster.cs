@@ -127,7 +127,7 @@ namespace Kafka.Cluster
         public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, RouterFactory routerFactory)
         {
             _seeds = configuration.Seeds;
-            
+
             Logger = logger;
 
             ProduceRouter = routerFactory != null ? routerFactory() : new ProduceRouter(this, new Configuration());
@@ -158,7 +158,7 @@ namespace Kafka.Cluster
                                      serializer,
                                      configuration).SetResolution(_resolution));
             _nodeFactory = DecorateFactory(_nodeFactory);
-            
+
             _agent = new ActionBlock<ClusterMessage>(r => ProcessMessage(r));
 
             // Bootstrap

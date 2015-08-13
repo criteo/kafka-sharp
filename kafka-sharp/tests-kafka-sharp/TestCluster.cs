@@ -1,4 +1,7 @@
-﻿using System.Threading;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
 using Kafka.Protocol;
@@ -6,93 +9,392 @@ using Kafka.Public;
 using Kafka.Routing;
 using NUnit.Framework;
 using Cluster = Kafka.Cluster.Cluster;
+using Moq;
 
 namespace tests_kafka_sharp
 {
     [TestFixture]
     class TestCluster
     {
-        
+        private Mock<INode>[] _nodeMocks;
+        private readonly Mock<IProduceRouter> _routerMock = new Mock<IProduceRouter>();
+        private RoutingTable _routingTable;
+        private AsyncCountdownEvent _finished;
 
-        void AssertRouting(RoutingTable routing)
+        private Cluster _cluster;
+        private int _errors;
+
+        [SetUp]
+        public void Setup()
         {
-            var p1 = routing.GetPartitions("topic1");
-            var p2 = routing.GetPartitions("topic2");
-            var p3 = routing.GetPartitions("topic3");
-            var e1 = routing.GetPartitions("error1");
-            var e2 = routing.GetPartitions("error2");
+            _nodeMocks = new[]
+            {
+                GenerateNodeMock(1),
+                GenerateNodeMock(2),
+                GenerateNodeMock(3),
+                GenerateNodeMock(4)
+            };
 
-            Assert.NotNull(p1);
-            Assert.NotNull(p2);
-            Assert.NotNull(p3);
-            Assert.NotNull(e1);
-            Assert.NotNull(e2);
+            _finished = null;
+            _routingTable = null;
 
-            Assert.AreEqual(0, e1.Length);
+            _routerMock.Setup(r => r.Stop()).Returns(Task.FromResult(new Void()));
+            _routerMock.Setup(r => r.ChangeRoutingTable(It.IsAny<RoutingTable>())).Callback<RoutingTable>( r =>
+            {
+                _routingTable = r;
+                if(_finished != null)
+                    _finished.Signal();
+            });
 
-            Assert.AreEqual(1, e2.Length);
-            Assert.IsNotNull(e2[0].Leader);
-            Assert.AreEqual(2, e2[0].Id);
+            _cluster = new Cluster(new Configuration {Seeds = "localhost:1"}, new DevNullLogger(),
+                                   (h, p) => _nodeMocks[p - 1].Object,
+                                   () => _routerMock.Object);
+            _errors = 0;
+            _cluster.InternalError += _ => ++_errors;
+        }
 
-            Assert.AreEqual(1, p1.Length);
-            Assert.IsNotNull(p1[0].Leader);
-            Assert.AreEqual(1, p1[0].Id);
+        private Mock<INode> GenerateNodeMock(int port)
+        {
+            var nodeMock = new Mock<INode>();
+            nodeMock.Setup(n => n.Name).Returns("localhost:" + port);
+            nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(TestData.TestMetadataResponse));
+            nodeMock.Setup(n => n.Stop()).Returns(Task.FromResult(true));
+            return nodeMock;
+        }
 
-            Assert.AreEqual(2, p2.Length);
-            Assert.IsNotNull(p2[0].Leader);
-            Assert.AreEqual(1, p2[0].Id);
-            Assert.IsNotNull(p2[1].Leader);
-            Assert.AreEqual(2, p2[1].Id);
+        void AssertDefaultRouting(RoutingTable routing)
+        {
+            var defaultRoutingTable = new RoutingTable(new Dictionary<string, Partition[]>
+                {
+                    {"topic1", new[] {new Partition {Id = 1, Leader = _nodeMocks[0].Object}}},
+                    {"topic2", new[]
+                    {
+                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object}
+                    }},
+                    {"topic3", new[]
+                    {
+                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object},
+                        new Partition {Id = 3, Leader = _nodeMocks[2].Object},
+                    }},
+                    {"error2", new[] {new Partition {Id = 2, Leader = _nodeMocks[1].Object}}}
+                });
 
-            Assert.AreEqual(3, p3.Length);
-            Assert.IsNotNull(p3[0].Leader);
-            Assert.AreEqual(1, p3[0].Id);
-            Assert.IsNotNull(p3[1].Leader);
-            Assert.AreEqual(2, p3[1].Id);
-            Assert.IsNotNull(p3[2].Leader);
-            Assert.AreEqual(3, p3[2].Id);
+            AssertRouting(defaultRoutingTable, routing);
+        }
 
-            Assert.AreSame(p1[0].Leader, p2[0].Leader);
-            Assert.AreSame(p2[1].Leader, p3[1].Leader);
-            Assert.AreNotSame(p2[1].Leader, p3[2].Leader);
-            Assert.AreNotSame(p1[0].Leader, p3[2].Leader);
+        void AssertRouting(RoutingTable routing, RoutingTable expectedRoutingTable)
+        {
+            var topics = TestData.TestMetadataResponse.TopicsMeta.Select(t => t.TopicName);
+            AssertRoutingTablesAreEqual(expectedRoutingTable, routing, topics);
+        }
+
+        void AssertRoutingTablesAreEqual(RoutingTable expectedRoutingTable, RoutingTable routingTable, IEnumerable<string> topics)
+        {
+            foreach (var topic in topics)
+            {
+                var expectedPartitions = expectedRoutingTable.GetPartitions(topic);
+                var partitions = routingTable.GetPartitions(topic);
+                Assert.AreEqual(expectedPartitions.Length, partitions.Length);
+
+                for (int i = 0; i < expectedPartitions.Length; i++)
+                {
+                    Assert.AreEqual(expectedPartitions[i].Id, partitions[i].Id);
+                    Assert.AreEqual(expectedPartitions[i].Leader.Name, partitions[i].Leader.Name);
+                }
+            }
+        }
+
+        private void AssertStatistics(Statistics statistics, int successfulSent = 0, int requestSent = 0, int responseReceived = 0, int errors = 0,
+            int nodeDead = 0, int expired = 0, int discarded = 0, int exit = 0)
+        {
+            Assert.AreEqual(successfulSent, statistics.SuccessfulSent);
+            Assert.AreEqual(requestSent, statistics.RequestSent);
+            Assert.AreEqual(responseReceived, statistics.ResponseReceived);
+            Assert.AreEqual(errors, statistics.Errors);
+            Assert.AreEqual(nodeDead, statistics.NodeDead);
+            Assert.AreEqual(expired, statistics.Expired);
+            Assert.AreEqual(discarded, statistics.Discarded);
+            Assert.AreEqual(exit, statistics.Exit);
         }
 
         [Test]
         public async Task TestFetchRoutingTable()
         {
-            int errors = 0;
-            var cluster = new Cluster(new Configuration {Seeds = "localhost:1"}, new DevNullLogger(),
-                                      (h, p) => new NodeMock(TestData.TestMetadataResponse),
-                                      () => new ProduceRouterMock());
-            cluster.InternalError += _ => ++errors;
-            cluster.Start();
-            var routing = await cluster.RequireNewRoutingTable();
+            _cluster.Start();
+            var routing = await _cluster.RequireNewRoutingTable();
 
-            Assert.AreEqual(0, errors);
-            AssertRouting(routing);
+            Assert.AreEqual(0, _errors);
+            AssertDefaultRouting(routing);
         }
 
         [Test]
-        public void TestSignalRoutingTable()
+        public async Task TestSignalRoutingTableAfterClusterStart()
         {
-            int errors = 0;
-            var ev = new ManualResetEvent(false);
-            RoutingTable route = null;
-            var router = new ProduceRouterMock();
-            router.OnChangeRouting += r =>
+            _finished = new AsyncCountdownEvent(1);
+            _cluster.Start();
+            await _finished.WaitAsync();
+
+            Assert.AreEqual(0, _errors);
+            AssertDefaultRouting(_routingTable);
+        }
+
+        [Test]
+        public async Task TestDeadNode()
+        {
+            _finished = new AsyncCountdownEvent(1);
+            _cluster.Start();
+            await _finished.WaitAsync();    //wait for metadata to be initialized
+
+            var metadataResponseAfterDeadNodeId1 = new MetadataResponse
+            {
+                BrokersMeta = new[]
+                    {
+                        new BrokerMeta {Id = 1, Host = "localhost", Port = 1},
+                        new BrokerMeta {Id = 2, Host = "localhost", Port = 2},
+                        new BrokerMeta {Id = 3, Host = "localhost", Port = 3}
+                    },
+                TopicsMeta = new[]
+                    {
+                        new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
+                        {
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                        }},
+                        new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
+                        {
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                        }},
+                        new TopicMeta {TopicName = "topic3", ErrorCode = ErrorCode.NoError, Partitions = new []
+                        {
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
+                        }},
+                        new TopicMeta {TopicName = "error1", ErrorCode = ErrorCode.Unknown, Partitions = new []
+                        {
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                        }},
+                        new TopicMeta {TopicName = "error2", ErrorCode = ErrorCode.NoError, Partitions = new []
+                        {
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                        }},
+                    }
+            };
+
+            foreach (var nodeMock in _nodeMocks)
+            {
+                nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(metadataResponseAfterDeadNodeId1));
+            }
+
+            _finished = new AsyncCountdownEvent(1);
+            _nodeMocks[0].Raise(n => n.Dead += null, _nodeMocks[0].Object);
+            await _finished.WaitAsync();    //wait for metadata to be refreshed
+
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, nodeDead: 1);
+
+            var routingTableAfterDeadNode = new RoutingTable(new Dictionary<string, Partition[]>
                 {
-                    route = r;
-                    ev.Set();
-                };
-            var cluster = new Cluster(new Configuration {Seeds = "localhost:1"}, new DevNullLogger(),
-                                      (h, p) => new NodeMock(TestData.TestMetadataResponse),
-                                      () => router);
-            cluster.InternalError += _ => ++errors;
-            cluster.Start();
-            ev.WaitOne();
-            Assert.AreEqual(0, errors);
-            AssertRouting(route);
+                    {"topic2", new[]
+                    {
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object}
+                    }},
+                    {"topic3", new[]
+                    {
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object},
+                        new Partition {Id = 3, Leader = _nodeMocks[2].Object},
+                    }},
+                    {"error2", new[] {new Partition {Id = 2, Leader = _nodeMocks[1].Object}}}
+                });
+
+            AssertRouting(_routingTable, routingTableAfterDeadNode);
+        }
+
+        [Test]
+        public async Task TestConnectionError()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.ConnectionError += null, _nodeMocks[0].Object, null);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, errors: 1);
+        }
+
+        [Test]
+        public async Task TestDecodeError()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.DecodeError += null, _nodeMocks[0].Object, null);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, errors: 1);
+        }
+
+        [Test]
+        public async Task TestRequestSent()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.RequestSent += null, _nodeMocks[0].Object);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, requestSent: 1);
+        }
+
+        [Test]
+        public async Task TestResponseReceived()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.ResponseReceived += null, _nodeMocks[0].Object);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, responseReceived: 1);
+        }
+
+        [Test]
+        public async Task TestMessageExpired()
+        {
+            _cluster.Start();
+            _routerMock.Raise(r => r.MessageExpired += null, "testTopic");
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, expired: 1, exit: 1);
+        }
+
+        [Test]
+        public async Task TestMessagesAcknowledged()
+        {
+            _cluster.Start();
+            const int messagesAcknowledged = 2;
+            _routerMock.Raise(r => r.MessagesAcknowledged += null, "testTopic", messagesAcknowledged);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, successfulSent: messagesAcknowledged, exit: messagesAcknowledged);
+        }
+
+        [Test]
+        public async Task TestMessagesDiscarded()
+        {
+            _cluster.Start();
+            const int messagesDiscarded = 3;
+            _routerMock.Raise(r => r.MessagesDiscarded += null, "testTopic", messagesDiscarded);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, discarded: messagesDiscarded, exit: messagesDiscarded);
+        }
+
+        [Test]
+        public async Task TestProduceAcknowledgement()
+        {
+            _cluster.Start();
+            var pa = new ProduceAcknowledgement();
+            _nodeMocks[0].Raise(n => n.ProduceAcknowledgement += null, _nodeMocks[0].Object, pa);
+
+            await _cluster.Stop();
+            _routerMock.Verify(r => r.Acknowledge(pa));
+
+            Assert.AreEqual(0, _errors);
+        }
+
+        [Test]
+        public async Task TestNewNodeInMetadataResponse()
+        {
+            _finished = new AsyncCountdownEvent(1);
+            _cluster.Start();
+            await _finished.WaitAsync();    //wait for metadata to be initialized
+
+            var metadataResponseWithNewNodeId4 = new MetadataResponse
+            {
+                BrokersMeta = new[]
+                {
+                    new BrokerMeta {Id = 1, Host = "localhost", Port = 1},
+                    new BrokerMeta {Id = 2, Host = "localhost", Port = 2},
+                    new BrokerMeta {Id = 3, Host = "localhost", Port = 3},
+                    new BrokerMeta {Id = 4, Host = "localhost", Port = 4}
+                },
+                    TopicsMeta = new[]
+                {
+                    new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
+                    {
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                    }},
+                    new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
+                    {
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                    }},
+                    new TopicMeta {TopicName = "topic3", ErrorCode = ErrorCode.NoError, Partitions = new []
+                    {
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 4, Leader = 4}
+                    }},
+                    new TopicMeta {TopicName = "error1", ErrorCode = ErrorCode.Unknown, Partitions = new []
+                    {
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                    }},
+                    new TopicMeta {TopicName = "error2", ErrorCode = ErrorCode.NoError, Partitions = new []
+                    {
+                        new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                    }},
+                }
+            };
+
+            foreach (var nodeMock in _nodeMocks)
+            {
+                nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(metadataResponseWithNewNodeId4));
+            }
+
+            var routing = await _cluster.RequireNewRoutingTable();
+
+            Assert.AreEqual(0, _errors);
+
+            var routingTableAfterNewNode = new RoutingTable(new Dictionary<string, Partition[]>
+                {
+                    {"topic1", new[] {new Partition {Id = 1, Leader = _nodeMocks[0].Object}}},
+                    {"topic2", new[]
+                    {
+                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object}
+                    }},
+                    {"topic3", new[]
+                    {
+                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object},
+                        new Partition {Id = 3, Leader = _nodeMocks[2].Object},
+                        new Partition {Id = 4, Leader = _nodeMocks[3].Object},
+                    }},
+                    {"error2", new[] {new Partition {Id = 2, Leader = _nodeMocks[1].Object}}}
+                });
+
+            AssertRouting(routing, routingTableAfterNewNode);
+        }
+
+        [Test]
+        public async Task TestInternalError()
+        {
+            var tcs = new TaskCompletionSource<MetadataResponse>();
+            tcs.SetException(new Exception("testEx"));
+            foreach (var nodeMock in _nodeMocks)
+            {
+                nodeMock.Setup(n => n.FetchMetadata()).Returns(tcs.Task);
+            }
+
+            _cluster.Start();
+            await _cluster.Stop();
+
+            Assert.AreEqual(1, _errors);
         }
     }
 }
