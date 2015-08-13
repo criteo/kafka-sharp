@@ -2,11 +2,13 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Reactive.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Common;
 using Kafka.Protocol;
+using Kafka.Routing;
 
 namespace Kafka.Public
 {
@@ -50,20 +52,28 @@ namespace Kafka.Public
         /// </summary>
         public long Discarded { get; internal set; }
 
+        /// <summary>
+        /// Number of produce request that have exited the system either successful, discard or expired.
+        /// </summary>
         public long Exit { get; internal set; }
+
+        /// <summary>
+        /// Number of received messages.
+        /// </summary>
+        public long Received { get; internal set; }
 
         public override string ToString()
         {
             return string.Format(
-                "{{Messages successfully sent: {0} - Requests sent: {1} - Responses received: {2} - Errors: {3} - Dead nodes: {4} - Expired: {5} - Discarded: {6} - Exit: {7}}}",
-                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exit);
+                "{{Messages successfully sent: {0} - Messages received: {8} - Requests sent: {1} - Responses received: {2} - Errors: {3} - Dead nodes: {4} - Expired: {5} - Discarded: {6} - Exit: {7}}}",
+                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exit, Received);
         }
     }
 
     /// <summary>
     /// Cluster public interface, so you may mock it.
     /// </summary>
-    public interface ICluster : IDisposable
+    public interface IClusterClient : IDisposable
     {
         /// <summary>
         /// Send a string as Kafka message. The string will be UTF8 encoded.
@@ -96,6 +106,76 @@ namespace Kafka.Public
         void Produce(string topic, byte[] key, byte[] data);
 
         /// <summary>
+        /// Consume messages from the given topic, from all partitions, and starting from
+        /// the oldest available message.
+        /// </summary>
+        /// <param name="topic"></param>
+        void ConsumeFromEarliest(string topic);
+
+        /// <summary>
+        /// Consume messages form the given topic, from all partitions, starting from new messages.
+        /// </summary>
+        /// <param name="topic"></param>
+        void ConsumeFromLatest(string topic);
+
+        /// <summary>
+        /// Consume messages from the given topic / partition,  starting from
+        /// the oldest available message.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        void ConsumeFromEarliest(string topic, int partition);
+
+        /// <summary>
+        /// Consume messages from the given topic / partition,  starting from
+        /// new messages.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        void ConsumeFromLatest(string topic, int partition);
+
+        /// <summary>
+        /// Consume messages from the given topic / partition, starting from the given offset.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <param name="offset"></param>
+        void Consume(string topic, int partition, long offset);
+
+        /// <summary>
+        /// Stop consuming messages from the given topic, effective immediately.
+        /// </summary>
+        /// <param name="topic"></param>
+        void StopConsume(string topic);
+
+        /// <summary>
+        /// Stop consuming messages from the given topic / partition, effective immediately.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        void StopConsume(string topic, int partition);
+
+        /// <summary>
+        /// Stop consuming messages from the given topic / partition once the given offset
+        /// has been reached.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <param name="offset"></param>
+        void StopConsume(string topic, int partition, long offset);
+
+        /// <summary>
+        /// Messages received from the brokers.
+        /// </summary>
+        event Action<KafkaRecord> MessageReceived;
+
+        /// <summary>
+        /// The stream of received messages. Use this if you prefer using Reactive Extensions
+        /// to manipulate streams of messages.
+        /// </summary>
+        IObservable<KafkaRecord> Messages { get; }
+
+        /// <summary>
         /// Current statistics if the cluster.
         /// </summary>
         Statistics Statistics { get; }
@@ -106,9 +186,13 @@ namespace Kafka.Public
         Task Shutdown();
     }
 
-    public class Cluster : ICluster
+    /// <summary>
+    /// The public Kafka cluster representation. All operations goes through this class.
+    ///
+    /// </summary>
+    public class ClusterClient : IClusterClient
     {
-        private readonly Kafka.Cluster.Cluster _cluster;
+        private readonly Cluster.Cluster _cluster;
         private readonly Configuration _configuration;
         private readonly ILogger _logger;
 
@@ -138,23 +222,97 @@ namespace Kafka.Public
             return configuration;
         }
 
-        public Cluster(Configuration configuration, ILogger logger)
+        /// <summary>
+        /// This event is raised when a message is consumed. This happen in the context of the
+        /// underlying fetch loop, so you can take advantage of that to throttle the whole system.
+        /// </summary>
+        public event Action<KafkaRecord> MessageReceived = _ => { };
+
+        /// <summary>
+        /// The stream of consumed messages as an Rx stream. By default it is observed in the context
+        /// of the underlying fetch loop, so you can take advantage of that to throttle the whole system
+        /// or you can oberve it on its own scheduler.
+        /// </summary>
+        public IObservable<KafkaRecord> Messages { get; private set; }
+
+        /// <summary>
+        /// Initialize a client to a Kafka cluster.
+        /// </summary>
+        /// <param name="configuration"></param>
+        /// <param name="logger"></param>
+        public ClusterClient(Configuration configuration, ILogger logger)
             : this(CloneConfig(configuration), logger, null)
         {
         }
 
-        internal Cluster(Configuration configuration, ILogger logger, Kafka.Cluster.Cluster cluster)
+        internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster)
         {
             _configuration = configuration;
             _logger = logger;
-            _cluster = cluster ?? new Kafka.Cluster.Cluster(configuration, logger);
+            _cluster = cluster ?? new Cluster.Cluster(configuration, logger);
             _cluster.InternalError += e => _logger.LogError("Cluster internal error: " + e);
+            _cluster.ConsumeRouter.MessageReceived += kr => MessageReceived(kr);
+            Messages = Observable.FromEvent<KafkaRecord>(a => MessageReceived += a, a => MessageReceived -= a);
             _cluster.Start();
         }
 
         public Statistics Statistics
         {
             get { return _cluster.Statistics; }
+        }
+
+        public void ConsumeFromEarliest(string topic)
+        {
+            _cluster.ConsumeRouter.StartConsume(topic, Partition.All.Id, Offsets.Earliest);
+        }
+
+        public void ConsumeFromLatest(string topic)
+        {
+            _cluster.ConsumeRouter.StartConsume(topic, Partition.All.Id, Offsets.Latest);
+        }
+
+        public void ConsumeFromEarliest(string topic, int partition)
+        {
+            if (partition < Partition.All.Id)
+                throw new ArgumentException("Ivalid partition Id", "partition");
+            _cluster.ConsumeRouter.StartConsume(topic, partition, Offsets.Earliest);
+        }
+
+        public void ConsumeFromLatest(string topic, int partition)
+        {
+            if (partition < Partition.All.Id)
+                throw new ArgumentException("Ivalid partition Id", "partition");
+            _cluster.ConsumeRouter.StartConsume(topic, partition, Offsets.Latest);
+        }
+
+        public void Consume(string topic, int partition, long offset)
+        {
+            if (partition < Partition.All.Id)
+                throw new ArgumentException("Ivalid partition Id", "partition");
+            if (offset < Offsets.Earliest)
+                throw new ArgumentException("Invalid offset", "offset");
+            _cluster.ConsumeRouter.StartConsume(topic, partition, offset);
+        }
+
+        public void StopConsume(string topic)
+        {
+            _cluster.ConsumeRouter.StopConsume(topic, Partition.All.Id, Offsets.Now);
+        }
+
+        public void StopConsume(string topic, int partition)
+        {
+            if (partition < 0)
+                throw new ArgumentException("Partition Ids are always positive.", "partition");
+            _cluster.ConsumeRouter.StopConsume(topic, partition, Offsets.Now);
+        }
+
+        public void StopConsume(string topic, int partition, long offset)
+        {
+            if (partition < 0)
+                throw new ArgumentException("Partition Ids are always positive.", "partition");
+            if (offset < 0)
+                throw new ArgumentException("Offsets are always positive.", "offset");
+            _cluster.ConsumeRouter.StopConsume(topic, partition, offset);
         }
 
         public void Produce(string topic, string data)
@@ -196,7 +354,7 @@ namespace Kafka.Public
         {
             try
             {
-                this.Shutdown().Wait();
+                Shutdown().Wait();
             }
             catch (Exception ex)
             {

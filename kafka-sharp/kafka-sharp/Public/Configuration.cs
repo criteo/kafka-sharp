@@ -1,4 +1,4 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
@@ -113,7 +113,7 @@ namespace Kafka.Public
         /// Useful if you want to limit the ressources taken by the driver.
         /// By default we use the default scheduler (which maps to .NET thread pool),
         /// which may induce "busy neighbours" problems in case of high overload.
-        /// 
+        ///
         /// If this is not TaskScheduler.Default, this will always superseed
         /// the MaximumConcurrency variable.
         /// </summary>
@@ -132,5 +132,27 @@ namespace Kafka.Public
         /// By default we never block and the number is unbounded.
         /// </summary>
         public int MaxBufferedMessages = -1;
+
+        /// <summary>
+        /// The maximum amount of time in ms brokers will block before answering fetch requests
+        /// if there isn't sufficient data to immediately satisfy FetchMinBytes
+        /// </summary>
+        public int FetchMaxWaitTime = 100;
+
+        /// <summary>
+        /// The minimum amount of data brokers should return for a fetch request.
+        /// If insufficient data is available the request will wait for that much
+        /// data to accumulate before answering the request.
+        /// </summary>
+        public int FetchMinBytes = 1;
+
+        /// <summary>
+        /// The number of bytes of messages to attempt to fetch for each topic-partition
+        /// in each fetch request. These bytes will be read into memory for each partition,
+        /// so this helps control the memory used by the consumer. The fetch request size
+        /// must be at least as large as the maximum message size the server allows or else
+        /// it is possible for producers to send messages larger than the consumer can fetch.
+        /// </summary>
+        public int FetchMessageMaxBytes = 1024 * 1024;
     }
 }

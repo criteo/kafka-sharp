@@ -1,4 +1,4 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using Kafka.Protocol;
@@ -13,12 +13,12 @@ namespace Kafka.Routing
         /// </summary>
         /// <param name="message">Message to assign to a partition</param>
         /// <param name="partitions">The list of available partitions. IT should not be null.</param>
-        /// <returns>An available partition or null if none found.</returns>
+        /// <returns>An available partition or Partition.None if none found.</returns>
         Partition GetPartition(Message message, Partition[] partitions);
     }
 
     /// <summary>
-    /// rond robin partitioner.
+    /// Round robin partitioner.
     /// </summary>
     class DefaultPartitioner : IPartitioner
     {
@@ -26,7 +26,7 @@ namespace Kafka.Routing
 
         public Partition GetPartition(Message dummy, Partition[] partitions)
         {
-            return partitions.Length == 0 ? null : partitions[(int)(_next++)%partitions.Length];
+            return partitions.Length == 0 ? Partition.None : partitions[(int) (_next++)%partitions.Length];
         }
     }
 }

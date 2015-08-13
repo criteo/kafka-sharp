@@ -255,8 +255,11 @@ namespace Kafka.Routing
         /// <param name="table"></param>
         public void ChangeRoutingTable(RoutingTable table)
         {
-            Interlocked.Exchange(ref _routingTable, table);
-            _messages.Post(RouterMessageType.CheckPostponedFollowingRoutingTableChange);
+            if (_routingTable.LastRefreshed < table.LastRefreshed)
+            {
+                Interlocked.Exchange(ref _routingTable, table);
+                _messages.Post(RouterMessageType.CheckPostponedFollowingRoutingTableChange);
+            }
         }
 
         /// <summary>
@@ -514,7 +517,7 @@ namespace Kafka.Routing
 
             var partition = partitioner.GetPartition(produceMessage.Message, partitions);
 
-            if (partition == null)
+            if (partition.Id == Partition.None.Id)
             {
                 // Messages for topics with no partition available are postponed.
                 // They will be checked again when the routing table is updated.
@@ -589,7 +592,7 @@ namespace Kafka.Routing
             foreach (var tr in produceResponse.TopicsResponse)
             {
                 bool errors = false;
-                foreach (var p in tr.Partitions.Where(p => !Error.IsPartitionOkForProducer(p.ErrorCode)))
+                foreach (var p in tr.Partitions.Where(p => !Error.IsPartitionOkForClients(p.ErrorCode)))
                 {
                     if (!errors)
                     {

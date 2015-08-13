@@ -1,4 +1,4 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
@@ -12,7 +12,7 @@ namespace Kafka.Protocol
 {
     class ProduceRequest
     {
-        public IEnumerable<TopicData> TopicData;
+        public IEnumerable<TopicData<PartitionData>> TopicsData;
         public int Timeout;
         public short RequiredAcks;
 
@@ -25,15 +25,15 @@ namespace Kafka.Protocol
                 Basics.WriteRequestHeader(stream, correlationId, Basics.ApiKey.ProduceRequest, clientId);
                 BigEndianConverter.Write(stream, RequiredAcks);
                 BigEndianConverter.Write(stream, Timeout);
-                Basics.WriteArray(stream, TopicData, SerializeTopicData);
+                Basics.WriteArray(stream, TopicsData, SerializeTopicData);
                 return Basics.WriteMessageLength(stream);
             }
         }
 
         // Dumb trick to minimize closure allocations
-        private static Action<MemoryStream, TopicData> SerializeTopicData = _SerializeTopicData;
+        private static readonly Action<MemoryStream, TopicData<PartitionData>> SerializeTopicData = _SerializeTopicData;
 
-        static void _SerializeTopicData(MemoryStream s, TopicData t)
+        static void _SerializeTopicData(MemoryStream s, TopicData<PartitionData> t)
         {
             t.Serialize(s);
         }
@@ -41,31 +41,7 @@ namespace Kafka.Protocol
         #endregion
     }
 
-    class TopicData
-    {
-        public string TopicName;
-        public IEnumerable<PartitionData> PartitionsData;
-
-        #region Serialization
-
-        public void Serialize(MemoryStream stream)
-        {
-            Basics.SerializeString(stream, TopicName);
-            Basics.WriteArray(stream, PartitionsData, SerializePartitionData);
-        }
-
-        // Dumb trick to minimize closure allocations
-        private static Action<MemoryStream, PartitionData> SerializePartitionData = _SerializePartitionData;
-
-        static void _SerializePartitionData(MemoryStream s, PartitionData p)
-        {
-            p.Serialize(s);
-        }
-
-        #endregion
-    }
-
-    class PartitionData
+    class PartitionData : IMemoryStreamSerializable
     {
         public IEnumerable<Message> Messages;
         public int Partition;
@@ -134,6 +110,11 @@ namespace Kafka.Protocol
         private static void _SerializeMessageWithCodec(MemoryStream stream, Message message, CompressionCodec codec)
         {
             message.Serialize(stream, codec);
+        }
+
+        public void Deserialize(MemoryStream stream)
+        {
+            throw new NotImplementedException();
         }
 
         #endregion

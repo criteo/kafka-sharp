@@ -52,6 +52,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="TestCluster.cs" />
     <Compile Include="TestConnection.cs" />
+    <Compile Include="TestConsumer.cs" />
     <Compile Include="TestGeneral.cs" />
     <Compile Include="TestPartitioner.cs" />
     <Compile Include="TestNode.cs.cs" />

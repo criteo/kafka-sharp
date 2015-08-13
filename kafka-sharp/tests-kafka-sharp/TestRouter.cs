@@ -695,7 +695,8 @@ namespace tests_kafka_sharp
 
             _finished = new AsyncCountdownEvent(6);
             _cluster.Partitions = _routes;
-            _produceRouter.ChangeRoutingTable(new RoutingTable(_routes)); // => 3x Renqueued, 3x Routed
+            // Advance a little the date of the new routing table, to be sure it's greater than the current one
+            _produceRouter.ChangeRoutingTable(new RoutingTable(_routes){LastRefreshed = DateTime.UtcNow.Add(TimeSpan.FromMilliseconds(1))}); // => 3x Renqueued, 3x Routed
             await _finished.WaitAsync();
 
             Assert.AreEqual(2, _messagesSentByTopic["test1p"]);

@@ -5,7 +5,7 @@ namespace Kafka.Protocol
 {
     static class Error
     {
-        public static bool IsPartitionOkForProducer(ErrorCode code)
+        public static bool IsPartitionOkForClients(ErrorCode code)
         {
             return code == ErrorCode.NoError
                    || code == ErrorCode.ReplicaNotAvailable;
@@ -105,5 +105,8 @@ namespace Kafka.Protocol
         MessageSetSizeTooLarge = 18,
         NotEnoughReplicas = 19,
         NotEnoughReplicasAfterAppend = 20,
+
+        // Local error, not from brokers
+        LocalError = -42,
     }
 }

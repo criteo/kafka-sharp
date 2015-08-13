@@ -1,4 +1,4 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
@@ -9,12 +9,16 @@ using Kafka.Common;
 
 namespace Kafka.Protocol
 {
+    interface IMemoryStreamSerializable
+    {
+        void Serialize(MemoryStream stream);
+        void Deserialize(MemoryStream stream);
+    }
+
+
     static class Basics
     {
         public static readonly byte[] MinusOne32 = { 0xff, 0xff, 0xff, 0xff };
-        static readonly byte[] One32 = { 0x00, 0x00, 0x00, 0x01 };
-        static readonly byte[] Two32 = { 0x00, 0x00, 0x00, 0x02 };
-        static readonly byte[] Eight32 = { 0x00, 0x00, 0x00, 0x08 };
         static readonly byte[] MinusOne16 = { 0xff, 0xff };
         static readonly byte[] ApiVersion = { 0x00, 0x00 };
         public static readonly byte[] Zero64 = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
@@ -103,6 +107,22 @@ namespace Kafka.Protocol
             WriteHeader(stream, initPos);
         }
 
+        public static void WriteArray<T>(MemoryStream stream, IEnumerable<T> items) where T : IMemoryStreamSerializable
+        {
+            var sizePosition = stream.Position;
+            stream.Write(MinusOne32, 0, 4); // placeholder for count field
+            var count = 0;
+            foreach (var item in items)
+            {
+                item.Serialize(stream);
+                count++;
+            }
+            var pos = stream.Position; // update count field
+            stream.Position = sizePosition;
+            BigEndianConverter.Write(stream, count);
+            stream.Position = pos;
+        }
+
         public static void WriteArray<T>(MemoryStream stream, IEnumerable<T> items, Action<MemoryStream, T> write)
         {
             var sizePosition = stream.Position;
@@ -135,6 +155,39 @@ namespace Kafka.Protocol
             stream.Position = pos;
             stream.Write(buff, 0, buff.Length);
             stream.Position = currPos;
+        }
+
+        public static TData[] DeserializeArray<TData>(MemoryStream stream) where TData : IMemoryStreamSerializable, new()
+        {
+            var count = BigEndianConverter.ReadInt32(stream);
+            var array = new TData[count];
+            for (int i = 0; i < count; ++i)
+            {
+                array[i] = new TData();
+                array[i].Deserialize(stream);
+            }
+            return array;
+        }
+
+        public static TData[] DeserializeArray<TData>(MemoryStream stream, Func<MemoryStream, TData> dataDeserializer)
+        {
+            var count = BigEndianConverter.ReadInt32(stream);
+            var array = new TData[count];
+            for (int i = 0; i < count; ++i)
+            {
+                array[i] = dataDeserializer(stream);
+            }
+            return array;
+        }
+
+        public static byte[] DeserializeByteArray(MemoryStream stream)
+        {
+            var len = BigEndianConverter.ReadInt32(stream);
+            if (len == -1)
+                return null;
+            var buff = new byte[len];
+            stream.Read(buff, 0, len);
+            return buff;
         }
     }
 }

@@ -25,7 +25,7 @@ namespace tests_kafka_sharp
         public async Task TestMetadataDecodeError()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serializer(new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None),
+                                new Node.Serializer(new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                                 new Configuration());
             Exception ex = null;
             node.DecodeError += (n, e) =>
@@ -58,7 +58,7 @@ namespace tests_kafka_sharp
         public void TestProduceDecodeErrorAreAcknowledged()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serializer(new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None),
+                                new Node.Serializer(new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                                 new Configuration
                                     {
                                         ErrorStrategy = ErrorStrategy.Discard,

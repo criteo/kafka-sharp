@@ -18,6 +18,7 @@ namespace tests_kafka_sharp
     {
         private Mock<INode>[] _nodeMocks;
         private readonly Mock<IProduceRouter> _routerMock = new Mock<IProduceRouter>();
+        private readonly Mock<IConsumeRouter> _consumeMock = new Mock<IConsumeRouter>();
         private RoutingTable _routingTable;
         private AsyncCountdownEvent _finished;
 
@@ -38,6 +39,7 @@ namespace tests_kafka_sharp
             _finished = null;
             _routingTable = null;
 
+            _consumeMock.Setup(c => c.Stop()).Returns(Task.FromResult(new Void()));
             _routerMock.Setup(r => r.Stop()).Returns(Task.FromResult(new Void()));
             _routerMock.Setup(r => r.ChangeRoutingTable(It.IsAny<RoutingTable>())).Callback<RoutingTable>( r =>
             {
@@ -48,7 +50,7 @@ namespace tests_kafka_sharp
 
             _cluster = new Cluster(new Configuration {Seeds = "localhost:1"}, new DevNullLogger(),
                                    (h, p) => _nodeMocks[p - 1].Object,
-                                   () => _routerMock.Object);
+                                   () => _routerMock.Object, () => _consumeMock.Object);
             _errors = 0;
             _cluster.InternalError += _ => ++_errors;
         }
@@ -425,8 +427,19 @@ namespace tests_kafka_sharp
 
             var metadataResponseWithNodes = new MetadataResponse
             {
-                BrokersMeta = new[]                {                    new BrokerMeta {Id = 1, Host = "localhost", Port = 1},                    new BrokerMeta {Id = 2, Host = "localhost", Port = 2}                },
-                TopicsMeta = new[]                {                    new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []                    {                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},                    }}                }
+                BrokersMeta = new[]
+                {
+                    new BrokerMeta {Id = 1, Host = "localhost", Port = 1},
+                    new BrokerMeta {Id = 2, Host = "localhost", Port = 2}
+                },
+                TopicsMeta = new[]
+                {
+                    new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
+                    {
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                    }}
+                }
             };
 
             foreach (var nodeMock in _nodeMocks)
@@ -437,7 +450,14 @@ namespace tests_kafka_sharp
             var routing = await _cluster.RequireNewRoutingTable();
             _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Exactly(2));
 
-            var routingTableWithNodes = new RoutingTable(new Dictionary<string, Partition[]>                {                    {"topic2", new[]                    {                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},                        new Partition {Id = 2, Leader = _nodeMocks[1].Object}                    }}                });
+            var routingTableWithNodes = new RoutingTable(new Dictionary<string, Partition[]>
+                {
+                    {"topic2", new[]
+                    {
+                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object}
+                    }}
+                });
 
             AssertRouting(routing, routingTableWithNodes);
             Assert.AreEqual(0, _errors);
@@ -448,11 +468,17 @@ namespace tests_kafka_sharp
         {
             var metadataResponseWithOneNode = new MetadataResponse
             {
-                BrokersMeta = new[]                {                    new BrokerMeta {Id = 1, Host = "localhost", Port = 1}                },
-                TopicsMeta = new[]                {                    new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
+                BrokersMeta = new[]
+                {
+                    new BrokerMeta {Id = 1, Host = "localhost", Port = 1}
+                },
+                TopicsMeta = new[]
+                {
+                    new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
                     {
                         new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                    }}                }
+                    }}
+                }
             };
 
             foreach (var nodeMock in _nodeMocks)
@@ -495,7 +521,7 @@ namespace tests_kafka_sharp
         {
             Assert.Throws<ArgumentException>(() => new Cluster(new Configuration {Seeds = ""}, new DevNullLogger(),
                                                          (h, p) => _nodeMocks[p - 1].Object,
-                                                         () => _routerMock.Object));
+                                                         () => _routerMock.Object, () => _consumeMock.Object));
         }
     }
 }

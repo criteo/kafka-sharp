@@ -72,6 +72,9 @@
     <Compile Include="Network\Connection.cs" />
     <Compile Include="Common\Crc32.cs" />
     <Compile Include="Protocol\Basics.cs" />
+    <Compile Include="Protocol\CommonResponse.cs" />
+    <Compile Include="Protocol\FetchRequest.cs" />
+    <Compile Include="Protocol\FetchResponse.cs" />
     <Compile Include="Protocol\Metadata.cs" />
     <Compile Include="Cluster\Node.cs" />
     <Compile Include="Common\BigEndianConverter.cs" />
@@ -79,12 +82,17 @@
     <Compile Include="Protocol\Errors.cs" />
     <Compile Include="Protocol\Message.cs" />
     <Compile Include="Protocol\MetadataResponse.cs" />
+    <Compile Include="Protocol\OffsetRequest.cs" />
+    <Compile Include="Protocol\OffsetResponse.cs" />
     <Compile Include="Protocol\ProduceRequest.cs" />
     <Compile Include="Protocol\ProduceResponse.cs" />
+    <Compile Include="Protocol\TopicData.cs" />
     <Compile Include="Protocol\TopicRequest.cs" />
     <Compile Include="Public\Cluster.cs" />
     <Compile Include="Public\Configuration.cs" />
     <Compile Include="Public\ILogger.cs" />
+    <Compile Include="Public\KafkaRecord.cs" />
+    <Compile Include="Routing\ConsumerRouter.cs" />
     <Compile Include="Routing\Partitioner.cs" />
     <Compile Include="Routing\ProducerRouter.cs" />
     <Compile Include="Routing\RoutingTable.cs" />

@@ -8,14 +8,13 @@ using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
 using NUnit.Framework;
-using Cluster = Kafka.Public.Cluster;
 
 namespace tests_kafka_sharp
 {
     [TestFixture]
     internal class TestGeneral
     {
-        private Cluster InitCluster(Configuration configuration, ILogger logger, MetadataResponse metadata, bool forceErrors = false, bool forceConnectionErrors = false)
+        private ClusterClient InitCluster(Configuration configuration, ILogger logger, MetadataResponse metadata, bool forceErrors = false, bool forceConnectionErrors = false)
         {
             TestData.Reset();
             var cluster = new Kafka.Cluster.Cluster(
@@ -24,8 +23,8 @@ namespace tests_kafka_sharp
                 (h, p) =>
                     new Node(string.Format("[{0}:{1}]", h, p), () => new EchoConnectionMock(forceConnectionErrors),
                         new ScenarioSerializerMock(metadata, forceErrors), configuration).SetResolution(1),
-                null);
-            return new Cluster(configuration, logger, cluster);
+                null, null);
+            return new ClusterClient(configuration, logger, cluster);
         }
 
         [Test]

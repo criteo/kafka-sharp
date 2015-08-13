@@ -14,6 +14,49 @@ using ICluster = Kafka.Cluster.ICluster;
 
 namespace tests_kafka_sharp
 {
+    /// <summary>
+    /// Provides a task scheduler that runs tasks on the current thread.
+    /// Taken from Microsoft Parallel Samples. Very useful when testing,
+    /// however see the remark below on MaximumConcurrencyLevel to be
+    /// aware of limitations.
+    /// </summary>
+    public sealed class CurrentThreadTaskScheduler : TaskScheduler
+    {
+        /// <summary>Runs the provided Task synchronously on the current thread.</summary>
+        /// <param name="task">The task to be executed.</param>
+        protected override void QueueTask(Task task)
+        {
+            TryExecuteTask(task);
+        }
+
+        /// <summary>Runs the provided Task synchronously on the current thread.</summary>
+        /// <param name="task">The task to be executed.</param>
+        /// <param name="taskWasPreviouslyQueued">Whether the Task was previously queued to the scheduler.</param>
+        /// <returns>True if the Task was successfully executed; otherwise, false.</returns>
+        protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued)
+        {
+            return TryExecuteTask(task);
+        }
+
+        /// <summary>Gets the Tasks currently scheduled to this scheduler.</summary>
+        /// <returns>An empty enumerable, as Tasks are never queued, only executed.</returns>
+        protected override IEnumerable<Task> GetScheduledTasks()
+        {
+            return Enumerable.Empty<Task>();
+        }
+
+        /// <summary>
+        /// Gets the maximum degree of parallelism for this scheduler. It's supposed
+        /// to be 1 but this is actually false: if multiple threads make multiple
+        /// calls through the scheduler at the same time you will end up
+        /// with concurrency > 1. You must be aware of that because it may break behaviour
+        /// in some cases when using this as a scheduler for actors (in particular it may
+        /// not cope well with tests that involve timers running in the background as is the
+        /// case in Postpone logic in Producer / Consumer). Be very careful.
+        /// </summary>
+        public override int MaximumConcurrencyLevel { get { return 1; } }
+    }
+
     struct Void {}
 
     static class TestData
@@ -111,7 +154,22 @@ namespace tests_kafka_sharp
             return true;
         }
 
+        public bool Fetch(FetchMessage message)
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool Offset(OffsetMessage message)
+        {
+            throw new NotImplementedException();
+        }
+
         public Task<MetadataResponse> FetchMetadata()
+        {
+            return Task.FromResult(_response);
+        }
+
+        public Task<MetadataResponse> FetchMetadata(string topic)
         {
             return Task.FromResult(_response);
         }
@@ -128,7 +186,8 @@ namespace tests_kafka_sharp
         public event Action<INode> Dead = _ => { };
         public event Action<INode> Connected = _ => { };
         public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
-
+        public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement;
+        public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
         public event Action<string> MessageReceived = _ => { };
     }
 
@@ -150,6 +209,11 @@ namespace tests_kafka_sharp
         public Statistics Statistics
         {
             get { return new Statistics(); }
+        }
+
+        public Task<int[]> RequireAllPartitionsForTopic(string topic)
+        {
+            throw new NotImplementedException();
         }
     }
 
@@ -317,6 +381,16 @@ namespace tests_kafka_sharp
             return new byte[0];
         }
 
+        public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+        {
+            return new byte[0];
+        }
+
+        public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+        {
+            return new byte[0];
+        }
+
         public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
         {
             return new ProduceResponse();
@@ -325,6 +399,11 @@ namespace tests_kafka_sharp
         public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
         {
             return new MetadataResponse();
+        }
+
+        public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId, byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
+        {
+            return new CommonResponse<TPartitionResponse>();
         }
     }
 
@@ -347,6 +426,16 @@ namespace tests_kafka_sharp
             return new byte[0];
         }
 
+        public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+        {
+            return new byte[0];
+        }
+
+        public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+        {
+            return new byte[0];
+        }
+
         public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
         {
             throw new NotImplementedException();
@@ -355,6 +444,12 @@ namespace tests_kafka_sharp
         public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
         {
             return _metadataResponse;
+        }
+
+        public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
+            byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
         }
     }
 
@@ -377,12 +472,28 @@ namespace tests_kafka_sharp
             throw new NotImplementedException();
         }
 
+        public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+        {
+            return new byte[0];
+        }
+
+        public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+        {
+            return new byte[0];
+        }
+
         public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
         {
             return _produceResponse;
         }
 
         public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        {
+            throw new NotImplementedException();
+        }
+
+        public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
+            byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             throw new NotImplementedException();
         }
@@ -449,6 +560,16 @@ namespace tests_kafka_sharp
             return new byte[0];
         }
 
+        public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+        {
+            return new byte[0];
+        }
+
+        public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+        {
+            return new byte[0];
+        }
+
         public byte[] SerializeMetadataAllRequest(int correlationId)
         {
             return new byte[0];
@@ -464,6 +585,12 @@ namespace tests_kafka_sharp
         public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
         {
             return _metadataResponse;
+        }
+
+        public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
+            byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
         }
     }
 

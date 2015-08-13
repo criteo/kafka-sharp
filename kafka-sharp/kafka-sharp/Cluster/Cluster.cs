@@ -16,12 +16,28 @@ using Kafka.Routing;
 
 namespace Kafka.Cluster
 {
-    using RouterFactory = Func<IProduceRouter>;
+    using ProducerFactory = Func<IProduceRouter>;
+    using ConsumerFactory = Func<IConsumeRouter>;
     using NodeFactory = Func<string, int, INode>;
 
+    /// <summary>
+    /// Interface to a physical Kafka cluster.
+    /// </summary>
     interface ICluster
     {
+        /// <summary>
+        /// Ask for the current routing table.
+        /// </summary>
         Task<RoutingTable> RequireNewRoutingTable();
+
+        /// <summary>
+        /// Ask for the partitions of a given topic.
+        /// </summary>
+        Task<int[]> RequireAllPartitionsForTopic(string topic);
+
+        /// <summary>
+        /// Get the current statistics of the cluster.
+        /// </summary>
         Statistics Statistics { get; }
     }
 
@@ -42,9 +58,13 @@ namespace Kafka.Cluster
 
     class Cluster : ICluster
     {
+        /// <summary>
+        /// Message types of the inner actor.
+        /// </summary>
         enum MessageType
         {
             Metadata,
+            TopicMetadata,
             NodeEvent
         }
 
@@ -55,6 +75,9 @@ namespace Kafka.Cluster
             public TaskCompletionSource<RoutingTable> Promise;
 
             [FieldOffset(0)]
+            public Tuple<TaskCompletionSource<int[]>, string> TopicPromise;
+
+            [FieldOffset(0)]
             public Action NodeEventProcessing;
         }
 
@@ -62,20 +85,22 @@ namespace Kafka.Cluster
         {
             public MessageType MessageType;
             public MessageValue MessageValue;
+            // TODO: add timestamp and use it to avoid send a request when result is more recent
         }
 
         private readonly NodeFactory _nodeFactory;
         private readonly Dictionary<INode, BrokerMeta> _nodes = new Dictionary<INode, BrokerMeta>();
         private readonly Dictionary<int, INode> _nodesById = new Dictionary<int, INode>();
         private readonly Dictionary<string, INode> _nodesByHostPort = new Dictionary<string, INode>();
-        private readonly ActionBlock<ClusterMessage> _agent;
+        private readonly ActionBlock<ClusterMessage> _agent; // inner actor
         private readonly Random _random = new Random((int)(DateTime.Now.Ticks & 0xffffffff));
-        private readonly string _seeds;
+        private readonly string _seeds; // Addresses of the nodes to use for bootstrapping the cluster
 
-        private Timer _refreshMetadataTimer;
-        private bool _started;
-        private RoutingTable _routingTable;
+        private Timer _refreshMetadataTimer; // Timer for periodic checking of metadata
+        private RoutingTable _routingTable; // The current routing table
+        private bool _started; // Cluster is active
 
+        // Statistics
         private long _successfulSent;
         private long _requestsSent;
         private long _responseReceived;
@@ -84,6 +109,7 @@ namespace Kafka.Cluster
         private long _expired;
         private long _discarded;
         private long _exited;
+        private long _received;
         private double _resolution = 1000.0;
 
         public Statistics Statistics
@@ -99,36 +125,39 @@ namespace Kafka.Cluster
                     NodeDead = _nodeDead,
                     Expired = _expired,
                     Discarded = _discarded,
-                    Exit = _exited
+                    Exit = _exited,
+                    Received = _received
                 };
             }
         }
 
         public IProduceRouter ProduceRouter { get; private set; }
+        public IConsumeRouter ConsumeRouter { get; private set; }
         public ILogger Logger { get; private set; }
 
         public event Action<Exception> InternalError = _ => { };
+        internal event Action<RoutingTable> RoutingTableChange = _ => { };
 
         internal long PassedThrough
         {
             get { return _exited; }
         }
 
-        public Cluster() : this(new Configuration(), new DevNullLogger(), null, null)
+        public Cluster() : this(new Configuration(), new DevNullLogger(), null, null, null)
         {
         }
 
-        public Cluster(Configuration configuration, ILogger logger) : this(configuration, logger, null, null)
+        public Cluster(Configuration configuration, ILogger logger) : this(configuration, logger, null, null, null)
         {
         }
 
-        public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, RouterFactory routerFactory)
+        public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, ProducerFactory producerFactory, ConsumerFactory consumerFactory)
         {
             _seeds = configuration.Seeds;
-
             Logger = logger;
 
-            ProduceRouter = routerFactory != null ? routerFactory() : new ProduceRouter(this, configuration);
+            // Producer init
+            ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration);
             ProduceRouter.MessageExpired += _ =>
             {
                 Interlocked.Increment(ref _expired);
@@ -144,10 +173,22 @@ namespace Kafka.Cluster
                 Interlocked.Add(ref _discarded, c);
                 Interlocked.Add(ref _exited, c);
             };
+            RoutingTableChange += ProduceRouter.ChangeRoutingTable;
 
+            // Consumer init
+            ConsumeRouter = consumerFactory != null ? consumerFactory() : new ConsumeRouter(this, configuration);
+            ConsumeRouter.MessageReceived += _ => Interlocked.Increment(ref _received);
+            if (ConsumeRouter is ConsumeRouter)
+            {
+                (ConsumeRouter as ConsumeRouter).InternalError +=
+                    ex => Logger.LogError("An unexpected error occured in the consumer: " + ex);
+            }
+            RoutingTableChange += ConsumeRouter.ChangeRoutingTable;
+
+            // Node factory
             var clientId = Encoding.UTF8.GetBytes(configuration.ClientId);
             var serializer = new Node.Serializer(clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
-                                                 configuration.CompressionCodec);
+                                                 configuration.CompressionCodec, configuration.FetchMinBytes, configuration.FetchMaxWaitTime);
             _nodeFactory = nodeFactory ??
                            ((h, p) =>
                             new Node(string.Format("[{0}:{1}]", h, p),
@@ -157,6 +198,7 @@ namespace Kafka.Cluster
                                      configuration).SetResolution(_resolution));
             _nodeFactory = DecorateFactory(_nodeFactory);
 
+            // Inner actor
             _agent = new ActionBlock<ClusterMessage>(r => ProcessMessage(r));
 
             // Bootstrap
@@ -194,6 +236,8 @@ namespace Kafka.Cluster
             node.Connected +=
                 n => OnNodeEvent(() => Logger.LogInformation(string.Format("Connected to {0}", GetNodeName(n))));
             node.ProduceAcknowledgement += (n, ack) => ProduceRouter.Acknowledge(ack);
+            node.FetchAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
+            node.OffsetAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             return node;
         }
 
@@ -276,6 +320,7 @@ namespace Kafka.Cluster
         {
             if (!_started) return;
             _refreshMetadataTimer.Dispose();
+            await ConsumeRouter.Stop();
             await ProduceRouter.Stop();
             _agent.Complete();
             await _agent.Completion;
@@ -297,6 +342,17 @@ namespace Kafka.Cluster
             return promise.Task;
         }
 
+        public Task<int[]> RequireAllPartitionsForTopic(string topic)
+        {
+            var promise = new TaskCompletionSource<int[]>();
+            _agent.Post(new ClusterMessage
+            {
+                MessageType = MessageType.TopicMetadata,
+                MessageValue = new MessageValue { TopicPromise = Tuple.Create(promise, topic) }
+            });
+            return promise.Task;
+        }
+
         private void CheckNoMoreNodes()
         {
             if (_nodes.Count == 0)
@@ -306,6 +362,7 @@ namespace Kafka.Cluster
             }
         }
 
+        // Remove the node from current nodes and refresh the metadata.
         private void ProcessDeadNode(INode deadNode)
         {
             Interlocked.Increment(ref _nodeDead);
@@ -324,6 +381,7 @@ namespace Kafka.Cluster
             RefreshMetadata();
         }
 
+        // TODO: split this function
         private async Task ProcessMessage(ClusterMessage message)
         {
             // Event occured on a node
@@ -333,7 +391,37 @@ namespace Kafka.Cluster
                 return;
             }
 
-            // Metadata required
+            // Single topic metadata, this is for the consumer
+            if (message.MessageType == MessageType.TopicMetadata)
+            {
+                var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
+                try
+                {
+                    var promise = message.MessageValue.TopicPromise.Item1;
+                    var topic = message.MessageValue.TopicPromise.Item2;
+                    var response = await node.FetchMetadata(topic);
+                    promise.SetResult(
+                        response.TopicsMeta.First(t => t.TopicName == topic).Partitions.Select(p => p.Id).ToArray());
+                }
+                catch (OperationCanceledException ex)
+                {
+                    if (message.MessageValue.TopicPromise != null)
+                    {
+                        message.MessageValue.TopicPromise.Item1.SetException(ex);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (message.MessageValue.TopicPromise != null)
+                    {
+                        message.MessageValue.TopicPromise.Item1.SetCanceled();
+                    }
+                    InternalError(ex);
+                }
+                return;
+            }
+
+            // Full metadata required
             try
             {
                 Logger.LogInformation("Fetching metadata...");
@@ -351,14 +439,11 @@ namespace Kafka.Cluster
                                                                                           pm.ErrorCode)))));
                 ResponseToTopology(response);
                 ResponseToRoutingTable(response);
-                if (message.MessageValue.Promise == null)
-                {
-                    ProduceRouter.ChangeRoutingTable(_routingTable);
-                }
-                else
+                if (message.MessageValue.Promise != null)
                 {
                     message.MessageValue.Promise.SetResult(_routingTable);
                 }
+                RoutingTableChange(_routingTable);
                 CheckNoMoreNodes();
             }
             catch (OperationCanceledException ex)
@@ -425,12 +510,13 @@ namespace Kafka.Cluster
         private void ResponseToRoutingTable(MetadataResponse response)
         {
             var routes = new Dictionary<string, Partition[]>();
-            foreach (var tm in response.TopicsMeta.Where(_ => Error.IsPartitionOkForProducer(_.ErrorCode)))
+            foreach (var tm in response.TopicsMeta.Where(_ => Error.IsPartitionOkForClients(_.ErrorCode)))
             {
                 routes[tm.TopicName] =
                     tm.Partitions
-                        .Where(_ => Error.IsPartitionOkForProducer(_.ErrorCode) && _.Leader >= 0)
+                        .Where(_ => Error.IsPartitionOkForClients(_.ErrorCode) && _.Leader >= 0)
                         .Select(_ => new Partition {Id = _.Id, Leader = _nodesById[_.Leader]})
+                        .OrderBy(p => p)
                         .ToArray();
             }
             _routingTable = new RoutingTable(routes);

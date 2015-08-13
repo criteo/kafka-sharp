@@ -30,11 +30,11 @@ namespace tests_kafka_sharp
 
 
         [Test]
-        public void TestDefaultPartitionerNoPartitionReturnsNull()
+        public void TestDefaultPartitionerNoPartitionReturnsNone()
         {
             var partitions = new Partition[0];
             var partitioner = new DefaultPartitioner();
-            Assert.IsNull(partitioner.GetPartition(new Message(), partitions));
+            Assert.AreEqual(0, Partition.None.CompareTo(partitioner.GetPartition(new Message(), partitions)));
         }
     }
 }

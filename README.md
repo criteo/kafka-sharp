@@ -1,14 +1,15 @@
-High performance .NET Kafka producer
+High performance .NET Kafka driver 
 
 Features:
 =========
 
 * Kafka 0.8+
-* Producer only
 * Full pipelining of requests over one connection
-* Batching of produce requests
+* Batching of produce requests and fetch requests
+* Compression support
 * Fully asynchronous non blocking implementation
 * Resilience to broker/cluster crashes, partition topology changes, network errors, etc.
+* Consumer is simple only: you have to inject which partitions you're consuming from
 
 TODO:
 =====
@@ -21,12 +22,12 @@ TODO:
 * Be verbose when sending invalid topics
 * Better handling of shutdown
 * More logging
-* Consumer
 * More tests
 * Optimizations (more memory tuning, crc32, etc.)
 * Rewrite serialization
-* Simpler design (merge Router and Cluster for less messy metadata change management?)
-* Front interface more like the Java official driver
+* Simpler design (merge Producer and Consumer? Merge all in Cluster?)
+* Front interfaces more like the Java official driver
+* Implement Offset Fetch/Commit for consumers synchronization
 
 Inspirations:
 =============

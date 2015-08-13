@@ -1,4 +1,4 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
@@ -10,6 +10,9 @@ using Kafka.Common;
 
 namespace Kafka.Network
 {
+    /// <summary>
+    /// Thrown when correlation mismatch occurs
+    /// </summary>
     class CorrelationException : Exception
     {
         public CorrelationException(int expected, int received)
@@ -27,6 +30,9 @@ namespace Kafka.Network
         }
     }
 
+    /// <summary>
+    /// Flag the transport errors
+    /// </summary>
     enum TransportError
     {
         ConnectError,
@@ -34,6 +40,9 @@ namespace Kafka.Network
         ReadError
     }
 
+    /// <summary>
+    /// Exception on the transport
+    /// </summary>
     class TransportException : Exception
     {
         public TransportError Error { get; private set; }
@@ -51,19 +60,42 @@ namespace Kafka.Network
         }
     }
 
+    /// <summary>
+    /// Interface to a network connection
+    /// </summary>
     interface IConnection : IDisposable
     {
+        /// <summary>
+        /// Send some data over the wire.
+        /// </summary>
+        /// <param name="correlationId">Correlation id associated to the request.</param>
+        /// <param name="buffer">Data to send over the network.</param>
+        /// <param name="acknowledge">An acknowledgement is expected for this request.</param>
+        /// <returns>A future signaling when the send operation has terminated.</returns>
         Task SendAsync(int correlationId, byte[] buffer, bool acknowledge);
+
+        /// <summary>
+        /// Connect.
+        /// </summary>
+        /// <returns></returns>
         Task ConnectAsync();
+
+        /// <summary>
+        /// Emit a response.
+        /// </summary>
         event Action<IConnection, int, byte[]> Response;
+
+        /// <summary>
+        /// Emit an error.
+        /// </summary>
         event Action<IConnection, Exception> ReceiveError;
     }
 
     /// <summary>
-    /// This class is responsible foir sending and receiving data over/from the network.
+    /// This class is responsible for sending and receiving data over/from the network.
     /// It does not check for correctness of responses. The only knowledge of the protocol
     /// it uses is decoding the message size and correlation id from the responses.
-    /// 
+    ///
     /// Send and Receive are fully pipelined. Receive are handled using the asynchronous
     /// event based Socket API (ReceiveAsync(SocketAsyncEventArgs)). For send we use the
     /// synchronous API with the socket in non blocking mode. When Send returns E_WOULDBLOCK,
@@ -77,16 +109,23 @@ namespace Kafka.Network
         private readonly SocketAsyncEventArgs _sendArgs;
         private readonly SocketAsyncEventArgs _receiveArgs;
         private readonly EndPoint _endPoint;
-        private readonly byte[] _headerBuffer = new byte[8];
+        private readonly byte[] _headerBuffer = new byte[8]; // buffer used to receive response headers
 
         // The Kafka server ensures that acks are ordered on a given connection, we take
         // advantage of that by using a queue to store correlation ids.
         private readonly ConcurrentQueue<int> _correlationIds = new ConcurrentQueue<int>();
 
-        private struct Void { }
+        private struct Void { } // Private type used with TaskCompletionSource<>
         private static readonly Void SuccessResult = new Void();
         private static readonly Task<Void> SuccessTask = Task.FromResult(SuccessResult);
 
+        /// <summary>
+        /// Build a connection object.
+        /// </summary>
+        /// <param name="host">Remote hoit to connect to</param>
+        /// <param name="port">Remote port to connect to</param>
+        /// <param name="sendBufferSize">Size of the buffer used for send by the underlying socket</param>
+        /// <param name="receiveBufferSize">Size of the buffer used for receive by the underlying socket</param>
         public Connection(string host, int port, int sendBufferSize = DefaultBufferSize,
                           int receiveBufferSize = DefaultBufferSize)
             : this(new IPEndPoint(Dns.GetHostEntry(host).AddressList[0], port), sendBufferSize, receiveBufferSize)
@@ -130,6 +169,7 @@ namespace Kafka.Network
                 int sent = _socket.Send(buffer, 0, buffer.Length, SocketFlags.None, out error);
                 if (error == SocketError.WouldBlock || sent < buffer.Length)
                 {
+                    // Start an async send loop
                     var promise = new TaskCompletionSource<Void>();
                     _sendArgs.UserToken = promise;
                     _sendArgs.SetBuffer(buffer, sent, buffer.Length - sent);
@@ -148,8 +188,9 @@ namespace Kafka.Network
             return future;
         }
 
-        private int _recursiveOnSendCompleted;
+        private int _recursiveOnSendCompleted; // count recursive calls when Socket.SendAsync returns synchronously
 
+        // Async send loop body
         private void OnSendCompleted(object sender, SocketAsyncEventArgs saea)
         {
             var promise = saea.UserToken as TaskCompletionSource<Void>;
@@ -160,6 +201,7 @@ namespace Kafka.Network
                 return;
             }
 
+            // Async loop
             if (saea.BytesTransferred != saea.Count)
             {
                 try
@@ -169,7 +211,9 @@ namespace Kafka.Network
                     {
                         if (++_recursiveOnSendCompleted > 20)
                         {
-                            // Trampoline out of stack
+                            // Too many recursive calls, we trampoline out of the current
+                            // stack trace using a simple Task. This should really not happen
+                            // but you never know.
                             _recursiveOnSendCompleted = 0;
                             Task.Factory.StartNew(() => OnSendCompleted(sender, saea));
                             return;
@@ -187,6 +231,8 @@ namespace Kafka.Network
             promise.SetResult(SuccessResult);
         }
 
+        // Use old Begin/End API, this is much simpler than using Socket.Async
+        // and we do not need performance here.
         public async Task ConnectAsync()
         {
             try
@@ -200,6 +246,7 @@ namespace Kafka.Network
             StartReceive();
         }
 
+        // Receive steps
         enum ReceiveState
         {
             Header,
@@ -214,6 +261,7 @@ namespace Kafka.Network
 
         private readonly ReceiveContext _receiveContext = new ReceiveContext();
 
+        // Start a receive sequence (read header, then body)
         private void StartReceive()
         {
             try
@@ -236,7 +284,9 @@ namespace Kafka.Network
             }
         }
 
-        private int _recursiveOnReceiveCompleted = 0;
+        private int _recursiveOnReceiveCompleted; // count recursive calls when Socket.ReceiveAsync returns synchronously
+
+        // Async receive loop
         private void OnReceiveCompleted(object sender, SocketAsyncEventArgs saea)
         {
             if (saea.SocketError != SocketError.Success || saea.BytesTransferred == 0)
@@ -258,7 +308,9 @@ namespace Kafka.Network
                     {
                         if (++_recursiveOnReceiveCompleted > 20)
                         {
-                            // Trampoline out of stack
+                            // Too many recursive calls, we trampoline out of the current
+                            // stack trace using a simple Task. This should really not happen
+                            // but you never know.
                             _recursiveOnReceiveCompleted = 0;
                             Task.Factory.StartNew(() => OnReceiveCompleted(sender, saea));
                             return;

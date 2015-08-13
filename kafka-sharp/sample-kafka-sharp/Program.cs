@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Threading;
+using System.Linq;
+using System.Reactive.Linq;
+using System.Reactive.Subjects;
+using System.Text;
 using System.Threading.Tasks;
 using Kafka.Public;
 
@@ -63,6 +66,8 @@ dagfhefdghafdahfh",
             };
 
         private static string[] _topics;
+        private static long _consumeFrom;
+        private static int[][] _partitions;
 
         enum Mode
         {
@@ -92,7 +97,13 @@ dagfhefdghafdahfh",
    --concurrency PAR     =>  max concurrency used by the system
    --timeout TIME        => Kafka request timeout (broker side)
    --send-buffer SIZE    => socket system buffer size for send
-   --receive-buffer SIZE => socket system buffer size for receive";
+   --receive-buffer SIZE => socket system buffer size for receive
+   --max-bytes SIZE      => max size of messages accepted when consuming
+   --min-bytes SIZE      => min bytes to return when consuming
+   --max-wait TIME       => max wait time before brokers send consuming responses
+   --consume FROM p1,p2,p3;p1,p2,p3 => partitions to consume per topic beginning at FROM
+   --mix                 => mix produce and consume
+";
             Console.WriteLine("Options are:");
             Console.WriteLine(options);
         }
@@ -100,6 +111,7 @@ dagfhefdghafdahfh",
         private static void Main(string[] args)
         {
             Mode mode = Mode.Profile;
+            bool mix = false;
             var configuration = new Configuration();
 
             // Ugly command line parsing
@@ -113,6 +125,10 @@ dagfhefdghafdahfh",
                     curOpt = args[i];
                     switch (args[i])
                     {
+                        case "--mix":
+                            mix = true;
+                            break;
+
                         case "--stress":
                             mode = Mode.Stress;
                             break;
@@ -190,6 +206,30 @@ dagfhefdghafdahfh",
                         case "--timeout":
                             configuration.RequestTimeoutMs = int.Parse(args[++i]);
                             break;
+
+                        case "--min-bytes":
+                            configuration.FetchMinBytes = int.Parse(args[++i]);
+                            break;
+
+                        case "--max-wait":
+                            configuration.FetchMaxWaitTime = int.Parse(args[++i]);
+                            break;
+
+                        case "--max-bytes":
+                            configuration.FetchMessageMaxBytes = int.Parse(args[++i]);
+                            break;
+
+                        case "--consume":
+                        {
+                            _consumeFrom = long.Parse(args[++i]);
+                            var p = args[++i].Split(';');
+                            _partitions = new int[p.Length][];
+                            for (int j = 0; j < _partitions.Length; ++j)
+                            {
+                                _partitions[j] = p[j].Split(',').Select(int.Parse).ToArray();
+                            }
+                        }
+                            break;
                     }
                 }
                 // Minimal error management
@@ -205,30 +245,74 @@ dagfhefdghafdahfh",
             }
 
             var cluster =
-                new Cluster(configuration, new ConsoleLogger());
+                new ClusterClient(configuration, new ConsoleLogger());
 
-            var task = Start(mode, cluster);
-            Console.ReadKey();
-            _running = false;
-            Console.ReadKey();
-            task.Wait();
+            if (_partitions == null)
+            {
+                var task = Start(mode, cluster);
+                Console.ReadKey();
+                _running = false;
+                Console.ReadKey();
+                task.Wait();
+            }
+            else
+            {
+                cluster.Messages.Where(kr => kr.Topic == "test").Sample(TimeSpan.FromMilliseconds(10))
+                    .Subscribe(kr => Console.WriteLine("{0}/{1} {2}: {3}", kr.Topic, kr.Partition, kr.Offset,
+                        Encoding.UTF8.GetString(kr.Value)));
+                int i = 0;
+                foreach (var topic in _topics)
+                {
+                    foreach (var p in _partitions[i])
+                    {
+                        cluster.Consume(topic, p, _consumeFrom);
+                    }
+                    ++i;
+                }
+
+                Task task = null;
+                if (mix)
+                {
+                    task = Start(mode, cluster);
+                }
+
+                Console.ReadKey();
+                i = 0;
+                foreach (var topic in _topics)
+                {
+                    foreach (var p in _partitions[i])
+                    {
+                        if (p < 0)
+                            cluster.StopConsume(topic);
+                        else
+                            cluster.StopConsume(topic, p);
+                    }
+                    ++i;
+                }
+                if (task != null)
+                {
+                    _running = false;
+                    task.Wait();
+                }
+            }
+
             Console.WriteLine(cluster.Statistics);
             Console.ReadKey();
             cluster.Dispose();
         }
 
-        static Task Start(Mode mode, Cluster cluster)
+        static Task Start(Mode mode, ClusterClient clusterClient)
         {
             var list = new List<Task>();
             for (int i = 0; i < Environment.ProcessorCount; ++i)
             {
-                list.Add(Loop(mode, cluster, i));
+                list.Add(Loop(mode, clusterClient, i));
             }
 
             return Task.WhenAll(list);
         }
 
-        static async Task Loop(Mode mode, Cluster cluster, int id)
+        static async Task Loop(Mode mode, ClusterClient clusterClient, int id)
         {
             Console.WriteLine("Starting worker " + id);
             await Task.Yield();
@@ -238,7 +322,7 @@ dagfhefdghafdahfh",
             {
                 var topic = _topics[random.Next(_topics.Length)];
                 var data = " " + _values[random.Next(_values.Length)];
-                cluster.Produce(topic, string.Format("{0} {1} {2} {3}", topic, id, ++i, data));
+                clusterClient.Produce(topic, string.Format("{0} {1} {2} {3}", topic, id, ++i, data));
 
                 switch (mode)
                 {
