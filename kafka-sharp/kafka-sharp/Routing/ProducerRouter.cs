@@ -47,7 +47,7 @@ namespace Kafka.Routing
     }
 
     /// <summary>
-    /// Interface to the producer router, which route lessages to available nodes.
+    /// Interface to the producer router, which routes messages to available nodes.
     /// </summary>
     interface IProduceRouter
     {

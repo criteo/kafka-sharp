@@ -130,7 +130,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public async Task TestSignalRoutingTableAfterClusterStart()
+        public async Task TestSignalRoutingTableTriggeredByClusterStart()
         {
             _finished = new AsyncCountdownEvent(1);
             _cluster.Start();
@@ -193,7 +193,6 @@ namespace tests_kafka_sharp
             _nodeMocks[0].Raise(n => n.Dead += null, _nodeMocks[0].Object);
             await _finished.WaitAsync();    //wait for metadata to be refreshed
 
-            Assert.AreEqual(0, _errors);
             AssertStatistics(_cluster.Statistics, nodeDead: 1);
 
             var routingTableAfterDeadNode = new RoutingTable(new Dictionary<string, Partition[]>
@@ -211,6 +210,8 @@ namespace tests_kafka_sharp
                 });
 
             AssertRouting(_routingTable, routingTableAfterDeadNode);
+
+            Assert.AreEqual(0, _errors);
         }
 
         [Test]
@@ -358,8 +359,6 @@ namespace tests_kafka_sharp
 
             var routing = await _cluster.RequireNewRoutingTable();
 
-            Assert.AreEqual(0, _errors);
-
             var routingTableAfterNewNode = new RoutingTable(new Dictionary<string, Partition[]>
                 {
                     {"topic1", new[] {new Partition {Id = 1, Leader = _nodeMocks[0].Object}}},
@@ -379,6 +378,8 @@ namespace tests_kafka_sharp
                 });
 
             AssertRouting(routing, routingTableAfterNewNode);
+
+            Assert.AreEqual(0, _errors);
         }
 
         [Test]
@@ -395,6 +396,106 @@ namespace tests_kafka_sharp
             await _cluster.Stop();
 
             Assert.AreEqual(1, _errors);
+        }
+
+        [Test]
+        public async Task TestEmptyResponseMetadata()
+        {
+            var emptyMetadataResponse = new MetadataResponse
+            {
+                BrokersMeta = new BrokerMeta[0],
+                TopicsMeta = new TopicMeta[0]
+            };
+
+            foreach (var nodeMock in _nodeMocks)
+            {
+                nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(emptyMetadataResponse));
+            }
+
+            _finished = new AsyncCountdownEvent(1);
+            _cluster.Start();
+            await _finished.WaitAsync();
+
+            _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Once());
+
+            var emptyRoutingTable = new RoutingTable(new Dictionary<string, Partition[]>());
+            AssertRouting(_routingTable, emptyRoutingTable);
+
+            //next we check that even if the routing table is empty we can still refresh metadata by reloading the node from seeds
+
+            var metadataResponseWithNodes = new MetadataResponse
+            {
+                BrokersMeta = new[]                {                    new BrokerMeta {Id = 1, Host = "localhost", Port = 1},                    new BrokerMeta {Id = 2, Host = "localhost", Port = 2}                },
+                TopicsMeta = new[]                {                    new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []                    {                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},                    }}                }
+            };
+
+            foreach (var nodeMock in _nodeMocks)
+            {
+                nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(metadataResponseWithNodes));
+            }
+
+            var routing = await _cluster.RequireNewRoutingTable();
+            _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Exactly(2));
+
+            var routingTableWithNodes = new RoutingTable(new Dictionary<string, Partition[]>                {                    {"topic2", new[]                    {                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},                        new Partition {Id = 2, Leader = _nodeMocks[1].Object}                    }}                });
+
+            AssertRouting(routing, routingTableWithNodes);
+            Assert.AreEqual(0, _errors);
+        }
+
+        [Test]
+        public async Task TestAllNodesDead()
+        {
+            var metadataResponseWithOneNode = new MetadataResponse
+            {
+                BrokersMeta = new[]                {                    new BrokerMeta {Id = 1, Host = "localhost", Port = 1}                },
+                TopicsMeta = new[]                {                    new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
+                    {
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                    }}                }
+            };
+
+            foreach (var nodeMock in _nodeMocks)
+            {
+                nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(metadataResponseWithOneNode));
+            }
+
+            _finished = new AsyncCountdownEvent(1);
+            _cluster.Start();
+            await _finished.WaitAsync();
+
+            _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Once());
+
+            //kill the only available node and check that it is reloaded from seeds in order to refresh the metadata
+            _nodeMocks[1].Raise(n => n.Dead += null, _nodeMocks[1].Object);
+            await _cluster.RequireNewRoutingTable();
+            _nodeMocks[0].Verify(n=>n.FetchMetadata(), Times.Exactly(2));
+
+            Assert.AreEqual(0, _errors);
+        }
+
+        [Test]
+        public async Task TestStop()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.ConnectionError += null, _nodeMocks[0].Object, null);
+
+            await _cluster.Stop();
+            AssertStatistics(_cluster.Statistics, errors: 1);
+
+            _nodeMocks[0].Raise(n => n.ConnectionError += null, _nodeMocks[0].Object, null);
+            await Task.Delay(100);
+            AssertStatistics(_cluster.Statistics, errors: 1);
+
+            Assert.AreEqual(0, _errors);
+        }
+
+        [Test]
+        public void TestEmptySeedsThrowArgumentException()
+        {
+            Assert.Throws<ArgumentException>(() => new Cluster(new Configuration {Seeds = ""}, new DevNullLogger(),
+                                                         (h, p) => _nodeMocks[p - 1].Object,
+                                                         () => _routerMock.Object));
         }
     }
 }

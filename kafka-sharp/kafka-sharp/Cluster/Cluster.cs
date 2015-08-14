@@ -254,7 +254,7 @@ namespace Kafka.Cluster
 
         private void BuildNodesFromSeeds()
         {
-            foreach (var seed in _seeds.Split(','))
+            foreach (var seed in _seeds.Split(new []{','}, StringSplitOptions.RemoveEmptyEntries))
             {
                 var hostPort = seed.Split(':');
                 var broker = new BrokerMeta { Host = hostPort[0], Port = int.Parse(hostPort[1]) };
