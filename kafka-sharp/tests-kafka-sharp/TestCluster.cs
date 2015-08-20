@@ -20,7 +20,6 @@ namespace tests_kafka_sharp
         private readonly Mock<IProduceRouter> _routerMock = new Mock<IProduceRouter>();
         private readonly Mock<IConsumeRouter> _consumeMock = new Mock<IConsumeRouter>();
         private RoutingTable _routingTable;
-        private AsyncCountdownEvent _finished;
 
         private Cluster _cluster;
         private int _errors;
@@ -36,7 +35,6 @@ namespace tests_kafka_sharp
                 GenerateNodeMock(4)
             };
 
-            _finished = null;
             _routingTable = null;
 
             _consumeMock.Setup(c => c.Stop()).Returns(Task.FromResult(new Void()));
@@ -44,11 +42,9 @@ namespace tests_kafka_sharp
             _routerMock.Setup(r => r.ChangeRoutingTable(It.IsAny<RoutingTable>())).Callback<RoutingTable>( r =>
             {
                 _routingTable = r;
-                if(_finished != null)
-                    _finished.Signal();
             });
 
-            _cluster = new Cluster(new Configuration {Seeds = "localhost:1"}, new DevNullLogger(),
+            _cluster = new Cluster(new Configuration { Seeds = "localhost:1", TaskScheduler = new CurrentThreadTaskScheduler() }, new DevNullLogger(),
                                    (h, p) => _nodeMocks[p - 1].Object,
                                    () => _routerMock.Object, () => _consumeMock.Object);
             _errors = 0;
@@ -109,7 +105,7 @@ namespace tests_kafka_sharp
         }
 
         private void AssertStatistics(Statistics statistics, int successfulSent = 0, int requestSent = 0, int responseReceived = 0, int errors = 0,
-            int nodeDead = 0, int expired = 0, int discarded = 0, int exit = 0)
+            int nodeDead = 0, int expired = 0, int discarded = 0, int exit = 0, int received = 0)
         {
             Assert.AreEqual(successfulSent, statistics.SuccessfulSent);
             Assert.AreEqual(requestSent, statistics.RequestSent);
@@ -119,6 +115,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(expired, statistics.Expired);
             Assert.AreEqual(discarded, statistics.Discarded);
             Assert.AreEqual(exit, statistics.Exit);
+            Assert.AreEqual(received, statistics.Received);
         }
 
         [Test]
@@ -132,22 +129,18 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public async Task TestSignalRoutingTableTriggeredByClusterStart()
+        public void TestSignalRoutingTableTriggeredByClusterStart()
         {
-            _finished = new AsyncCountdownEvent(1);
             _cluster.Start();
-            await _finished.WaitAsync();
 
             Assert.AreEqual(0, _errors);
             AssertDefaultRouting(_routingTable);
         }
 
         [Test]
-        public async Task TestDeadNode()
+        public void TestDeadNode()
         {
-            _finished = new AsyncCountdownEvent(1);
             _cluster.Start();
-            await _finished.WaitAsync();    //wait for metadata to be initialized
 
             var metadataResponseAfterDeadNodeId1 = new MetadataResponse
             {
@@ -191,9 +184,7 @@ namespace tests_kafka_sharp
                 nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(metadataResponseAfterDeadNodeId1));
             }
 
-            _finished = new AsyncCountdownEvent(1);
-            _nodeMocks[0].Raise(n => n.Dead += null, _nodeMocks[0].Object);
-            await _finished.WaitAsync();    //wait for metadata to be refreshed
+            _nodeMocks[0].Raise(n => n.Dead += null, _nodeMocks[0].Object); //metadata is refreshed
 
             AssertStatistics(_cluster.Statistics, nodeDead: 1);
 
@@ -309,11 +300,43 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestFetchAcknowledgement()
+        {
+            _cluster.Start();
+            var ca = new CommonAcknowledgement<FetchPartitionResponse>();
+            _nodeMocks[0].Raise(n => n.FetchAcknowledgement += null, _nodeMocks[0].Object, ca);
+
+            _consumeMock.Verify(r => r.Acknowledge(ca));
+
+            Assert.AreEqual(0, _errors);
+        }
+
+        [Test]
+        public void TestOffsetAcknowledgement()
+        {
+            _cluster.Start();
+            var ca = new CommonAcknowledgement<OffsetPartitionResponse>();
+            _nodeMocks[0].Raise(n => n.OffsetAcknowledgement += null, _nodeMocks[0].Object, ca);
+
+            _consumeMock.Verify(r => r.Acknowledge(ca));
+
+            Assert.AreEqual(0, _errors);
+        }
+
+        [Test]
+        public void TestConsumerMessageReceived()
+        {
+            _cluster.Start();
+            _consumeMock.Raise(r => r.MessageReceived += null, It.IsAny<KafkaRecord>());
+
+            Assert.AreEqual(0, _errors);
+            AssertStatistics(_cluster.Statistics, received: 1);
+        }
+
+        [Test]
         public async Task TestNewNodeInMetadataResponse()
         {
-            _finished = new AsyncCountdownEvent(1);
             _cluster.Start();
-            await _finished.WaitAsync();    //wait for metadata to be initialized
 
             var metadataResponseWithNewNodeId4 = new MetadataResponse
             {
@@ -385,7 +408,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public async Task TestInternalError()
+        public async Task TestInternalErrorOnFetchMetadata()
         {
             var tcs = new TaskCompletionSource<MetadataResponse>();
             tcs.SetException(new Exception("testEx"));
@@ -396,6 +419,16 @@ namespace tests_kafka_sharp
 
             _cluster.Start();
             await _cluster.Stop();
+
+            Assert.AreEqual(1, _errors);
+        }
+
+        [Test]
+        public void TestInternalErrorOnFetchAllPartitionsForTopic()
+        {
+            _cluster.Start();
+
+            Assert.That(async () => await _cluster.RequireAllPartitionsForTopic("nonexistingTopic"), Throws.TypeOf<TaskCanceledException>());
 
             Assert.AreEqual(1, _errors);
         }
@@ -414,9 +447,7 @@ namespace tests_kafka_sharp
                 nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(emptyMetadataResponse));
             }
 
-            _finished = new AsyncCountdownEvent(1);
             _cluster.Start();
-            await _finished.WaitAsync();
 
             _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Once());
 
@@ -486,9 +517,7 @@ namespace tests_kafka_sharp
                 nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(metadataResponseWithOneNode));
             }
 
-            _finished = new AsyncCountdownEvent(1);
             _cluster.Start();
-            await _finished.WaitAsync();
 
             _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Once());
 
@@ -522,6 +551,40 @@ namespace tests_kafka_sharp
             Assert.Throws<ArgumentException>(() => new Cluster(new Configuration {Seeds = ""}, new DevNullLogger(),
                                                          (h, p) => _nodeMocks[p - 1].Object,
                                                          () => _routerMock.Object, () => _consumeMock.Object));
+        }
+
+        [Test]
+        public async Task TestFetchAllPartitionsForTopic()
+        {
+            var oneTopicMetadataResponse = new MetadataResponse
+            {
+                BrokersMeta = new[]
+                {
+                    new BrokerMeta {Id = 1, Host = "localhost", Port = 1},
+                    new BrokerMeta {Id = 2, Host = "localhost", Port = 2},
+                    new BrokerMeta {Id = 3, Host = "localhost", Port = 3}
+                },
+                TopicsMeta = new[]
+                {
+                    new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
+                    {
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                        new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 2, Leader = 2},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
+                    }}
+                }
+            };
+
+            foreach (var nodeMock in _nodeMocks)
+            {
+                nodeMock.Setup(n => n.FetchMetadata("topic1")).Returns(Task.FromResult(oneTopicMetadataResponse));
+            }
+
+            _cluster.Start();
+            var partitions = await _cluster.RequireAllPartitionsForTopic("topic1");
+
+            CollectionAssert.AreEqual(new[] { 1, 2, 3 }, partitions);
+            Assert.AreEqual(0, _errors);
         }
     }
 }

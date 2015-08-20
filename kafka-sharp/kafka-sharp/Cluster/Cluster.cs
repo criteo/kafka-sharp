@@ -199,7 +199,8 @@ namespace Kafka.Cluster
             _nodeFactory = DecorateFactory(_nodeFactory);
 
             // Inner actor
-            _agent = new ActionBlock<ClusterMessage>(r => ProcessMessage(r));
+            _agent = new ActionBlock<ClusterMessage>(r => ProcessMessage(r),
+                new ExecutionDataflowBlockOptions { TaskScheduler = configuration.TaskScheduler });
 
             // Bootstrap
             BuildNodesFromSeeds();
