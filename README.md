@@ -22,7 +22,7 @@ TODO:
 * Be verbose when sending invalid topics
 * Better handling of shutdown
 * More logging
-* More tests: more Moq usage, remove stuff in Mocks.cs
+* More tests: more Moq usage, remove some stuff in Mocks.cs
 * Optimizations (more memory tuning, crc32, etc.)
 * Rewrite serialization
 * Simpler design (merge Producer and Consumer? Merge all in Cluster?)

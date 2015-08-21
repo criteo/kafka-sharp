@@ -44,6 +44,141 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestFetchWithNoErrors()
+        {
+            // Prepare
+            var serializer = new Mock<Node.ISerializer>();
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object, serializer.Object,
+                new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()}).SetResolution(1);
+            var ev = new ManualResetEvent(false);
+            var corrs = new Queue<int>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+                .Returns((int c, byte[] d, bool a) =>
+                {
+                    corrs.Enqueue(c);
+                    return Success;
+                })
+                .Callback(() => ev.Set());
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var message = new FetchMessage { Topic = "balbuzzard", Offset = 42, Partition = 1, MaxBytes = 1242 };
+            node.Fetch(message);
+            ev.WaitOne();
+            Assert.AreEqual(1, corrs.Count);
+            int corr = corrs.Dequeue();
+            int response = 0;
+            node.ResponseReceived += _ =>
+            {
+                Assert.AreSame(node, _);
+                ++response;
+            };
+            var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
+            node.FetchAcknowledgement += (n, ack) =>
+            {
+                acknowledgement = ack;
+                Assert.AreSame(node, n);
+            };
+
+            serializer.Setup(s => s.DeserializeCommonResponse<FetchPartitionResponse>(corr, It.IsAny<byte[]>()))
+                .Returns(new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse =
+                        new[]
+                        {
+                            new TopicData<FetchPartitionResponse>
+                            {
+                                TopicName = "balbuzzard",
+                                PartitionsData =
+                                    new[]
+                                    {
+                                        new FetchPartitionResponse
+                                        {
+                                            ErrorCode = ErrorCode.NoError,
+                                            HighWatermarkOffset = 42,
+                                            Partition = 1,
+                                            Messages =
+                                                new[] {new ResponseMessage {Offset = 28, Message = new Message()}}
+                                        }
+                                    }
+                            }
+                        }
+                });
+
+            // Now send a response
+            connection.Raise(c => c.Response += null, connection.Object, corr, new byte[0]);
+
+            // Checks
+            Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(ErrorCode.NoError, fetch.ErrorCode);
+            Assert.AreEqual(42, fetch.HighWatermarkOffset);
+            Assert.AreEqual(1, fetch.Partition);
+            Assert.AreEqual(1, fetch.Messages.Length);
+            Assert.AreEqual(28, fetch.Messages[0].Offset);
+            Assert.AreEqual(new Message(), fetch.Messages[0].Message); // This is not full proof but come on...
+        }
+
+        [Test]
+        public void TestFetchWithDecodeError()
+        {
+            // Prepare
+            var serializer = new Mock<Node.ISerializer>();
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object, serializer.Object,
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
+            var ev = new ManualResetEvent(false);
+            var corrs = new Queue<int>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+                .Returns((int c, byte[] d, bool a) =>
+                {
+                    corrs.Enqueue(c);
+                    return Success;
+                })
+                .Callback(() => ev.Set());
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var message = new FetchMessage { Topic = "balbuzzard", Offset = 42, Partition = 1, MaxBytes = 1242 };
+            node.Fetch(message);
+            ev.WaitOne();
+            Assert.AreEqual(1, corrs.Count);
+            int corr = corrs.Dequeue();
+            int response = 0;
+            node.ResponseReceived += _ =>
+            {
+                Assert.AreSame(node, _);
+                ++response;
+            };
+            var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
+            node.FetchAcknowledgement += (n, ack) =>
+            {
+                acknowledgement = ack;
+                Assert.AreSame(node, n);
+            };
+            int decodeError = 0;
+            node.DecodeError += (n, e) => ++decodeError;
+
+            serializer.Setup(s => s.DeserializeCommonResponse<FetchPartitionResponse>(corr, It.IsAny<byte[]>()))
+                .Throws(new Exception());
+
+            // Now send a response
+            connection.Raise(c => c.Response += null, connection.Object, corr, new byte[0]);
+
+            // Checks
+            Assert.AreEqual(1, decodeError);
+            Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(ErrorCode.LocalError, fetch.ErrorCode);
+            Assert.AreEqual(-1, fetch.HighWatermarkOffset);
+            Assert.AreEqual(1, fetch.Partition);
+            Assert.AreEqual(0, fetch.Messages.Length);
+        }
+
+        [Test]
         public void TestOffset()
         {
             var ev = new ManualResetEvent(false);
@@ -66,6 +201,136 @@ namespace tests_kafka_sharp
                 s => s.SerializeOffsetBatch(It.IsAny<int>(), It.Is<IEnumerable<IGrouping<string, OffsetMessage>>>(
                     msgs => msgs.Count() == 1 && msgs.First().Key == message.Topic && msgs.First().First().Equals(message))));
             connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()), Times.Once());
+        }
+
+        [Test]
+        public void TestOffsetWithNoErrors()
+        {
+            // Prepare
+            var serializer = new Mock<Node.ISerializer>();
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object, serializer.Object,
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
+            var ev = new ManualResetEvent(false);
+            var corrs = new Queue<int>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+                .Returns((int c, byte[] d, bool a) =>
+                {
+                    corrs.Enqueue(c);
+                    return Success;
+                })
+                .Callback(() => ev.Set());
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var message = new OffsetMessage { Topic = "balbuzzard", Partition = 1, MaxNumberOfOffsets = 1, Time = 12341 };
+            node.Offset(message);
+            ev.WaitOne();
+            Assert.AreEqual(1, corrs.Count);
+            int corr = corrs.Dequeue();
+            int response = 0;
+            node.ResponseReceived += _ =>
+            {
+                Assert.AreSame(node, _);
+                ++response;
+            };
+            var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
+            node.OffsetAcknowledgement += (n, ack) =>
+            {
+                acknowledgement = ack;
+                Assert.AreSame(node, n);
+            };
+
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<byte[]>()))
+                .Returns(new CommonResponse<OffsetPartitionResponse>
+                {
+                    TopicsResponse =
+                        new[]
+                        {
+                            new TopicData<OffsetPartitionResponse>
+                            {
+                                TopicName = "balbuzzard",
+                                PartitionsData =
+                                    new[]
+                                    {
+                                        new OffsetPartitionResponse
+                                        {
+                                            ErrorCode = ErrorCode.NoError,
+                                            Partition = 1,
+                                            Offsets = new [] {27L}
+                                        }
+                                    }
+                            }
+                        }
+                });
+
+            // Now send a response
+            connection.Raise(c => c.Response += null, connection.Object, corr, new byte[0]);
+
+            // Checks
+            Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(ErrorCode.NoError, fetch.ErrorCode);
+            Assert.AreEqual(1, fetch.Partition);
+            Assert.AreEqual(1, fetch.Offsets.Length);
+            Assert.AreEqual(27, fetch.Offsets[0]);
+        }
+
+        [Test]
+        public void TestOffsetWithDecodeError()
+        {
+            // Prepare
+            var serializer = new Mock<Node.ISerializer>();
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object, serializer.Object,
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
+            var ev = new ManualResetEvent(false);
+            var corrs = new Queue<int>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+                .Returns((int c, byte[] d, bool a) =>
+                {
+                    corrs.Enqueue(c);
+                    return Success;
+                })
+                .Callback(() => ev.Set());
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var message = new OffsetMessage { Topic = "balbuzzard", Partition = 1, MaxNumberOfOffsets = 1, Time = 12341 };
+            node.Offset(message);
+            ev.WaitOne();
+            Assert.AreEqual(1, corrs.Count);
+            int corr = corrs.Dequeue();
+            int response = 0;
+            node.ResponseReceived += _ =>
+            {
+                Assert.AreSame(node, _);
+                ++response;
+            };
+            var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
+            node.OffsetAcknowledgement += (n, ack) =>
+            {
+                acknowledgement = ack;
+                Assert.AreSame(node, n);
+            };
+            int decodeError = 0;
+            node.DecodeError += (n, e) => ++decodeError;
+
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<byte[]>()))
+                .Throws(new Exception());
+
+            // Now send a response
+            connection.Raise(c => c.Response += null, connection.Object, corr, new byte[0]);
+
+            // Checks
+            Assert.AreEqual(1, decodeError);
+            Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(ErrorCode.LocalError, fetch.ErrorCode);
+            Assert.AreEqual(1, fetch.Partition);
+            Assert.AreEqual(0, fetch.Offsets.Length);
         }
 
         [Test]
