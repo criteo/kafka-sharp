@@ -5,6 +5,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.InteropServices;
@@ -414,7 +415,7 @@ namespace Kafka.Cluster
         private Subject<FetchMessage> InitFetchSubject()
         {
             // TODO: make those values configurable
-            return InitBatchedSubject<FetchMessage>(10, TimeSpan.FromMilliseconds(1000), f => f.Topic,
+            return InitBatchedSubject<FetchMessage>(10, TimeSpan.FromMilliseconds(1000.0*_resolution/1000), f => f.Topic,
                 batch => new Request
                 {
                     RequestType = RequestType.Fetch,
@@ -428,13 +429,14 @@ namespace Kafka.Cluster
         private Subject<OffsetMessage> InitOffsetSubject()
         {
             // TODO: make those values configurable
-            return InitBatchedSubject<OffsetMessage>(10, TimeSpan.FromMilliseconds(1000), f => f.Topic,
+            return InitBatchedSubject<OffsetMessage>(10, TimeSpan.FromMilliseconds(1000.0*_resolution/1000),
+                f => f.Topic,
                 batch => new Request
                 {
                     RequestType = RequestType.Offset,
                     RequestValue = new RequestValue
                     {
-                        OffsetBatchRequest = new BatchRequest<OffsetMessage> { Batch = batch }
+                        OffsetBatchRequest = new BatchRequest<OffsetMessage> {Batch = batch}
                     }
                 });
         }
@@ -629,7 +631,7 @@ namespace Kafka.Cluster
 
                     case RequestType.Produce:
                         buffer = _serializer.SerializeProduceBatch(correlationId,
-                                                                   request.RequestValue.ProduceBatchRequest.Batch);
+                            request.RequestValue.ProduceBatchRequest.Batch);
                         break;
 
                     case RequestType.Fetch:

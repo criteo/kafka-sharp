@@ -1,10 +1,14 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
+using Kafka.Network;
 using Kafka.Protocol;
 using Kafka.Public;
+using Kafka.Routing;
+using Moq;
 using NUnit.Framework;
 
 namespace tests_kafka_sharp
@@ -12,6 +16,58 @@ namespace tests_kafka_sharp
     [TestFixture]
     class TestNode
     {
+        private static readonly Task Success = Task.FromResult(true);
+
+        [Test]
+        public void TestFetch()
+        {
+            var ev = new ManualResetEvent(false);
+            var connection = new Mock<IConnection>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+                .Returns(Success)
+                .Callback(() => ev.Set());
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var serializer = new Mock<Node.ISerializer>();
+            var node =
+                new Node("Node", () => connection.Object, serializer.Object,
+                    new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()}).SetResolution(1);
+            var message = new FetchMessage {Topic = "balbuzzard", Offset = 42, Partition = 1, MaxBytes = 1242};
+            node.Fetch(message);
+            ev.WaitOne();
+            serializer.Verify(
+                s => s.SerializeFetchBatch(It.IsAny<int>(), It.IsAny<IEnumerable<IGrouping<string, FetchMessage>>>()),
+                Times.Once());
+            serializer.Verify(
+                s => s.SerializeFetchBatch(It.IsAny<int>(), It.Is<IEnumerable<IGrouping<string, FetchMessage>>>(
+                    msgs => msgs.Count() == 1 && msgs.First().Key == message.Topic && msgs.First().First().Equals(message))));
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()), Times.Once());
+        }
+
+        [Test]
+        public void TestOffset()
+        {
+            var ev = new ManualResetEvent(false);
+            var connection = new Mock<IConnection>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+                .Returns(Success)
+                .Callback(() => ev.Set());
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var serializer = new Mock<Node.ISerializer>();
+            var node =
+                new Node("Node", () => connection.Object, serializer.Object,
+                    new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
+            var message = new OffsetMessage {Topic = "balbuzzard", Partition = 1, MaxNumberOfOffsets = 1, Time = 12341};
+            node.Offset(message);
+            ev.WaitOne();
+            serializer.Verify(
+                s => s.SerializeOffsetBatch(It.IsAny<int>(), It.IsAny<IEnumerable<IGrouping<string, OffsetMessage>>>()),
+                Times.Once());
+            serializer.Verify(
+                s => s.SerializeOffsetBatch(It.IsAny<int>(), It.Is<IEnumerable<IGrouping<string, OffsetMessage>>>(
+                    msgs => msgs.Count() == 1 && msgs.First().Key == message.Topic && msgs.First().First().Equals(message))));
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()), Times.Once());
+        }
+
         [Test]
         public async Task TestFetchMetadata()
         {

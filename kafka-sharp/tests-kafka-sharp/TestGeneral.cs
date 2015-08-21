@@ -1,9 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
@@ -17,7 +14,7 @@ namespace tests_kafka_sharp
         private ClusterClient InitCluster(Configuration configuration, ILogger logger, MetadataResponse metadata, bool forceErrors = false, bool forceConnectionErrors = false)
         {
             TestData.Reset();
-            var cluster = new Kafka.Cluster.Cluster(
+            var cluster = new Cluster(
                 configuration,
                 logger,
                 (h, p) =>
