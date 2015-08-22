@@ -503,13 +503,13 @@ namespace Kafka.Routing
         // Utility function, statically allocated closure
         private static bool IsPartitionOkForClients(FetchPartitionResponse fr)
         {
-            return Protocol.Error.IsPartitionOkForClients(fr.ErrorCode);
+            return Error.IsPartitionOkForClients(fr.ErrorCode);
         }
 
         // Utility function, statically allocated closure
         private static bool IsPartitionOkForClients(OffsetPartitionResponse or)
         {
-            return Protocol.Error.IsPartitionOkForClients(or.ErrorCode);
+            return Error.IsPartitionOkForClients(or.ErrorCode);
         }
 
         /// <summary>
@@ -609,6 +609,8 @@ namespace Kafka.Routing
                     Partition = partitionResponse.Partition
                 });
             }
+
+            ResponseMessageListPool.Release(partitionResponse.Messages);
 
             // Stop if we have seen the last required offset
             // TODO: what if we never see it?

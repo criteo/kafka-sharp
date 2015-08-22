@@ -191,16 +191,16 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new ProduceResponse
+                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
                 {
                     TopicsResponse = new[]
                                 {
-                                    new TopicResponse
+                                    new TopicData<ProducePartitionResponse>
                                         {
                                             TopicName = "test",
-                                            Partitions = new[]
+                                            PartitionsData = new[]
                                                 {
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.NoError,
                                                             Offset = 0,
@@ -235,16 +235,16 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new ProduceResponse
+                ProduceResponse = new CommonResponse<ProducePartitionResponse>
                 {
                     TopicsResponse = new[]
                                 {
-                                    new TopicResponse
+                                    new TopicData<ProducePartitionResponse>
                                         {
                                             TopicName = "test",
-                                            Partitions = new[]
+                                            PartitionsData = new[]
                                                 {
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.ReplicaNotAvailable,
                                                             Offset = 0,
@@ -279,28 +279,28 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
                 {
-                    ProduceResponse = new ProduceResponse
+                    ProduceResponse = new CommonResponse<ProducePartitionResponse>()
                         {
                             TopicsResponse = new[]
                                 {
-                                    new TopicResponse
+                                    new TopicData<ProducePartitionResponse>
                                         {
                                             TopicName = "test",
-                                            Partitions = new[]
+                                            PartitionsData = new[]
                                                 {
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.NoError,
                                                             Offset = 0,
                                                             Partition = 0
                                                         },
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.NoError,
                                                             Offset = 0,
                                                             Partition = 1
                                                         },
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.NoError,
                                                             Offset = 0,
@@ -466,22 +466,22 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
                 {
-                    ProduceResponse = new ProduceResponse
+                    ProduceResponse = new CommonResponse<ProducePartitionResponse>()
                         {
                             TopicsResponse = new[]
                                 {
-                                    new TopicResponse
+                                    new TopicData<ProducePartitionResponse>
                                         {
                                             TopicName = "test",
-                                            Partitions = new[]
+                                            PartitionsData = new[]
                                                 {
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.NoError,
                                                             Offset = 0,
                                                             Partition = 0
                                                         },
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.MessageSizeTooLarge,
                                                             Offset = 0,
@@ -544,40 +544,40 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
                 {
-                    ProduceResponse = new ProduceResponse
+                    ProduceResponse = new CommonResponse<ProducePartitionResponse>()
                         {
                             TopicsResponse = new[]
                                 {
-                                    new TopicResponse
+                                    new TopicData<ProducePartitionResponse>
                                         {
                                             TopicName = "test",
-                                            Partitions = new[]
+                                            PartitionsData = new[]
                                                 {
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.NoError,
                                                             Offset = 0,
                                                             Partition = 0
                                                         },
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.NotLeaderForPartition,
                                                             Offset = 0,
                                                             Partition = 1
                                                         },
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.LeaderNotAvailable,
                                                             Offset = 0,
                                                             Partition = 2
                                                         },
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.RequestTimedOut,
                                                             Offset = 0,
                                                             Partition = 3
                                                         },
-                                                    new PartitionResponse
+                                                    new ProducePartitionResponse
                                                         {
                                                             ErrorCode = ErrorCode.UnknownTopicOrPartition,
                                                             Offset = 0,

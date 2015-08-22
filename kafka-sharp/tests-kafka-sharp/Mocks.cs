@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
+using Kafka.Common;
 using Kafka.Network;
 using Kafka.Protocol;
 using Kafka.Public;
@@ -127,18 +129,18 @@ namespace tests_kafka_sharp
                 {
                     OriginalBatch = new[] {new BatchMock {Key = message.Topic, Messages = new[] {message}}},
                     ProduceResponse =
-                        new ProduceResponse
+                        new CommonResponse<ProducePartitionResponse>()
                             {
                                 TopicsResponse =
                                     new[]
                                         {
-                                            new TopicResponse
+                                            new TopicData<ProducePartitionResponse>
                                                 {
                                                     TopicName = message.Topic,
-                                                    Partitions =
+                                                    PartitionsData =
                                                         new[]
                                                             {
-                                                                new PartitionResponse
+                                                                new ProducePartitionResponse
                                                                     {
                                                                         ErrorCode = ErrorCode.NoError,
                                                                         Offset = 0,
@@ -198,6 +200,7 @@ namespace tests_kafka_sharp
         public ClusterMock(Dictionary<string, Partition[]> partitions)
         {
             Partitions = partitions;
+            Logger = new DevNullLogger();
         }
 
         public Task<RoutingTable> RequireNewRoutingTable()
@@ -215,11 +218,13 @@ namespace tests_kafka_sharp
         {
             throw new NotImplementedException();
         }
+
+        public ILogger Logger { get; private set; }
     }
 
     class ConnectionMock : IConnection
     {
-        public virtual Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
+        public virtual Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
         {
             throw new NotImplementedException();
         }
@@ -229,15 +234,16 @@ namespace tests_kafka_sharp
             throw new NotImplementedException();
         }
 
-        public event Action<IConnection, int, byte[]> Response;
+        public event Action<IConnection, int, ReusableMemoryStream> Response;
         public event Action<IConnection, Exception> ReceiveError;
 
         public void Dispose()
         {
         }
 
-        protected void OnResponse(int correlationId, byte[] data)
+        protected void OnResponse(int correlationId, ReusableMemoryStream data)
         {
+            data.Position = 0;
             Response(this, correlationId, data);
         }
 
@@ -249,7 +255,7 @@ namespace tests_kafka_sharp
 
     class SuccessConnectionMock : ConnectionMock
     {
-        public override Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
+        public override Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
         {
             return Task.FromResult(true);
         }
@@ -280,7 +286,7 @@ namespace tests_kafka_sharp
             _forceErrors = forceErrors;
         }
 
-        public override Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
+        public override Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
         {
             if (_forceErrors)
             {
@@ -300,7 +306,9 @@ namespace tests_kafka_sharp
 
             if (acknowledge)
             {
-                OnResponse(correlationId, buffer);
+                var response = ReusableMemoryStream.Reserve();
+                buffer.WriteTo(response);
+                OnResponse(correlationId, response);
             }
             return Task.FromResult(true);
         }
@@ -318,7 +326,7 @@ namespace tests_kafka_sharp
 
     class SendFailingConnectionMock : SuccessConnectionMock
     {
-        public override Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
+        public override Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
         {
             var p = new TaskCompletionSource<bool>();
             p.SetException(new TransportException(TransportError.WriteError));
@@ -328,7 +336,7 @@ namespace tests_kafka_sharp
 
     class ReceiveFailingConnectionMock : SuccessConnectionMock
     {
-        public override Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
+        public override Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
         {
             Task.Factory.StartNew(() => OnReceiveError(new TransportException(TransportError.ReadError)));
             return Task.FromResult(true);
@@ -371,37 +379,32 @@ namespace tests_kafka_sharp
 
     class DummySerializer : Node.ISerializer
     {
-        public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeMetadataAllRequest(int correlationId)
+        public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+        public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+        public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
-        {
-            return new ProduceResponse();
-        }
-
-        public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
         {
             return new MetadataResponse();
         }
 
-        public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId, byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
+        public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId, ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             return new CommonResponse<TPartitionResponse>();
         }
@@ -416,38 +419,33 @@ namespace tests_kafka_sharp
             _metadataResponse = returned;
         }
 
-        public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
         {
             throw new NotImplementedException();
         }
 
-        public byte[] SerializeMetadataAllRequest(int correlationId)
+        public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+        public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+        public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
-        {
-            throw new NotImplementedException();
-        }
-
-        public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
         {
             return _metadataResponse;
         }
 
         public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-            byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
+            ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             throw new NotImplementedException();
         }
@@ -455,47 +453,43 @@ namespace tests_kafka_sharp
 
     class ProduceSerializer : Node.ISerializer
     {
-        private readonly ProduceResponse _produceResponse;
+        private readonly CommonResponse<ProducePartitionResponse> _produceResponse;
 
-        public ProduceSerializer(ProduceResponse returned)
+        public ProduceSerializer(CommonResponse<ProducePartitionResponse> returned)
         {
             _produceResponse = returned;
         }
 
-        public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeMetadataAllRequest(int correlationId)
+        public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
         {
             throw new NotImplementedException();
         }
 
-        public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+        public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+        public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
-        {
-            return _produceResponse;
-        }
-
-        public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
         {
             throw new NotImplementedException();
         }
 
         public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-            byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
+            ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
-            throw new NotImplementedException();
+            object o = _produceResponse;
+            return (CommonResponse<TPartitionResponse>) o;
         }
     }
 
@@ -517,7 +511,7 @@ namespace tests_kafka_sharp
 
     class ScenarioSerializerMock : Node.ISerializer
     {
-        readonly ConcurrentDictionary<int, ProduceResponse> _produceResponses = new ConcurrentDictionary<int, ProduceResponse>();
+        readonly ConcurrentDictionary<int, object> _produceResponses = new ConcurrentDictionary<int, object>();
         private readonly MetadataResponse _metadataResponse;
         private readonly bool _forceErrors;
         private static int _count;
@@ -533,14 +527,14 @@ namespace tests_kafka_sharp
             _forceErrors = forceErrors;
         }
 
-        public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
         {
-            var r = new ProduceResponse
+            var r = new CommonResponse<ProducePartitionResponse>
             {
-                TopicsResponse = batch.Select(g => new TopicResponse
+                TopicsResponse = batch.Select(g => new TopicData<ProducePartitionResponse>
                 {
                     TopicName = g.Key,
-                    Partitions = g.GroupBy(m => m.Partition).Select(pg => new PartitionResponse
+                    PartitionsData = g.GroupBy(m => m.Partition).Select(pg => new ProducePartitionResponse
                     {
                         ErrorCode = _forceErrors && Interlocked.Increment(ref _count)%2 == 0
                             ? ErrorCode.LeaderNotAvailable
@@ -557,40 +551,35 @@ namespace tests_kafka_sharp
 
             _produceResponses[correlationId] = r;
 
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+        public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+        public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public byte[] SerializeMetadataAllRequest(int correlationId)
+        public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
         {
-            return new byte[0];
+            return ReusableMemoryStream.Reserve();
         }
 
-        public ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data)
-        {
-            ProduceResponse pr;
-            _produceResponses.TryRemove(correlationId, out pr);
-            return pr;
-        }
-
-        public MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data)
+        public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
         {
             return _metadataResponse;
         }
 
         public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-            byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
+            ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
-            throw new NotImplementedException();
+            object o;
+            _produceResponses.TryRemove(correlationId, out o);
+            return (CommonResponse<TPartitionResponse>) o;
         }
     }
 

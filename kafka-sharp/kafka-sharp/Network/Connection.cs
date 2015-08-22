@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -69,10 +70,10 @@ namespace Kafka.Network
         /// Send some data over the wire.
         /// </summary>
         /// <param name="correlationId">Correlation id associated to the request.</param>
-        /// <param name="buffer">Data to send over the network.</param>
+        /// <param name="data">Data to send over the network.</param>
         /// <param name="acknowledge">An acknowledgement is expected for this request.</param>
         /// <returns>A future signaling when the send operation has terminated.</returns>
-        Task SendAsync(int correlationId, byte[] buffer, bool acknowledge);
+        Task SendAsync(int correlationId, ReusableMemoryStream data, bool acknowledge);
 
         /// <summary>
         /// Connect.
@@ -81,9 +82,9 @@ namespace Kafka.Network
         Task ConnectAsync();
 
         /// <summary>
-        /// Emit a response.
+        /// Emit a response. The given memory stream is suitable to be released to ReusableMemoryStream.
         /// </summary>
-        event Action<IConnection, int, byte[]> Response;
+        event Action<IConnection, int, ReusableMemoryStream> Response;
 
         /// <summary>
         /// Emit an error.
@@ -104,12 +105,15 @@ namespace Kafka.Network
     class Connection : IConnection
     {
         private const int DefaultBufferSize = 8092;
+        private const int SizeLength = sizeof (Int32);
+        private const int CorrelationIdLength = sizeof (Int32);
+        private const int HeaderLength = SizeLength + CorrelationIdLength;
 
         private readonly Socket _socket;
         private readonly SocketAsyncEventArgs _sendArgs;
         private readonly SocketAsyncEventArgs _receiveArgs;
         private readonly EndPoint _endPoint;
-        private readonly byte[] _headerBuffer = new byte[8]; // buffer used to receive response headers
+        private readonly byte[] _receiveBuffer;
 
         // The Kafka server ensures that acks are ordered on a given connection, we take
         // advantage of that by using a queue to store correlation ids.
@@ -146,9 +150,10 @@ namespace Kafka.Network
             _receiveArgs = new SocketAsyncEventArgs();
             _receiveArgs.Completed += OnReceiveCompleted;
             _endPoint = endPoint;
+            _receiveBuffer = new byte[Math.Max(HeaderLength, receiveBufferSize)];
         }
 
-        public Task SendAsync(int correlationId, byte[] buffer, bool acknowledge)
+        public Task SendAsync(int correlationId, ReusableMemoryStream data, bool acknowledge)
         {
             if (!_socket.Connected)
             {
@@ -161,18 +166,18 @@ namespace Kafka.Network
             }
 
             // Sending will use synchronous send first using non blocking mode on the socket.
-            // If we cannot send all byte in one call, we switch to an asynchronous send loop.
+            // If we cannot send all bytes in one call, we switch to an asynchronous send loop.
             var future = SuccessTask;
             try
             {
                 SocketError error;
-                int sent = _socket.Send(buffer, 0, buffer.Length, SocketFlags.None, out error);
-                if (error == SocketError.WouldBlock || sent < buffer.Length)
+                int sent = _socket.Send(data.GetBuffer(), 0, (int) data.Length, SocketFlags.None, out error);
+                if (error == SocketError.WouldBlock || sent < data.Length)
                 {
                     // Start an async send loop
                     var promise = new TaskCompletionSource<Void>();
                     _sendArgs.UserToken = promise;
-                    _sendArgs.SetBuffer(buffer, sent, buffer.Length - sent);
+                    _sendArgs.SetBuffer(data.GetBuffer(), sent, (int) data.Length - sent);
                     if (!_socket.SendAsync(_sendArgs))
                     {
                         OnSendCompleted(_socket, _sendArgs);
@@ -257,6 +262,8 @@ namespace Kafka.Network
         {
             public ReceiveState State = ReceiveState.Header;
             public int CorrelationId;
+            public int RemainingExpected;
+            public ReusableMemoryStream Response;
         }
 
         private readonly ReceiveContext _receiveContext = new ReceiveContext();
@@ -269,7 +276,9 @@ namespace Kafka.Network
                 // First we expect a header which is always size(4 bytes) + correlation(4 bytes)
                 _receiveContext.State = ReceiveState.Header;
                 _receiveContext.CorrelationId = 0;
-                _receiveArgs.SetBuffer(_headerBuffer, 0, 8);
+                _receiveContext.RemainingExpected = HeaderLength;
+                _receiveContext.Response = null;
+                _receiveArgs.SetBuffer(_receiveBuffer, 0, _receiveContext.RemainingExpected);
                 _receiveArgs.UserToken = _receiveContext;
 
                 // Receive async loop
@@ -289,12 +298,17 @@ namespace Kafka.Network
         // Async receive loop
         private void OnReceiveCompleted(object sender, SocketAsyncEventArgs saea)
         {
+            var context = saea.UserToken as ReceiveContext;
             if (saea.SocketError != SocketError.Success || saea.BytesTransferred == 0)
             {
                 OnReceiveError(new TransportException(TransportError.ReadError,
-                                                      new SocketException(saea.SocketError != SocketError.Success
-                                                                              ? (int) saea.SocketError
-                                                                              : (int)SocketError.ConnectionAborted)));
+                    new SocketException(saea.SocketError != SocketError.Success
+                        ? (int) saea.SocketError
+                        : (int) SocketError.ConnectionAborted)));
+                if (context.Response != null)
+                {
+                    context.Response.Dispose();
+                }
                 return;
             }
 
@@ -321,7 +335,6 @@ namespace Kafka.Network
                 }
 
                 // Handle current state
-                var context = saea.UserToken as ReceiveContext;
                 switch (context.State)
                 {
                     case ReceiveState.Header:
@@ -329,7 +342,7 @@ namespace Kafka.Network
                         break;
 
                     case ReceiveState.Body:
-                        HandleBodyState(context, saea);
+                        HandleBodyState(context, sender as Socket, saea);
                         break;
                 }
             }
@@ -339,6 +352,10 @@ namespace Kafka.Network
             }
             catch (Exception ex)
             {
+                if (context.Response != null)
+                {
+                    context.Response.Dispose();
+                }
                 OnReceiveError(new TransportException(TransportError.ReadError, ex));
             }
         }
@@ -347,7 +364,7 @@ namespace Kafka.Network
         private void HandleHeaderState(ReceiveContext context, Socket socket, SocketAsyncEventArgs saea)
         {
             int responseSize = BigEndianConverter.ToInt32(saea.Buffer);
-            int correlationId = BigEndianConverter.ToInt32(saea.Buffer, 4);
+            int correlationId = BigEndianConverter.ToInt32(saea.Buffer, SizeLength);
             // TODO check absurd response size?
 
             int matching;
@@ -359,7 +376,9 @@ namespace Kafka.Network
             context.State = ReceiveState.Body;
             context.CorrelationId = correlationId;
             // responseSize includes 4 bytes of correlation id
-            saea.SetBuffer(new byte[responseSize - 4], 0, responseSize - 4);
+            context.RemainingExpected = responseSize - CorrelationIdLength;
+            context.Response = ReusableMemoryStream.Reserve(context.RemainingExpected);
+            saea.SetBuffer(0, Math.Min(_receiveBuffer.Length, context.RemainingExpected));
             if (!socket.ReceiveAsync(saea))
             {
                 OnReceiveCompleted(socket, saea);
@@ -367,16 +386,32 @@ namespace Kafka.Network
         }
 
         // Just pass back the response
-        private void HandleBodyState(ReceiveContext context, SocketAsyncEventArgs saea)
+        private void HandleBodyState(ReceiveContext context, Socket socket, SocketAsyncEventArgs saea)
         {
-            OnResponse(context.CorrelationId, saea.Buffer);
-            StartReceive();
+            int rec = Math.Min(saea.Buffer.Length, context.RemainingExpected);
+            context.Response.Write(saea.Buffer, 0, rec);
+            context.RemainingExpected -= rec;
+
+            if (context.RemainingExpected == 0)
+            {
+                context.Response.Position = 0;
+                OnResponse(context.CorrelationId, context.Response);
+                StartReceive();
+            }
+            else
+            {
+                saea.SetBuffer(0, Math.Min(_receiveBuffer.Length, context.RemainingExpected));
+                if (!socket.ReceiveAsync(saea))
+                {
+                    OnReceiveCompleted(socket, saea);
+                }
+            }
         }
 
-        public event Action<IConnection, int, byte[]> Response;
+        public event Action<IConnection, int, ReusableMemoryStream> Response;
         public event Action<IConnection, Exception> ReceiveError;
 
-        private void OnResponse(int c, byte[] b)
+        private void OnResponse(int c, ReusableMemoryStream b)
         {
             var ev = Response;
             if (ev != null)

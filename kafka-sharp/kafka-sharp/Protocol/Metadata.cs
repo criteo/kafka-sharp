@@ -1,59 +1,60 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-using System.IO;
 using Kafka.Common;
 
 namespace Kafka.Protocol
 {
-    class BrokerMeta
+    class BrokerMeta : IMemoryStreamSerializable
     {
-        public readonly static int Unknown = -42;
-
-        public int Id = Unknown;
         public string Host;
         public int Port;
+        public int Id;
 
         public override string ToString()
         {
             return string.Format("[Id:{0} Host:{1} Port:{2}]", Id, Host, Port);
         }
 
-        public static BrokerMeta Deserialize(MemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream)
         {
-            return new BrokerMeta
-            {
-                Id = BigEndianConverter.ReadInt32(stream),
-                Host = Basics.DeserializeString(stream),
-                Port = BigEndianConverter.ReadInt32(stream)
-            };
+            Id = BigEndianConverter.ReadInt32(stream);
+            Host = Basics.DeserializeString(stream);
+            Port = BigEndianConverter.ReadInt32(stream);
+        }
+
+        // Used only in tests
+        public void Serialize(ReusableMemoryStream stream)
+        {
+            BigEndianConverter.Write(stream, Id);
+            Basics.SerializeString(stream, Host);
+            BigEndianConverter.Write(stream, Port);
         }
     }
 
-    class TopicMeta
+    class TopicMeta : IMemoryStreamSerializable
     {
         public ErrorCode ErrorCode;
         public string TopicName;
         public PartitionMeta[] Partitions;
 
-        public static TopicMeta Deserialize(MemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream)
         {
-            var ret = new TopicMeta
-                {
-                    ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream),
-                    TopicName = Basics.DeserializeString(stream)
-                };
+            ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
+            TopicName = Basics.DeserializeString(stream);
+            Partitions = Basics.DeserializeArray<PartitionMeta>(stream);
+        }
 
-            var count = BigEndianConverter.ReadInt32(stream);
-            ret.Partitions = new PartitionMeta[count];
-            for (int i = 0; i < count; i++)
-                ret.Partitions[i] = PartitionMeta.Deserialize(stream);
-
-            return ret;
+        // Used only in tests
+        public void Serialize(ReusableMemoryStream stream)
+        {
+            BigEndianConverter.Write(stream, (short) ErrorCode);
+            Basics.SerializeString(stream, TopicName);
+            Basics.WriteArray(stream, Partitions);
         }
     }
 
-    class PartitionMeta
+    class PartitionMeta : IMemoryStreamSerializable
     {
         public ErrorCode ErrorCode;
         public int Id;
@@ -61,26 +62,23 @@ namespace Kafka.Protocol
         public int[] Replicas;
         public int[] Isr;
 
-        public static PartitionMeta Deserialize(MemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream)
         {
-            var ret = new PartitionMeta
-                {
-                    ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream),
-                    Id = BigEndianConverter.ReadInt32(stream),
-                    Leader = BigEndianConverter.ReadInt32(stream)
-                };
+            ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
+            Id = BigEndianConverter.ReadInt32(stream);
+            Leader = BigEndianConverter.ReadInt32(stream);
+            Replicas = Basics.DeserializeArray(stream, BigEndianConverter.ReadInt32);
+            Isr = Basics.DeserializeArray(stream, BigEndianConverter.ReadInt32);
+        }
 
-            var count = BigEndianConverter.ReadInt32(stream);
-            ret.Replicas = new int[count];
-            for (int i = 0; i < count; i++)
-                ret.Replicas[i] = BigEndianConverter.ReadInt32(stream);
-
-            count = BigEndianConverter.ReadInt32(stream);
-            ret.Isr = new int[count];
-            for (int i = 0; i < count; i++)
-                ret.Isr[i] = BigEndianConverter.ReadInt32(stream);
-
-            return ret;
+        // Used only in tests
+        public void Serialize(ReusableMemoryStream stream)
+        {
+            BigEndianConverter.Write(stream, (short) ErrorCode);
+            BigEndianConverter.Write(stream, Id);
+            BigEndianConverter.Write(stream, Leader);
+            Basics.WriteArray(stream, Replicas, BigEndianConverter.Write);
+            Basics.WriteArray(stream, Isr, BigEndianConverter.Write);
         }
     }
 

@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
@@ -144,15 +145,14 @@ namespace Kafka.Cluster
         /// </summary>
         internal interface ISerializer
         {
-            byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch);
-            byte[] SerializeMetadataAllRequest(int correlationId);
-            byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch);
-            byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch);
+            ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch);
+            ReusableMemoryStream SerializeMetadataAllRequest(int correlationId);
+            ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch);
+            ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch);
 
-            ProduceResponse DeserializeProduceResponse(int correlationId, byte[] data);
-            MetadataResponse DeserializeMetadataResponse(int correlationId, byte[] data);
+            MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data);
             CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-                byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new();
+                ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new();
         }
 
         /// <summary>
@@ -160,7 +160,6 @@ namespace Kafka.Cluster
         /// </summary>
         internal class Serializer : ISerializer
         {
-            private readonly byte[] _allTopicsRequest;
             private readonly byte[] _clientId;
             private readonly short _requiredAcks;
             private readonly int _timeoutInMs;
@@ -171,7 +170,6 @@ namespace Kafka.Cluster
             public Serializer(byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait)
             {
                 _clientId = clientId;
-                _allTopicsRequest = new TopicRequest().Serialize(0, clientId);
                 _requiredAcks = (short) requiredAcks;
                 _timeoutInMs = timeoutInMs;
                 _minBytes = minBytes;
@@ -179,14 +177,12 @@ namespace Kafka.Cluster
                 _compressionCodec = compressionCodec;
             }
 
-            public byte[] SerializeMetadataAllRequest(int correlationId)
+            public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
             {
-                // Header is: size(4) - apikey(2) - apiversion(2)
-                BigEndianConverter.Write(_allTopicsRequest, correlationId, 8);
-                return _allTopicsRequest;
+                return new TopicRequest().Serialize(correlationId, _clientId);
             }
 
-            public byte[] SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+            public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
             {
                 var produceRequest = new ProduceRequest
                 {
@@ -206,7 +202,7 @@ namespace Kafka.Cluster
                 return produceRequest.Serialize(correlationId, _clientId);
             }
 
-            public byte[] SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
+            public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
             {
                 var fetchRequest = new FetchRequest
                 {
@@ -226,7 +222,7 @@ namespace Kafka.Cluster
                 return fetchRequest.Serialize(correlationId, _clientId);
             }
 
-            public byte[] SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
+            public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
             {
                 var offsetRequest = new OffsetRequest
                 {
@@ -244,18 +240,13 @@ namespace Kafka.Cluster
                 return offsetRequest.Serialize(correlationId, _clientId);
             }
 
-            public ProduceResponse DeserializeProduceResponse(int notUsed, byte[] data)
-            {
-                return ProduceResponse.Deserialize(data);
-            }
-
-            public MetadataResponse DeserializeMetadataResponse(int notUsed, byte[] data)
+            public MetadataResponse DeserializeMetadataResponse(int notUsed, ReusableMemoryStream data)
             {
                 return MetadataResponse.Deserialize(data);
             }
 
             public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-                byte[] data) where TPartitionResponse : IMemoryStreamSerializable, new()
+                ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
             {
                 return CommonResponse<TPartitionResponse>.Deserialize(data);
             }
@@ -320,7 +311,7 @@ namespace Kafka.Cluster
 
         struct ResponseData
         {
-            public byte[] Data;
+            public ReusableMemoryStream Data;
             public int CorrelationId;
         }
 
@@ -580,6 +571,31 @@ namespace Kafka.Cluster
             _requestQueue.Post(new Ping());
         }
 
+        // Serialize a request
+        private ReusableMemoryStream Serialize(int correlationId, Request request)
+        {
+            switch (request.RequestType)
+            {
+                case RequestType.Metadata:
+                    return _serializer.SerializeMetadataAllRequest(correlationId);
+
+                case RequestType.Produce:
+                    return _serializer.SerializeProduceBatch(correlationId,
+                        request.RequestValue.ProduceBatchRequest.Batch);
+
+                case RequestType.Fetch:
+                    return _serializer.SerializeFetchBatch(correlationId,
+                        request.RequestValue.FetchBatchRequest.Batch);
+
+                case RequestType.Offset:
+                    return _serializer.SerializeOffsetBatch(correlationId,
+                        request.RequestValue.OffsetBatchRequest.Batch);
+
+                default: // Compiler requires a default case, even if all possible cases are already handled
+                    return ReusableMemoryStream.Reserve();
+            }
+        }
+
         /// <summary>
         /// Process messages received on the request actor. Metadata
         /// requests are prioritized. We connect to the underlying connection
@@ -621,35 +637,14 @@ namespace Kafka.Cluster
                     return;
                 }
 
-                // Serialize
-                byte[] buffer = null;
-                switch (request.RequestType)
+                // Serialize & send
+                using (var data = Serialize(correlationId, request))
                 {
-                    case RequestType.Metadata:
-                        buffer = _serializer.SerializeMetadataAllRequest(correlationId);
-                        break;
-
-                    case RequestType.Produce:
-                        buffer = _serializer.SerializeProduceBatch(correlationId,
-                            request.RequestValue.ProduceBatchRequest.Batch);
-                        break;
-
-                    case RequestType.Fetch:
-                        buffer = _serializer.SerializeFetchBatch(correlationId,
-                            request.RequestValue.FetchBatchRequest.Batch);
-                        break;
-
-                    case RequestType.Offset:
-                        buffer = _serializer.SerializeOffsetBatch(correlationId,
-                            request.RequestValue.OffsetBatchRequest.Batch);
-                        break;
+                    pendingsQueue.Enqueue(new Pending {CorrelationId = correlationId, Request = request});
+                    await connection.SendAsync(correlationId, data, true);
+                    Interlocked.Exchange(ref _successiveErrors, 0);
+                    OnRequestSent();
                 }
-
-                // Send
-                pendingsQueue.Enqueue(new Pending { CorrelationId = correlationId, Request = request });
-                await connection.SendAsync(correlationId, buffer, true);
-                Interlocked.Exchange(ref _successiveErrors, 0);
-                OnRequestSent();
             }
             catch (TransportException ex)
             {
@@ -664,6 +659,10 @@ namespace Kafka.Cluster
             catch (Exception ex)
             {
                 HandleConnectionError(connection, ex);
+                if (connection == null)
+                {
+                    Drain(request, false);
+                }
             }
         }
 
@@ -697,43 +696,48 @@ namespace Kafka.Cluster
                         // we already took care of that.
                         return;
                     }
-                    if (pending.CorrelationId != response.ResponseValue.ResponseData.CorrelationId)
+
+                    using (var data = response.ResponseValue.ResponseData.Data)
                     {
-                        // This is an error but it should not happen because the underlying connection
-                        // is already supposed to have managed that.
-                        ProcessConnectionError(response.Connection);
-                        return;
-                    }
-                    switch (pending.Request.RequestType)
-                    {
-                        case RequestType.Produce:
-                            ProcessProduceResponse(
-                                pending.CorrelationId,
-                                response.ResponseValue.ResponseData.Data,
-                                pending.Request.RequestValue.ProduceBatchRequest);
+                        if (pending.CorrelationId != response.ResponseValue.ResponseData.CorrelationId)
+                        {
+                            // This is an error but it should not happen because the underlying connection
+                            // is already supposed to have managed that.
+                            ProcessConnectionError(response.Connection);
+                            return;
+                        }
 
-                            break;
+                        switch (pending.Request.RequestType)
+                        {
+                            case RequestType.Produce:
+                                ProcessProduceResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.ProduceBatchRequest);
 
-                        case RequestType.Metadata:
-                            ProcessMetadataResponse(
-                                pending.CorrelationId,
-                                response.ResponseValue.ResponseData.Data,
-                                pending.Request.RequestValue.MetadataRequest);
-                            break;
+                                break;
 
-                        case RequestType.Fetch:
-                            ProcessFetchResponse(
-                                pending.CorrelationId,
-                                response.ResponseValue.ResponseData.Data,
-                                pending.Request.RequestValue.FetchBatchRequest);
-                            break;
+                            case RequestType.Metadata:
+                                ProcessMetadataResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.MetadataRequest);
+                                break;
 
-                        case RequestType.Offset:
-                            ProcessOffsetResponse(
-                                pending.CorrelationId,
-                                response.ResponseValue.ResponseData.Data,
-                                pending.Request.RequestValue.OffsetBatchRequest);
-                            break;
+                            case RequestType.Fetch:
+                                ProcessFetchResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.FetchBatchRequest);
+                                break;
+
+                            case RequestType.Offset:
+                                ProcessOffsetResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.OffsetBatchRequest);
+                                break;
+                        }
                     }
                     break;
             }
@@ -747,7 +751,7 @@ namespace Kafka.Cluster
         }
 
         // Preallocated responses
-        private static readonly ResponseMessage[] EmptyMessages = new ResponseMessage[0];
+        private static readonly List<ResponseMessage> EmptyMessages = new List<ResponseMessage>();
         private static readonly long[] NoOffset = new long[0];
 
         // Build an empty response from a given Fetch request with error set to LocalError.
@@ -796,7 +800,7 @@ namespace Kafka.Cluster
         /// on the partitions it's fetching from because empty responses from the broker
         /// are perfectly valid.
         /// </summary>
-        private void ProcessFetchResponse(int correlationId, byte[] responseData,
+        private void ProcessFetchResponse(int correlationId, ReusableMemoryStream responseData,
             BatchRequest<FetchMessage> originalRequest)
         {
             var response = new CommonAcknowledgement<FetchPartitionResponse>{ReceivedDate = DateTime.UtcNow};
@@ -820,7 +824,7 @@ namespace Kafka.Cluster
         /// on the partitions it's requiring offset from because empty responses from the broker
         /// are perfectly valid (leader change).
         /// </summary>
-        private void ProcessOffsetResponse(int correlationId, byte[] responseData,
+        private void ProcessOffsetResponse(int correlationId, ReusableMemoryStream responseData,
             BatchRequest<OffsetMessage> originalRequest)
         {
             var response = new CommonAcknowledgement<OffsetPartitionResponse> {ReceivedDate = DateTime.UtcNow};
@@ -841,7 +845,7 @@ namespace Kafka.Cluster
         /// Deserialize a Produce response and acknowledge it. We pass back the original
         /// request because in case of error the producer may try to resend the messages.
         /// </summary>
-        private void ProcessProduceResponse(int correlationId, byte[] responseData,
+        private void ProcessProduceResponse(int correlationId, ReusableMemoryStream responseData,
             BatchRequest<ProduceMessage> originalRequest)
         {
             var acknowledgement = new ProduceAcknowledgement
@@ -851,12 +855,12 @@ namespace Kafka.Cluster
             };
             try
             {
-                acknowledgement.ProduceResponse = _serializer.DeserializeProduceResponse(correlationId, responseData);
+                acknowledgement.ProduceResponse = _serializer.DeserializeCommonResponse<ProducePartitionResponse>(correlationId, responseData);
             }
             catch (Exception ex)
             {
                 OnDecodeError(ex);
-                acknowledgement.ProduceResponse = new ProduceResponse();
+                acknowledgement.ProduceResponse = new CommonResponse<ProducePartitionResponse>();
             }
 
             OnProduceAcknowledgement(acknowledgement);
@@ -865,7 +869,7 @@ namespace Kafka.Cluster
         /// <summary>
         /// Deserialize a metadata response and signal the corresponding promise accordingly.
         /// </summary>
-        private void ProcessMetadataResponse(int correlationId, byte[] responseData, MetadataRequest originalRequest)
+        private void ProcessMetadataResponse(int correlationId, ReusableMemoryStream responseData, MetadataRequest originalRequest)
         {
             try
             {

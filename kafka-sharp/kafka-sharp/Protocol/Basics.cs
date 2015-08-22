@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using Kafka.Common;
 
@@ -11,8 +10,8 @@ namespace Kafka.Protocol
 {
     interface IMemoryStreamSerializable
     {
-        void Serialize(MemoryStream stream);
-        void Deserialize(MemoryStream stream);
+        void Serialize(ReusableMemoryStream stream);
+        void Deserialize(ReusableMemoryStream stream);
     }
 
 
@@ -36,7 +35,7 @@ namespace Kafka.Protocol
             ConsumerMetadataRequest = 10
         }
 
-        public static string DeserializeString(MemoryStream stream)
+        public static string DeserializeString(ReusableMemoryStream stream)
         {
             var len = BigEndianConverter.ReadInt16(stream);
             // per contract, null string is represented with -1 len.
@@ -48,7 +47,7 @@ namespace Kafka.Protocol
             return Encoding.UTF8.GetString(buffer);
         }
 
-        public static void SerializeString(MemoryStream stream, string s)
+        public static void SerializeString(ReusableMemoryStream stream, string s)
         {
             if (s == null)
             {
@@ -61,23 +60,23 @@ namespace Kafka.Protocol
             stream.Write(b, 0, b.Length);
         }
 
-        public static byte[] WriteMessageLength(MemoryStream stream)
+        public static ReusableMemoryStream WriteMessageLength(ReusableMemoryStream stream)
         {
-            var buff = stream.ToArray();
-            var len = buff.Length - 4; // -4 because do not count size flag itself
+            stream.Position = 0;
+            var len = (int) stream.Length - 4; // -4 because do not count size flag itself
             // write message length to the head
             // TODO: use seek?
-            BigEndianConverter.Write(buff, len);
-            return buff;
+            BigEndianConverter.Write(stream, len);
+            return stream;
         }
 
-        static long ReserveHeader(MemoryStream stream)
+        static long ReserveHeader(ReusableMemoryStream stream)
         {
             stream.Write(Zero32, 0, 4);
             return stream.Position;
         }
 
-        static void WriteHeader(MemoryStream stream, long initPos)
+        static void WriteHeader(ReusableMemoryStream stream, long initPos)
         {
             var pos = stream.Position;
             var size = pos - initPos;
@@ -86,44 +85,40 @@ namespace Kafka.Protocol
             stream.Position = pos;
         }
 
-        public static void WriteSizeInBytes(MemoryStream stream, Action<MemoryStream> write)
+        public static void WriteSizeInBytes(ReusableMemoryStream stream, Action<ReusableMemoryStream> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream);
             WriteHeader(stream, initPos);
         }
 
-        public static void WriteSizeInBytes<T>(MemoryStream stream, T t, Action<MemoryStream, T> write)
+        public static void WriteSizeInBytes<T>(ReusableMemoryStream stream, T t, Action<ReusableMemoryStream, T> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream, t);
             WriteHeader(stream, initPos);
         }
 
-        public static void WriteSizeInBytes<T, U>(MemoryStream stream, T t, U u, Action<MemoryStream, T, U> write)
+        public static void WriteSizeInBytes<T, U>(ReusableMemoryStream stream, T t, U u, Action<ReusableMemoryStream, T, U> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream, t, u);
             WriteHeader(stream, initPos);
         }
 
-        public static void WriteArray<T>(MemoryStream stream, IEnumerable<T> items) where T : IMemoryStreamSerializable
+        // To avoid dynamically allocated closure
+        private static void WriteMemoryStreamSerializable<T>(ReusableMemoryStream stream, T item)
+            where T : IMemoryStreamSerializable
         {
-            var sizePosition = stream.Position;
-            stream.Write(MinusOne32, 0, 4); // placeholder for count field
-            var count = 0;
-            foreach (var item in items)
-            {
-                item.Serialize(stream);
-                count++;
-            }
-            var pos = stream.Position; // update count field
-            stream.Position = sizePosition;
-            BigEndianConverter.Write(stream, count);
-            stream.Position = pos;
+            item.Serialize(stream);
         }
 
-        public static void WriteArray<T>(MemoryStream stream, IEnumerable<T> items, Action<MemoryStream, T> write)
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items) where T : IMemoryStreamSerializable
+        {
+            WriteArray(stream, items, WriteMemoryStreamSerializable);
+        }
+
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, Action<ReusableMemoryStream, T> write)
         {
             var sizePosition = stream.Position;
             stream.Write(MinusOne32, 0, 4); // placeholder for count field
@@ -139,7 +134,7 @@ namespace Kafka.Protocol
             stream.Position = pos;
         }
 
-        public static void WriteRequestHeader(MemoryStream stream, int correlationId, ApiKey requestType, byte[] clientId)
+        public static void WriteRequestHeader(ReusableMemoryStream stream, int correlationId, ApiKey requestType, byte[] clientId)
         {
             stream.Write(MinusOne32, 0, 4); // reserve space for message size
             BigEndianConverter.Write(stream, (short)requestType);
@@ -149,7 +144,7 @@ namespace Kafka.Protocol
             stream.Write(clientId, 0, clientId.Length);
         }
 
-        public static void Update(MemoryStream stream, long pos, byte[] buff)
+        public static void Update(ReusableMemoryStream stream, long pos, byte[] buff)
         {
             var currPos = stream.Position;
             stream.Position = pos;
@@ -157,7 +152,7 @@ namespace Kafka.Protocol
             stream.Position = currPos;
         }
 
-        public static TData[] DeserializeArray<TData>(MemoryStream stream) where TData : IMemoryStreamSerializable, new()
+        public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream) where TData : IMemoryStreamSerializable, new()
         {
             var count = BigEndianConverter.ReadInt32(stream);
             var array = new TData[count];
@@ -169,7 +164,7 @@ namespace Kafka.Protocol
             return array;
         }
 
-        public static TData[] DeserializeArray<TData>(MemoryStream stream, Func<MemoryStream, TData> dataDeserializer)
+        public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream, Func<ReusableMemoryStream, TData> dataDeserializer)
         {
             var count = BigEndianConverter.ReadInt32(stream);
             var array = new TData[count];
@@ -180,7 +175,7 @@ namespace Kafka.Protocol
             return array;
         }
 
-        public static byte[] DeserializeByteArray(MemoryStream stream)
+        public static byte[] DeserializeByteArray(ReusableMemoryStream stream)
         {
             var len = BigEndianConverter.ReadInt32(stream);
             if (len == -1)

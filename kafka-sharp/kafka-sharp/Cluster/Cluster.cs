@@ -39,6 +39,11 @@ namespace Kafka.Cluster
         /// Get the current statistics of the cluster.
         /// </summary>
         Statistics Statistics { get; }
+
+        /// <summary>
+        /// The logger used for feddback.
+        /// </summary>
+        ILogger Logger { get; }
     }
 
     class DevNullLogger : ILogger

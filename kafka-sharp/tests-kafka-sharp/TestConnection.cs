@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -27,12 +28,12 @@ namespace tests_kafka_sharp
         /// This server does not implement Kafka protocol,
         /// only the part understood by Connection which is only
         /// decoding the size and correlation id in the response.
-        /// 
+        ///
         /// Expected input is:
         /// size(4b) - correlationid(4b) - ack(1b) - data
         /// Response will be:
         /// size(4b) - correlationid(4b) - data
-        /// 
+        ///
         /// sise doe not include the 4 bytes of size.
         /// </summary>
         class FakeServer
@@ -124,7 +125,7 @@ namespace tests_kafka_sharp
         {
             public IConnection Connection;
             public int CorrelationId;
-            public byte[] Data;
+            public MemoryStream Data;
         }
 
         [Test]
@@ -133,7 +134,7 @@ namespace tests_kafka_sharp
             var server = new FakeServer(SimulationMode.Success);
             var connection = new Connection(server.EndPoint);
 
-            var ex = Assert.Throws<TransportException>(async () => await connection.SendAsync(0, new byte[9], true));
+            var ex = Assert.Throws<TransportException>(async () => await connection.SendAsync(0, ReusableMemoryStream.Reserve(), true));
             Assert.AreEqual(TransportError.ConnectError, ex.Error);
         }
 
@@ -143,14 +144,15 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.Success);
-            var connection = new Connection(server.EndPoint);
+            var connection = new Connection(server.EndPoint, 16, 16);
             const int correlationId = 379821;
             const byte ack = 1;
-            var buffer = new byte[4 + 4 + 1 + data.Length];
-            BigEndianConverter.Write(buffer, buffer.Length - 4);
-            BigEndianConverter.Write(buffer, correlationId, 4);
-            buffer[8] = ack;
-            Encoding.UTF8.GetBytes(data, 0, data.Length, buffer, 9);
+            var buffer = ReusableMemoryStream.Reserve();
+            BigEndianConverter.Write(buffer, 4 + 4 + 1 + data.Length - 4);
+            BigEndianConverter.Write(buffer, correlationId);
+            buffer.WriteByte(ack);
+            var s = Encoding.UTF8.GetBytes(data);
+            buffer.Write(s, 0, s.Length);
 
             var p = new TaskCompletionSource<Response>();
             connection.Response +=
@@ -164,7 +166,7 @@ namespace tests_kafka_sharp
 
             Assert.AreSame(connection, r.Connection);
             Assert.AreEqual(correlationId, r.CorrelationId);
-            Assert.AreEqual(data, Encoding.UTF8.GetString(r.Data));
+            Assert.AreEqual(data, Encoding.UTF8.GetString(r.Data.ToArray()));
         }
 
         [Test]
@@ -173,23 +175,30 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.Success);
-            var connection = new Connection(server.EndPoint);
+            var connection = new Connection(server.EndPoint, 16, 16);
             const int correlationId = 379821;
             const byte ack = 1;
-            var buffer = new byte[4 + 4 + 1 + data.Length];
-            BigEndianConverter.Write(buffer, buffer.Length - 4);
-            BigEndianConverter.Write(buffer, correlationId, 4);
-            buffer[8] = ack;
-            Encoding.UTF8.GetBytes(data, 0, data.Length, buffer, 9);
+            var buffer = ReusableMemoryStream.Reserve();
+            BigEndianConverter.Write(buffer, 4 + 4 + 1 + data.Length - 4);
+            BigEndianConverter.Write(buffer, correlationId);
+            buffer.WriteByte(ack);
+            var s = Encoding.UTF8.GetBytes(data);
+            buffer.Write(s, 0, s.Length);
+
+            var bdata = buffer.ToArray();
 
             var p = new TaskCompletionSource<Response>();
             connection.Response +=
                 (con, cor, b) => p.SetResult(new Response { Connection = con, CorrelationId = cor, Data = b });
 
             await connection.ConnectAsync();
-            buffer[8] = 0;
+            buffer.Position = 8;
+            buffer.WriteByte(0);
             await connection.SendAsync(correlationId, buffer, true);
-            buffer[8] = 1;
+            buffer = ReusableMemoryStream.Reserve();
+            buffer.Write(bdata, 0, bdata.Length);
+            buffer.Position = 8;
+            buffer.WriteByte(1);
             await connection.SendAsync(correlationId, buffer, true);
             var r = await p.Task;
 
@@ -197,7 +206,7 @@ namespace tests_kafka_sharp
 
             Assert.AreSame(connection, r.Connection);
             Assert.AreEqual(correlationId, r.CorrelationId);
-            Assert.AreEqual(data, Encoding.UTF8.GetString(r.Data));
+            Assert.AreEqual(data, Encoding.UTF8.GetString(r.Data.ToArray()));
         }
 
         class Error
@@ -215,11 +224,12 @@ namespace tests_kafka_sharp
             var connection = new Connection(server.EndPoint);
             const int correlationId = 379821;
             const byte ack = 1;
-            var buffer = new byte[4 + 4 + 1 + data.Length];
-            BigEndianConverter.Write(buffer, buffer.Length - 4);
-            BigEndianConverter.Write(buffer, correlationId, 4);
-            buffer[8] = ack;
-            Encoding.UTF8.GetBytes(data, 0, data.Length, buffer, 9);
+            var buffer = ReusableMemoryStream.Reserve();
+            BigEndianConverter.Write(buffer, 4 + 4 + 1 + data.Length - 4);
+            BigEndianConverter.Write(buffer, correlationId);
+            buffer.WriteByte(ack);
+            var s = Encoding.UTF8.GetBytes(data);
+            buffer.Write(s, 0, s.Length);
 
             var p = new TaskCompletionSource<Error>();
             connection.ReceiveError += (c, e) => p.TrySetResult(new Error {Connection = c, Exception = e});
@@ -243,11 +253,12 @@ namespace tests_kafka_sharp
             var connection = new Connection(server.EndPoint);
             const int correlationId = 379821;
             const byte ack = 1;
-            var buffer = new byte[4 + 4 + 1 + data.Length];
-            BigEndianConverter.Write(buffer, buffer.Length - 4);
-            BigEndianConverter.Write(buffer, correlationId, 4);
-            buffer[8] = ack;
-            Encoding.UTF8.GetBytes(data, 0, data.Length, buffer, 9);
+            var buffer = ReusableMemoryStream.Reserve();
+            BigEndianConverter.Write(buffer, 4 + 4 + 1 + data.Length - 4);
+            BigEndianConverter.Write(buffer, correlationId);
+            buffer.WriteByte(ack);
+            var s = Encoding.UTF8.GetBytes(data);
+            buffer.Write(s, 0, s.Length);
 
             var p = new TaskCompletionSource<Error>();
             connection.ReceiveError += (c, e) => p.TrySetResult(new Error { Connection = c, Exception = e });

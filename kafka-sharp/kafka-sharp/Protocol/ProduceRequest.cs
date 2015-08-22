@@ -3,14 +3,14 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.IO.Compression;
 using Kafka.Common;
 using Kafka.Public;
+using Snappy;
 
 namespace Kafka.Protocol
 {
-    class ProduceRequest
+    class ProduceRequest : ISerializableRequest
     {
         public IEnumerable<TopicData<PartitionData>> TopicsData;
         public int Timeout;
@@ -18,24 +18,16 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public byte[] Serialize(int correlationId, byte[] clientId)
+        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId)
         {
-            using (var stream = new MemoryStream())
-            {
-                Basics.WriteRequestHeader(stream, correlationId, Basics.ApiKey.ProduceRequest, clientId);
-                BigEndianConverter.Write(stream, RequiredAcks);
-                BigEndianConverter.Write(stream, Timeout);
-                Basics.WriteArray(stream, TopicsData, SerializeTopicData);
-                return Basics.WriteMessageLength(stream);
-            }
+            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.ProduceRequest);
         }
 
-        // Dumb trick to minimize closure allocations
-        private static readonly Action<MemoryStream, TopicData<PartitionData>> SerializeTopicData = _SerializeTopicData;
-
-        static void _SerializeTopicData(MemoryStream s, TopicData<PartitionData> t)
+        public void SerializeBody(ReusableMemoryStream stream)
         {
-            t.Serialize(s);
+            BigEndianConverter.Write(stream, RequiredAcks);
+            BigEndianConverter.Write(stream, Timeout);
+            Basics.WriteArray(stream, TopicsData);
         }
 
         #endregion
@@ -49,13 +41,13 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(MemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream)
         {
             BigEndianConverter.Write(stream, Partition);
             Basics.WriteSizeInBytes(stream, Messages, CompressionCodec, SerializeMessages);
         }
 
-        private static void SerializeMessagesUncompressed(MemoryStream stream, IEnumerable<Message> messages)
+        private static void SerializeMessagesUncompressed(ReusableMemoryStream stream, IEnumerable<Message> messages)
         {
             foreach (var message in messages)
             {
@@ -65,41 +57,49 @@ namespace Kafka.Protocol
         }
 
         // Dumb trick to minimize closure allocations
-        private static Action<MemoryStream, IEnumerable<Message>, CompressionCodec> SerializeMessages =
+        private static readonly Action<ReusableMemoryStream, IEnumerable<Message>, CompressionCodec> SerializeMessages =
             _SerializeMessages;
 
         // Dumb trick to minimize closure allocations
-        private static Action<MemoryStream, Message, CompressionCodec> SerializeMessageWithCodec =
+        private static readonly Action<ReusableMemoryStream, Message, CompressionCodec> SerializeMessageWithCodec =
             _SerializeMessageWithCodec;
 
-        private static void _SerializeMessages(MemoryStream stream, IEnumerable<Message> messages, CompressionCodec compressionCodec)
+        private static void _SerializeMessages(ReusableMemoryStream stream, IEnumerable<Message> messages, CompressionCodec compressionCodec)
         {
             if (compressionCodec != CompressionCodec.None)
             {
-                var m = new Message {Key = null};
-                using (var msgsetStream = new MemoryStream())
+                stream.Write(Basics.Zero64, 0, 8);
+                using (var msgsetStream = ReusableMemoryStream.Reserve())
                 {
                     SerializeMessagesUncompressed(msgsetStream, messages);
 
-                    if (compressionCodec == CompressionCodec.Gzip)
+                    using (var compressed = ReusableMemoryStream.Reserve())
                     {
-                        using (var compressed = new MemoryStream())
+                        if (compressionCodec == CompressionCodec.Gzip)
                         {
                             using (var gzip = new GZipStream(compressed, CompressionMode.Compress, true))
                             {
-                                msgsetStream.Position = 0;
-                                msgsetStream.CopyTo(gzip);
+                                msgsetStream.WriteTo(gzip);
                             }
-                            m.Value = compressed.ToArray();
                         }
-                    }
-                    else // Snappy
-                    {
-                        m.Value = Snappy.SnappyCodec.Compress(msgsetStream.ToArray());
+                        else // Snappy
+                        {
+                            compressed.SetLength(SnappyCodec.GetMaxCompressedLength((int) msgsetStream.Length));
+                            {
+                                int size = SnappyCodec.Compress(msgsetStream.GetBuffer(), 0, (int) msgsetStream.Length,
+                                    compressed.GetBuffer(), 0);
+                                compressed.SetLength(size);
+                            }
+                        }
+
+                        var m = new Message
+                        {
+                            Value = compressed.GetBuffer(),
+                            ValueSize = (int) compressed.Length
+                        };
+                        Basics.WriteSizeInBytes(stream, m, compressionCodec, SerializeMessageWithCodec);
                     }
                 }
-                stream.Write(Basics.Zero64, 0, 8);
-                    Basics.WriteSizeInBytes(stream, m, compressionCodec, SerializeMessageWithCodec);
             }
             else
             {
@@ -107,12 +107,12 @@ namespace Kafka.Protocol
             }
         }
 
-        private static void _SerializeMessageWithCodec(MemoryStream stream, Message message, CompressionCodec codec)
+        private static void _SerializeMessageWithCodec(ReusableMemoryStream stream, Message message, CompressionCodec codec)
         {
             message.Serialize(stream, codec);
         }
 
-        public void Deserialize(MemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream)
         {
             throw new NotImplementedException();
         }

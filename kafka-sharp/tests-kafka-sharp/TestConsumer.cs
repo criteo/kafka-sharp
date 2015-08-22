@@ -312,7 +312,7 @@ namespace tests_kafka_sharp
                                     ErrorCode = ErrorCode.NoError,
                                     Partition = PARTITION,
                                     HighWatermarkOffset = 432515L,
-                                    Messages = new[]
+                                    Messages = new List<ResponseMessage>
                                     {
                                         new ResponseMessage {Offset = OFFSET, Message = new Message()},
                                         new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
@@ -323,7 +323,7 @@ namespace tests_kafka_sharp
                                     ErrorCode = ErrorCode.NoError,
                                     Partition = PARTITION + 1,
                                     HighWatermarkOffset = 432515L,
-                                    Messages = new[]
+                                    Messages = new List<ResponseMessage>
                                     {
                                         new ResponseMessage {Offset = OFFSET, Message = new Message()},
                                     }
@@ -340,7 +340,7 @@ namespace tests_kafka_sharp
                                     ErrorCode = ErrorCode.NoError,
                                     Partition = PARTITION,
                                     HighWatermarkOffset = 432515L,
-                                    Messages = new[]
+                                    Messages = new List<ResponseMessage>
                                     {
                                         new ResponseMessage {Offset = OFFSET, Message = new Message()},
                                         new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
@@ -422,7 +422,7 @@ namespace tests_kafka_sharp
                                     ErrorCode = ErrorCode.NoError,
                                     Partition = PARTITION,
                                     HighWatermarkOffset = 432515L,
-                                    Messages = new[]
+                                    Messages = new List<ResponseMessage>
                                     {
                                         new ResponseMessage {Offset = OFFSET, Message = new Message()},
                                         new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},

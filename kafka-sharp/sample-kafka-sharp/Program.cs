@@ -257,12 +257,13 @@ dagfhefdghafdahfh",
             }
             else
             {
-                cluster.Messages.Where(kr => kr.Topic == "test").Sample(TimeSpan.FromMilliseconds(10))
-                    .Subscribe(kr => Console.WriteLine("{0}/{1} {2}: {3}", kr.Topic, kr.Partition, kr.Offset,
-                        Encoding.UTF8.GetString(kr.Value)));
                 int i = 0;
                 foreach (var topic in _topics)
                 {
+                    var capturedTopic = topic;
+                    cluster.Messages.Where(kr => kr.Topic == capturedTopic).Sample(TimeSpan.FromMilliseconds(15))
+                    .Subscribe(kr => Console.WriteLine("{0}/{1} {2}: {3}", kr.Topic, kr.Partition, kr.Offset,
+                        Encoding.UTF8.GetString(kr.Value)));
                     foreach (var p in _partitions[i])
                     {
                         cluster.Consume(topic, p, _consumeFrom);

@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Threading;
 using Kafka.Cluster;
+using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
 using NUnit.Framework;
@@ -54,17 +55,10 @@ namespace tests_kafka_sharp
             Assert.AreEqual(0, logger.WarningLog.Count());
         }
 
-        [Test]
-        public void TestMultipleProduce()
+        void TestMultipleProduce(Configuration configuration)
         {
             var logger = new TestLogger();
-            var configuration = new Configuration
-            {
-                BatchSize = 10,
-                BufferingTime = TimeSpan.FromMilliseconds(15),
-                ErrorStrategy = ErrorStrategy.Discard,
-                Seeds = "localhost:1,localhost:2,localhost:3"
-            };
+
             var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse);
 
             cluster.Produce("topic1", "key", "value");
@@ -96,6 +90,33 @@ namespace tests_kafka_sharp
             Assert.GreaterOrEqual(logger.InformationLog.Count(), 3); // Fetch metadata feedback
             Assert.AreEqual(0, logger.ErrorLog.Count());
             Assert.AreEqual(0, logger.WarningLog.Count());
+        }
+
+        [Test]
+        public void TestMultipleProduce()
+        {
+            var configuration = new Configuration
+            {
+                BatchSize = 10,
+                BufferingTime = TimeSpan.FromMilliseconds(15),
+                ErrorStrategy = ErrorStrategy.Discard,
+                Seeds = "localhost:1,localhost:2,localhost:3"
+            };
+            TestMultipleProduce(configuration);
+        }
+
+        [Test]
+        public void TestMultipleProduceConcurrencyOne()
+        {
+            var configuration = new Configuration
+            {
+                BatchSize = 10,
+                BufferingTime = TimeSpan.FromMilliseconds(15),
+                ErrorStrategy = ErrorStrategy.Discard,
+                Seeds = "localhost:1,localhost:2,localhost:3",
+                TaskScheduler = new ActionBlockTaskScheduler(1)
+            };
+            TestMultipleProduce(configuration);
         }
 
         [Test]

@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
+using Kafka.Common;
 using Kafka.Network;
 using Kafka.Protocol;
 using Kafka.Public;
@@ -23,7 +25,7 @@ namespace tests_kafka_sharp
         {
             var ev = new ManualResetEvent(false);
             var connection = new Mock<IConnection>();
-            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
                 .Returns(Success)
                 .Callback(() => ev.Set());
             connection.Setup(c => c.ConnectAsync()).Returns(Success);
@@ -40,7 +42,7 @@ namespace tests_kafka_sharp
             serializer.Verify(
                 s => s.SerializeFetchBatch(It.IsAny<int>(), It.Is<IEnumerable<IGrouping<string, FetchMessage>>>(
                     msgs => msgs.Count() == 1 && msgs.First().Key == message.Topic && msgs.First().First().Equals(message))));
-            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()), Times.Once());
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()), Times.Once());
         }
 
         [Test]
@@ -53,7 +55,7 @@ namespace tests_kafka_sharp
                 new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()}).SetResolution(1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
-            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
                 .Returns((int c, byte[] d, bool a) =>
                 {
                     corrs.Enqueue(c);
@@ -79,7 +81,7 @@ namespace tests_kafka_sharp
                 Assert.AreSame(node, n);
             };
 
-            serializer.Setup(s => s.DeserializeCommonResponse<FetchPartitionResponse>(corr, It.IsAny<byte[]>()))
+            serializer.Setup(s => s.DeserializeCommonResponse<FetchPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
                 .Returns(new CommonResponse<FetchPartitionResponse>
                 {
                     TopicsResponse =
@@ -97,7 +99,7 @@ namespace tests_kafka_sharp
                                             HighWatermarkOffset = 42,
                                             Partition = 1,
                                             Messages =
-                                                new[] {new ResponseMessage {Offset = 28, Message = new Message()}}
+                                                new List<ResponseMessage> {new ResponseMessage {Offset = 28, Message = new Message()}}
                                         }
                                     }
                             }
@@ -105,7 +107,7 @@ namespace tests_kafka_sharp
                 });
 
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, new byte[0]);
+            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve());
 
             // Checks
             Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
@@ -116,9 +118,9 @@ namespace tests_kafka_sharp
             Assert.AreEqual(ErrorCode.NoError, fetch.ErrorCode);
             Assert.AreEqual(42, fetch.HighWatermarkOffset);
             Assert.AreEqual(1, fetch.Partition);
-            Assert.AreEqual(1, fetch.Messages.Length);
-            Assert.AreEqual(28, fetch.Messages[0].Offset);
-            Assert.AreEqual(new Message(), fetch.Messages[0].Message); // This is not full proof but come on...
+            Assert.AreEqual(1, fetch.Messages.Count());
+            Assert.AreEqual(28, fetch.Messages.First().Offset);
+            Assert.AreEqual(new Message(), fetch.Messages.First().Message); // This is not full proof but come on...
         }
 
         [Test]
@@ -131,7 +133,7 @@ namespace tests_kafka_sharp
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
-            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
                 .Returns((int c, byte[] d, bool a) =>
                 {
                     corrs.Enqueue(c);
@@ -159,11 +161,11 @@ namespace tests_kafka_sharp
             int decodeError = 0;
             node.DecodeError += (n, e) => ++decodeError;
 
-            serializer.Setup(s => s.DeserializeCommonResponse<FetchPartitionResponse>(corr, It.IsAny<byte[]>()))
+            serializer.Setup(s => s.DeserializeCommonResponse<FetchPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
                 .Throws(new Exception());
 
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, new byte[0]);
+            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve());
 
             // Checks
             Assert.AreEqual(1, decodeError);
@@ -175,7 +177,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(ErrorCode.LocalError, fetch.ErrorCode);
             Assert.AreEqual(-1, fetch.HighWatermarkOffset);
             Assert.AreEqual(1, fetch.Partition);
-            Assert.AreEqual(0, fetch.Messages.Length);
+            Assert.AreEqual(0, fetch.Messages.Count());
         }
 
         [Test]
@@ -183,7 +185,7 @@ namespace tests_kafka_sharp
         {
             var ev = new ManualResetEvent(false);
             var connection = new Mock<IConnection>();
-            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
                 .Returns(Success)
                 .Callback(() => ev.Set());
             connection.Setup(c => c.ConnectAsync()).Returns(Success);
@@ -200,7 +202,7 @@ namespace tests_kafka_sharp
             serializer.Verify(
                 s => s.SerializeOffsetBatch(It.IsAny<int>(), It.Is<IEnumerable<IGrouping<string, OffsetMessage>>>(
                     msgs => msgs.Count() == 1 && msgs.First().Key == message.Topic && msgs.First().First().Equals(message))));
-            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()), Times.Once());
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()), Times.Once());
         }
 
         [Test]
@@ -213,7 +215,7 @@ namespace tests_kafka_sharp
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
-            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
                 .Returns((int c, byte[] d, bool a) =>
                 {
                     corrs.Enqueue(c);
@@ -239,7 +241,7 @@ namespace tests_kafka_sharp
                 Assert.AreSame(node, n);
             };
 
-            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<byte[]>()))
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
                 .Returns(new CommonResponse<OffsetPartitionResponse>
                 {
                     TopicsResponse =
@@ -263,7 +265,7 @@ namespace tests_kafka_sharp
                 });
 
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, new byte[0]);
+            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve());
 
             // Checks
             Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
@@ -287,7 +289,7 @@ namespace tests_kafka_sharp
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
-            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<byte[]>(), It.IsAny<bool>()))
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
                 .Returns((int c, byte[] d, bool a) =>
                 {
                     corrs.Enqueue(c);
@@ -315,11 +317,11 @@ namespace tests_kafka_sharp
             int decodeError = 0;
             node.DecodeError += (n, e) => ++decodeError;
 
-            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<byte[]>()))
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
                 .Throws(new Exception());
 
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, new byte[0]);
+            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve());
 
             // Checks
             Assert.AreEqual(1, decodeError);
@@ -361,7 +363,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestProduceWithNoErrors()
         {
-            var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerializer(new ProduceResponse()),
+            var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerializer(new CommonResponse<ProducePartitionResponse>()),
                                 new Configuration {BufferingTime = TimeSpan.FromMilliseconds(15)}).SetResolution(1);
             var ev = new ManualResetEvent(false);
             node.ResponseReceived += n =>
@@ -400,7 +402,7 @@ namespace tests_kafka_sharp
                 {
                     discarded = true;
                     Assert.AreSame(node, n);
-                    Assert.AreEqual(default(ProduceResponse), ack.ProduceResponse);
+                    Assert.AreEqual(default(CommonResponse<ProducePartitionResponse>), ack.ProduceResponse);
                     Assert.AreNotEqual(default(DateTime), ack.ReceiveDate);
                     if (Interlocked.Increment(ref rec) == 2)
                         ev.Set();

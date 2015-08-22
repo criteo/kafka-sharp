@@ -27,18 +27,6 @@ namespace Kafka.Protocol
                     return false;
             }
         }
-
-        public static bool IsTopicErrorUnrecoverable(ErrorCode code)
-        {
-            switch (code)
-            {
-                case ErrorCode.InvalidTopic:
-                    return true;
-
-                default:
-                    return false;
-            }
-        }
     }
 
     enum ErrorCode : short

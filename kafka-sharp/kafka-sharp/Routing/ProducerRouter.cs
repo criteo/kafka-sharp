@@ -30,7 +30,7 @@ namespace Kafka.Routing
         /// The response associated to the batch. An empty value means
         /// an error occured.
         /// </summary>
-        public ProduceResponse ProduceResponse;
+        public CommonResponse<ProducePartitionResponse> ProduceResponse;
 
         /// <summary>
         /// The batch of messages that were tried to be sent.
@@ -592,7 +592,7 @@ namespace Kafka.Routing
             foreach (var tr in produceResponse.TopicsResponse)
             {
                 bool errors = false;
-                foreach (var p in tr.Partitions.Where(p => !Error.IsPartitionOkForClients(p.ErrorCode)))
+                foreach (var p in tr.PartitionsData.Where(p => !Error.IsPartitionOkForClients(p.ErrorCode)))
                 {
                     if (!errors)
                     {

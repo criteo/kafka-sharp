@@ -2,11 +2,11 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using DamienG.Security.Cryptography;
 using Kafka.Common;
 using Kafka.Public;
 using Snappy;
@@ -19,16 +19,37 @@ namespace Kafka.Protocol
         public Message Message;
     }
 
+    static class ResponseMessageListPool
+    {
+        private static readonly ConcurrentQueue<List<ResponseMessage>> _pool = new ConcurrentQueue<List<ResponseMessage>>();
+
+        public static List<ResponseMessage> Reserve()
+        {
+            List<ResponseMessage> list;
+            if (!_pool.TryDequeue(out list))
+            {
+                list = new List<ResponseMessage>();
+            }
+            return list;
+        }
+
+        public static void Release(List<ResponseMessage> list)
+        {
+            list.Clear();
+            _pool.Enqueue(list);
+        }
+    }
+
     struct FetchPartitionResponse : IMemoryStreamSerializable
     {
         public long HighWatermarkOffset;
-        public ResponseMessage[] Messages;
+        public List<ResponseMessage> Messages;
         public int Partition;
         public ErrorCode ErrorCode;
 
         #region Deserialization
 
-        public void Deserialize(MemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
@@ -36,9 +57,11 @@ namespace Kafka.Protocol
             Messages = DeserializeMessageSet(stream);
         }
 
-        private static ResponseMessage[] DeserializeMessageSet(MemoryStream stream)
+        internal static List<ResponseMessage> DeserializeMessageSet(ReusableMemoryStream stream)
         {
-            return LazyDeserializeMessageSet(stream, BigEndianConverter.ReadInt32(stream)).ToArray();
+            var list = ResponseMessageListPool.Reserve();
+            list.AddRange(LazyDeserializeMessageSet(stream, BigEndianConverter.ReadInt32(stream)));
+            return list;
         }
 
         // Deserialize a message set to a sequence of messages.
@@ -46,7 +69,7 @@ namespace Kafka.Protocol
         // and compressed message sets (the method recursively calls itself in this case and
         // flatten the result). The returned enumeration must be enumerated for deserialization
         // effectiveley occuring.
-        private static IEnumerable<ResponseMessage> LazyDeserializeMessageSet(MemoryStream stream, int messageSetSize)
+        private static IEnumerable<ResponseMessage> LazyDeserializeMessageSet(ReusableMemoryStream stream, int messageSetSize)
         {
             var remainingMessageSetBytes = messageSetSize;
 
@@ -83,7 +106,7 @@ namespace Kafka.Protocol
                     Message = new Message
                     {
                         Key = Basics.DeserializeByteArray(stream),
-                        Value = Basics.DeserializeByteArray(stream)
+                        Value = Basics.DeserializeByteArray(stream) // TODO: in case of compressed stream, avoid byte[] creation/copy
                     }
                 };
                 var pos = stream.Position;
@@ -107,7 +130,7 @@ namespace Kafka.Protocol
                     using (var uncompressedStream = Uncompress(msg.Message.Value, codec))
                     {
                         // Deserialize recursively
-                        foreach (var m in LazyDeserializeMessageSet(uncompressedStream, (int)uncompressedStream.Length))
+                        foreach (var m in LazyDeserializeMessageSet(uncompressedStream, (int) uncompressedStream.Length))
                         {
                             // Flatten
                             yield return m;
@@ -121,27 +144,28 @@ namespace Kafka.Protocol
 
         #region Compression handling
 
-        private static MemoryStream Uncompress(byte[] body, CompressionCodec codec)
+        private static ReusableMemoryStream Uncompress(byte[] body, CompressionCodec codec)
         {
             try
             {
-                MemoryStream uncompressed;
+                ReusableMemoryStream uncompressed;
                 if (codec == CompressionCodec.Snappy)
                 {
-                    uncompressed = new MemoryStream(SnappyCodec.Uncompress(body));
+                    uncompressed = ReusableMemoryStream.Reserve(SnappyCodec.GetUncompressedLength(body));
+                    SnappyCodec.Uncompress(body, 0, body.Length, uncompressed.GetBuffer(), 0);
                 }
                 else // compression == CompressionCodec.Gzip
                 {
-                    uncompressed = new MemoryStream();
+                    uncompressed = ReusableMemoryStream.Reserve();
                     using (var compressed = new MemoryStream(body))
                     {
                         using (var gzip = new GZipStream(compressed, CompressionMode.Decompress))
                         {
-                            gzip.CopyTo(uncompressed);
-                            uncompressed.Position = 0;
+                            gzip.ReusableCopyTo(uncompressed);
                         }
                     }
                 }
+                uncompressed.Position = 0;
                 return uncompressed;
             }
             catch (Exception ex)
@@ -152,9 +176,20 @@ namespace Kafka.Protocol
 
         #endregion
 
-        public void Serialize(MemoryStream stream)
+        // Used only in tests
+        public void Serialize(ReusableMemoryStream stream)
         {
-            throw new NotImplementedException();
+            BigEndianConverter.Write(stream, Partition);
+            BigEndianConverter.Write(stream, (short) ErrorCode);
+            BigEndianConverter.Write(stream, HighWatermarkOffset);
+            Basics.WriteSizeInBytes(stream, Messages, (s, l) =>
+            {
+                foreach (var m in l)
+                {
+                    BigEndianConverter.Write(s, m.Offset);
+                    Basics.WriteSizeInBytes(s, m.Message, (st, msg) => msg.Serialize(st, CompressionCodec.None));
+                }
+            });
         }
 
         #endregion

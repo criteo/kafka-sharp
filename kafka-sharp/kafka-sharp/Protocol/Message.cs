@@ -1,8 +1,6 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-using System.IO;
-using DamienG.Security.Cryptography;
 using Kafka.Common;
 using Kafka.Public;
 
@@ -13,7 +11,10 @@ namespace Kafka.Protocol
         public byte[] Key;
         public byte[] Value;
 
-        public void Serialize(MemoryStream stream, CompressionCodec compressionCodec)
+        // This is to handle zero-copy optimization
+        internal int ValueSize;
+
+        public void Serialize(ReusableMemoryStream stream, CompressionCodec compressionCodec)
         {
             var crcPos = stream.Position;
             stream.Write(Basics.MinusOne32, 0, 4); // crc placeholder
@@ -32,11 +33,14 @@ namespace Kafka.Protocol
             }
 
             if (Value == null)
+            {
                 stream.Write(Basics.MinusOne32, 0, 4);
+            }
             else
             {
-                BigEndianConverter.Write(stream, Value.Length);
-                stream.Write(Value, 0, Value.Length);
+                int length = ValueSize > 0 ? ValueSize : Value.Length;
+                BigEndianConverter.Write(stream, length);
+                stream.Write(Value, 0, length);
             }
 
             // update crc

@@ -1,9 +1,9 @@
 ﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-using System;
 using System.Collections.Generic;
-using System.IO;
 using Kafka.Common;
 
 namespace Kafka.Protocol
@@ -15,21 +15,13 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(MemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream)
         {
             Basics.SerializeString(stream, TopicName);
-            Basics.WriteArray(stream, PartitionsData, SerializePartitionData);
+            Basics.WriteArray(stream, PartitionsData);
         }
 
-        // Dumb trick to minimize closure allocations
-        private static Action<MemoryStream, TPartitionData> SerializePartitionData = _SerializePartitionData;
-
-        static void _SerializePartitionData(MemoryStream s, TPartitionData p)
-        {
-            p.Serialize(s);
-        }
-
-        public void Deserialize(MemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream)
         {
             TopicName = Basics.DeserializeString(stream);
             var count = BigEndianConverter.ReadInt32(stream);
