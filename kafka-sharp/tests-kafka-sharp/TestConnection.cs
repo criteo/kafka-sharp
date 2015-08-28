@@ -1,13 +1,14 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Kafka.Cluster;
 using Kafka.Common;
 using Kafka.Network;
+using Moq;
 using NUnit.Framework;
 
 namespace tests_kafka_sharp
@@ -129,13 +130,150 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestCreation()
+        {
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(() => new RealSocketAsyncEventArgs());
+            var dummy = new Connection("localhost", 0, _ => socket.Object, 1234, 4321);
+
+            socket.VerifySet(s => s.SendBufferSize = 1234);
+            socket.VerifySet(s => s.ReceiveBufferSize = 4321);
+        }
+
+        [Test]
+        public void TestDispose()
+        {
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(() => new RealSocketAsyncEventArgs());
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+
+            connection.Dispose();
+
+            socket.Verify(s => s.Close(), Times.Once());
+        }
+
+        [Test]
         public void TestSendWithoutConnect()
         {
-            var server = new FakeServer(SimulationMode.Success);
-            var connection = new Connection(server.EndPoint);
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(new RealSocketAsyncEventArgs());
+            socket.Setup(s => s.Connected).Returns(false);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
 
             var ex = Assert.Throws<TransportException>(async () => await connection.SendAsync(0, ReusableMemoryStream.Reserve(), true));
             Assert.AreEqual(TransportError.ConnectError, ex.Error);
+        }
+
+        [Test]
+        public async Task TestConnect()
+        {
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.ConnectAsync()).Returns(Task.FromResult(true));
+            socket.Setup(s => s.CreateEventArgs()).Returns(new Mock<ISocketAsyncEventArgs>().Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            await connection.ConnectAsync();
+            socket.Verify(s => s.ConnectAsync(), Times.Once());
+            socket.Verify(s => s.ReceiveAsync(It.IsAny<ISocketAsyncEventArgs>()), Times.Once());
+        }
+
+        [Test]
+        public async Task TestSendAsync()
+        {
+            var mocked = new Dictionary<ISocketAsyncEventArgs, Mock<ISocketAsyncEventArgs>>();
+            var socket = new Mock<ISocket>();
+            int step = 0; // we'll do 3 async steps
+            socket.Setup(s => s.CreateEventArgs()).Returns(() =>
+            {
+                var saea = new Mock<ISocketAsyncEventArgs>();
+                saea.Setup(a => a.SocketError).Returns(SocketError.Success);
+                saea.SetupProperty(a => a.UserToken);
+                saea.Setup(a => a.BytesTransferred).Returns(() =>
+                {
+                    switch (step)
+                    {
+                        case 1:
+                            return 4;
+                        case 2:
+                            return 7;
+                        default:
+                            return 3;
+                    }
+                });
+                saea.Setup(a => a.Count).Returns(() =>
+                {
+                    switch (step)
+                    {
+                        case 1:
+                            return 14;
+                        case 2:
+                            return 10;
+                        default:
+                            return 3;
+                    }
+                });
+                saea.Setup(a => a.Offset).Returns(() =>
+                {
+                    switch (step)
+                    {
+                        case 1:
+                            return 0;
+                        case 2:
+                            return 4;
+                        default:
+                            return 11;
+                    }
+                });
+                mocked.Add(saea.Object, saea);
+                return saea.Object;
+            });
+            socket.Setup(s => s.Connected).Returns(true);
+            SocketError error = SocketError.WouldBlock;
+            var buffer = ReusableMemoryStream.Reserve(14);
+            socket.Setup(
+                s =>
+                    s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
+                .Returns(0);
+
+            socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
+                .Returns(() => ++step != 2) // simulate a synchronous return on step 2
+                .Callback((ISocketAsyncEventArgs args) =>
+                {
+                    if (step != 2)
+                        mocked[args].Raise(a => a.Completed += null, socket.Object, args);
+                });
+
+            var connection = new Connection(new IPEndPoint(0,0), _ => socket.Object);
+            await connection.SendAsync(12, buffer, true);
+            socket.Verify(s => s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error), Times.Once());
+            socket.Verify(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()), Times.Exactly(3));
+        }
+
+        [Test]
+        public void TestSendAsyncError()
+        {
+            var mocked = new Dictionary<ISocketAsyncEventArgs, Mock<ISocketAsyncEventArgs>>();
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(() =>
+            {
+                var saea = new Mock<ISocketAsyncEventArgs>();
+                saea.Setup(a => a.SocketError).Returns(SocketError.SocketError);
+                saea.SetupProperty(a => a.UserToken);
+                mocked.Add(saea.Object, saea);
+                return saea.Object;
+            });
+            socket.Setup(s => s.Connected).Returns(true);
+            SocketError error = SocketError.WouldBlock;
+            var buffer = ReusableMemoryStream.Reserve(14);
+            socket.Setup(
+                s =>
+                    s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
+                .Returns(0);
+            socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
+                .Returns(true)
+                .Callback((ISocketAsyncEventArgs a) => mocked[a].Raise(_ => _.Completed += null, socket.Object, a));
+            var connection = new Connection(new IPEndPoint(0,0), _ => socket.Object);
+            var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
+            Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
         }
 
         [Test]
@@ -144,7 +282,7 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.Success);
-            var connection = new Connection(server.EndPoint, 16, 16);
+            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory, 16, 16);
             const int correlationId = 379821;
             const byte ack = 1;
             var buffer = ReusableMemoryStream.Reserve();
@@ -175,7 +313,7 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.Success);
-            var connection = new Connection(server.EndPoint, 16, 16);
+            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory, 16, 16);
             const int correlationId = 379821;
             const byte ack = 1;
             var buffer = ReusableMemoryStream.Reserve();
@@ -194,7 +332,7 @@ namespace tests_kafka_sharp
             await connection.ConnectAsync();
             buffer.Position = 8;
             buffer.WriteByte(0);
-            await connection.SendAsync(correlationId, buffer, true);
+            await connection.SendAsync(correlationId, buffer, false);
             buffer = ReusableMemoryStream.Reserve();
             buffer.Write(bdata, 0, bdata.Length);
             buffer.Position = 8;
@@ -221,7 +359,7 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.ReceiveError);
-            var connection = new Connection(server.EndPoint);
+            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory);
             const int correlationId = 379821;
             const byte ack = 1;
             var buffer = ReusableMemoryStream.Reserve();
@@ -242,6 +380,8 @@ namespace tests_kafka_sharp
 
             Assert.AreSame(connection, r.Connection);
             Assert.IsInstanceOf<TransportException>(r.Exception);
+            var exception = r.Exception as TransportException;
+            Assert.That(exception.Error, Is.EqualTo(TransportError.ReadError));
         }
 
         [Test]
@@ -250,7 +390,7 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.CorrelationIdError);
-            var connection = new Connection(server.EndPoint);
+            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory);
             const int correlationId = 379821;
             const byte ack = 1;
             var buffer = ReusableMemoryStream.Reserve();
@@ -268,26 +408,24 @@ namespace tests_kafka_sharp
             var r = await p.Task;
 
             server.Stop();
+            connection.Dispose();
 
             Assert.AreSame(connection, r.Connection);
             Assert.IsInstanceOf<CorrelationException>(r.Exception);
-            Assert.AreEqual(correlationId, (r.Exception as CorrelationException).Expected);
+            var exception = r.Exception as CorrelationException;
+            Assert.AreEqual(correlationId, exception.Expected);
         }
 
         [Test]
-        public async Task TestConnectionErrorThrowsTransportException()
+        public void TestConnectionErrorThrowsTransportException()
         {
-            var connection = new Connection(new IPEndPoint(new IPAddress(0), 17));
-            try
-            {
-                await connection.ConnectAsync();
-                Assert.IsFalse(true);
-            }
-            catch (Exception ex)
-            {
-                Assert.IsInstanceOf<TransportException>(ex);
-                Assert.AreEqual(TransportError.ConnectError, (ex as TransportException).Error);
-            }
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(new RealSocketAsyncEventArgs());
+            socket.Setup(s => s.ConnectAsync()).Throws(new SocketException((int) SocketError.ConnectionRefused));
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+
+            var exception = Assert.Throws<TransportException>(async () => await connection.ConnectAsync());
+            Assert.That(exception.Error, Is.EqualTo(TransportError.ConnectError));
         }
     }
 }

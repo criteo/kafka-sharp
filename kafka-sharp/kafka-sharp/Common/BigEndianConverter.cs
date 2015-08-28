@@ -16,21 +16,21 @@ namespace Kafka.Common
         public static int ReadInt32(MemoryStream s)
         {
             if (s.Position + 4 > s.Length)
-                throw new Exception(string.Format("ReadInt32 needs 4 bytes but got ony {0}", s.Length - s.Position));
+                throw new Exception(string.Format("ReadInt32 needs 4 bytes but got only {0}", s.Length - s.Position));
             return s.ReadByte() << 3*8 | s.ReadByte() << 2*8 | s.ReadByte() << 8 | s.ReadByte();
         }
 
         public static short ReadInt16(MemoryStream s)
         {
             if (s.Position + 2 > s.Length)
-                throw new Exception(string.Format("ReadInt16 needs 2 bytes but got ony {0}", s.Length - s.Position));
+                throw new Exception(string.Format("ReadInt16 needs 2 bytes but got only {0}", s.Length - s.Position));
             return (short) ((s.ReadByte() << 8) | s.ReadByte());
         }
 
         public static long ReadInt64(MemoryStream stream)
         {
             if (stream.Position + 8 > stream.Length)
-                throw new Exception(string.Format("ReadInt64 needs 8 bytes but got ony {0}",
+                throw new Exception(string.Format("ReadInt64 needs 8 bytes but got only {0}",
                                                   stream.Length - stream.Position));
 
             var res = 0L;

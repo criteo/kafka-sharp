@@ -198,7 +198,7 @@ namespace Kafka.Cluster
                            ((h, p) =>
                             new Node(string.Format("[{0}:{1}]", h, p),
                                      () =>
-                                     new Connection(h, p, configuration.SendBufferSize, configuration.ReceiveBufferSize),
+                                     new Connection(h, p, ep => new RealSocket(ep), configuration.SendBufferSize, configuration.ReceiveBufferSize),
                                      serializer,
                                      configuration).SetResolution(_resolution));
             _nodeFactory = DecorateFactory(_nodeFactory);

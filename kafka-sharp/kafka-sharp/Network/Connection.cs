@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Concurrent;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
@@ -62,6 +61,102 @@ namespace Kafka.Network
     }
 
     /// <summary>
+    /// A SocketAsyncEventargs interface so that network is mockable.
+    /// </summary>
+    interface ISocketAsyncEventArgs
+    {
+        void SetBuffer(byte[] buffer, int offset, int count);
+        void SetBuffer(int offset, int count);
+        SocketError SocketError { get; }
+        int BytesTransferred { get; }
+        int Count { get; }
+        int Offset { get; }
+        byte[] Buffer { get; }
+        object UserToken { get; set; }
+        event Action<ISocket, ISocketAsyncEventArgs> Completed;
+    }
+
+    class RealSocketAsyncEventArgs : SocketAsyncEventArgs, ISocketAsyncEventArgs
+    {
+        public RealSocketAsyncEventArgs()
+        {
+            Completed += (o, saea) =>
+            {
+                var ev = _event;
+                if (ev != null)
+                {
+                    ev(o as ISocket, this);
+                }
+            };
+        }
+
+
+        private Action<ISocket, ISocketAsyncEventArgs> _event;
+        event Action<ISocket, ISocketAsyncEventArgs> ISocketAsyncEventArgs.Completed
+        {
+            add { _event += value; }
+            remove { _event -= value; }
+        }
+    }
+
+    /// <summary>
+    /// A Socket interface so that network is mockable.
+    /// </summary>
+    interface ISocket
+    {
+        ISocketAsyncEventArgs CreateEventArgs();
+        Task ConnectAsync();
+        int Send(byte[] buffer, int offset, int size, SocketFlags flags, out SocketError error);
+        bool SendAsync(ISocketAsyncEventArgs args);
+        bool ReceiveAsync(ISocketAsyncEventArgs args);
+        void Close();
+
+        bool Connected { get; }
+        bool Blocking { get; set; }
+        int SendBufferSize { get; set; }
+        int ReceiveBufferSize { get; set; }
+    }
+
+    class RealSocket : Socket, ISocket
+    {
+        private readonly EndPoint _endPoint;
+
+        public RealSocket(EndPoint endPoint)
+            : base(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+        {
+            _endPoint = endPoint;
+        }
+
+        public ISocketAsyncEventArgs CreateEventArgs()
+        {
+            return new RealSocketAsyncEventArgs();
+        }
+
+        // Use old Begin/End API, this is much simpler than using Socket.Async
+        // and we do not need "performance" here.
+        public Task ConnectAsync()
+        {
+            return Task.Factory.FromAsync(BeginConnect, EndConnect, _endPoint, null);
+        }
+
+        public bool SendAsync(ISocketAsyncEventArgs args)
+        {
+            return SendAsync(args as SocketAsyncEventArgs);
+        }
+
+        public bool ReceiveAsync(ISocketAsyncEventArgs args)
+        {
+            return ReceiveAsync(args as SocketAsyncEventArgs);
+        }
+
+        void ISocket.Close()
+        {
+            Shutdown(SocketShutdown.Both);
+            Dispose();
+        }
+    }
+
+    /// <summary>
     /// Interface to a network connection
     /// </summary>
     interface IConnection : IDisposable
@@ -109,10 +204,9 @@ namespace Kafka.Network
         private const int CorrelationIdLength = sizeof (Int32);
         private const int HeaderLength = SizeLength + CorrelationIdLength;
 
-        private readonly Socket _socket;
-        private readonly SocketAsyncEventArgs _sendArgs;
-        private readonly SocketAsyncEventArgs _receiveArgs;
-        private readonly EndPoint _endPoint;
+        private readonly ISocket _socket;
+        private readonly ISocketAsyncEventArgs _sendArgs;
+        private readonly ISocketAsyncEventArgs _receiveArgs;
         private readonly byte[] _receiveBuffer;
 
         // The Kafka server ensures that acks are ordered on a given connection, we take
@@ -123,6 +217,9 @@ namespace Kafka.Network
         private static readonly Void SuccessResult = new Void();
         private static readonly Task<Void> SuccessTask = Task.FromResult(SuccessResult);
 
+        // Default ISocket implementation
+        public static Func<EndPoint, ISocket> DefaultSocketFactory = ep => new RealSocket(ep);
+
         /// <summary>
         /// Build a connection object.
         /// </summary>
@@ -130,26 +227,27 @@ namespace Kafka.Network
         /// <param name="port">Remote port to connect to</param>
         /// <param name="sendBufferSize">Size of the buffer used for send by the underlying socket</param>
         /// <param name="receiveBufferSize">Size of the buffer used for receive by the underlying socket</param>
-        public Connection(string host, int port, int sendBufferSize = DefaultBufferSize,
-                          int receiveBufferSize = DefaultBufferSize)
-            : this(new IPEndPoint(Dns.GetHostEntry(host).AddressList[0], port), sendBufferSize, receiveBufferSize)
+        public Connection(string host, int port, Func<EndPoint, ISocket> socketFactory,
+            int sendBufferSize = DefaultBufferSize,
+            int receiveBufferSize = DefaultBufferSize)
+            : this(
+                new IPEndPoint(Dns.GetHostEntry(host).AddressList[0], port), socketFactory, sendBufferSize,
+                receiveBufferSize)
         {
         }
 
-        public Connection(EndPoint endPoint, int sendBufferSize = DefaultBufferSize,
-                          int receiveBufferSize = DefaultBufferSize)
+        public Connection(EndPoint endPoint, Func<EndPoint, ISocket> socketFactory,
+            int sendBufferSize = DefaultBufferSize,
+            int receiveBufferSize = DefaultBufferSize)
         {
-            _socket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
-                {
-                    Blocking = false,
-                    SendBufferSize = sendBufferSize,
-                    ReceiveBufferSize = receiveBufferSize,
-                };
-            _sendArgs = new SocketAsyncEventArgs();
+            _socket = socketFactory(endPoint);
+            _socket.Blocking = false;
+            _socket.SendBufferSize = sendBufferSize;
+            _socket.ReceiveBufferSize = receiveBufferSize;
+            _sendArgs = _socket.CreateEventArgs();
             _sendArgs.Completed += OnSendCompleted;
-            _receiveArgs = new SocketAsyncEventArgs();
+            _receiveArgs = _socket.CreateEventArgs();
             _receiveArgs.Completed += OnReceiveCompleted;
-            _endPoint = endPoint;
             _receiveBuffer = new byte[Math.Max(HeaderLength, receiveBufferSize)];
         }
 
@@ -196,7 +294,7 @@ namespace Kafka.Network
         private int _recursiveOnSendCompleted; // count recursive calls when Socket.SendAsync returns synchronously
 
         // Async send loop body
-        private void OnSendCompleted(object sender, SocketAsyncEventArgs saea)
+        private void OnSendCompleted(ISocket sender, ISocketAsyncEventArgs saea)
         {
             var promise = saea.UserToken as TaskCompletionSource<Void>;
             if (saea.SocketError != SocketError.Success)
@@ -236,13 +334,11 @@ namespace Kafka.Network
             promise.SetResult(SuccessResult);
         }
 
-        // Use old Begin/End API, this is much simpler than using Socket.Async
-        // and we do not need performance here.
         public async Task ConnectAsync()
         {
             try
             {
-                await Task.Factory.FromAsync(_socket.BeginConnect, _socket.EndConnect, _endPoint, null);
+                await _socket.ConnectAsync();
             }
             catch (Exception ex)
             {
@@ -296,7 +392,7 @@ namespace Kafka.Network
         private int _recursiveOnReceiveCompleted; // count recursive calls when Socket.ReceiveAsync returns synchronously
 
         // Async receive loop
-        private void OnReceiveCompleted(object sender, SocketAsyncEventArgs saea)
+        private void OnReceiveCompleted(ISocket sender, ISocketAsyncEventArgs saea)
         {
             var context = saea.UserToken as ReceiveContext;
             if (saea.SocketError != SocketError.Success || saea.BytesTransferred == 0)
@@ -338,11 +434,11 @@ namespace Kafka.Network
                 switch (context.State)
                 {
                     case ReceiveState.Header:
-                        HandleHeaderState(context, sender as Socket, saea);
+                        HandleHeaderState(context, sender, saea);
                         break;
 
                     case ReceiveState.Body:
-                        HandleBodyState(context, sender as Socket, saea);
+                        HandleBodyState(context, sender, saea);
                         break;
                 }
             }
@@ -361,7 +457,7 @@ namespace Kafka.Network
         }
 
         // Extract size and correlation Id, then start receive body loop.
-        private void HandleHeaderState(ReceiveContext context, Socket socket, SocketAsyncEventArgs saea)
+        private void HandleHeaderState(ReceiveContext context, ISocket socket, ISocketAsyncEventArgs saea)
         {
             int responseSize = BigEndianConverter.ToInt32(saea.Buffer);
             int correlationId = BigEndianConverter.ToInt32(saea.Buffer, SizeLength);
@@ -386,7 +482,7 @@ namespace Kafka.Network
         }
 
         // Just pass back the response
-        private void HandleBodyState(ReceiveContext context, Socket socket, SocketAsyncEventArgs saea)
+        private void HandleBodyState(ReceiveContext context, ISocket socket, ISocketAsyncEventArgs saea)
         {
             int rec = Math.Min(saea.Buffer.Length, context.RemainingExpected);
             context.Response.Write(saea.Buffer, 0, rec);
@@ -427,9 +523,7 @@ namespace Kafka.Network
 
         public void Dispose()
         {
-            _socket.Shutdown(SocketShutdown.Both);
             _socket.Close();
-            _socket.Dispose();
         }
     }
 }
