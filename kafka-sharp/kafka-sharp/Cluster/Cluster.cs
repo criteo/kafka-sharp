@@ -41,7 +41,7 @@ namespace Kafka.Cluster
         Statistics Statistics { get; }
 
         /// <summary>
-        /// The logger used for feddback.
+        /// The logger used for feedback.
         /// </summary>
         ILogger Logger { get; }
     }

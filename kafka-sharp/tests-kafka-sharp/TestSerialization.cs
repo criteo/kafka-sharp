@@ -32,7 +32,7 @@ namespace tests_kafka_sharp
 
         static void CompareBuffers(byte[] expected, ReusableMemoryStream compared)
         {
-            CompareArrays(expected, compared.GetBuffer(), (int)compared.Position);
+            CompareArrays(expected, compared.GetBuffer(), (int) compared.Position);
             compared.Position += expected.Length;
         }
 
@@ -185,8 +185,8 @@ namespace tests_kafka_sharp
                 foreach (var msg in deserialized)
                 {
                     Assert.AreEqual(0, msg.Offset);
-                    CompareArrays(Key, msg.Message.Key, 0);
-                    CompareArrays(Value, msg.Message.Value, 0);
+                    CollectionAssert.AreEqual(Key, msg.Message.Key);
+                    CollectionAssert.AreEqual(Value, msg.Message.Value);
                 }
             }
         }
@@ -526,7 +526,7 @@ namespace tests_kafka_sharp
                     if (p1.ErrorCode != p2.ErrorCode)
                         return false;
                     Assert.AreEqual(p1.Offsets.Length, p2.Offsets.Length);
-                    CompareArrays(p1.Offsets, p2.Offsets, 0);
+                    CollectionAssert.AreEqual(p1.Offsets, p2.Offsets);
                     return true;
                 });
             }
@@ -580,8 +580,8 @@ namespace tests_kafka_sharp
                     foreach (var zipped in p1.Messages.Zip(p2.Messages, Tuple.Create))
                     {
                         Assert.AreEqual(zipped.Item1.Offset, zipped.Item2.Offset);
-                        CompareArrays(zipped.Item1.Message.Key, zipped.Item2.Message.Key, 0);
-                        CompareArrays(zipped.Item1.Message.Value, zipped.Item2.Message.Value, 0);
+                        CollectionAssert.AreEqual(zipped.Item1.Message.Key, zipped.Item2.Message.Key);
+                        CollectionAssert.AreEqual(zipped.Item1.Message.Value, zipped.Item2.Message.Value);
                     }
 
                     return true;
@@ -668,11 +668,7 @@ namespace tests_kafka_sharp
                 serialized.Position = 0;
 
                 var deserialized = Basics.DeserializeArray(serialized, BigEndianConverter.ReadInt32);
-                Assert.AreEqual(array.Length, deserialized.Length);
-                for (int i = 0; i < array.Length; ++i)
-                {
-                    Assert.AreEqual(array[i], deserialized[i]);
-                }
+                CollectionAssert.AreEqual(array, deserialized);
             }
         }
 

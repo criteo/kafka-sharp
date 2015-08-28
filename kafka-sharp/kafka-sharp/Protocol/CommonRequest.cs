@@ -13,8 +13,8 @@ namespace Kafka.Protocol
         void SerializeBody(ReusableMemoryStream stream);
     }
 
-    // Convenience class to avoid class duplication. We cannot
-    // inheritance with struct so we resort to this dumb trick
+    // Convenience class to avoid code duplication. We cannot
+    // use inheritance with structs so we resort to this dumb trick
     // and ugly ISerializableRequest.
     static class CommonRequest
     {
