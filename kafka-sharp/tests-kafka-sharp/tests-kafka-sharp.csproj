@@ -44,6 +44,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="TestClient.cs" />
     <Compile Include="TestSerialization.cs" />
     <Reference Include="Moq">
       <HintPath>$(SolutionDir)\packages\Moq.4.0.10827\lib\NET40\Moq.dll</HintPath>

@@ -5,6 +5,7 @@ using System.Text;
 using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
+using Kafka.Routing;
 using NUnit.Framework;
 
 namespace tests_kafka_sharp
@@ -720,6 +721,13 @@ namespace tests_kafka_sharp
                 s.Position = 0;
                 Assert.AreEqual(n3, BigEndianConverter.ReadInt64(s));
             }
+        }
+
+        [Test]
+        public void TestOffsets()
+        {
+            Assert.That(Offsets.Latest, Is.EqualTo(-1));
+            Assert.That(Offsets.Earliest, Is.EqualTo(-2));
         }
     }
 }
