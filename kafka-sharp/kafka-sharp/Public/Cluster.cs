@@ -2,6 +2,7 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Generic;
 using System.Reactive.Linq;
 using System.Text;
 using System.Threading;
@@ -76,21 +77,6 @@ namespace Kafka.Public
     public interface IClusterClient : IDisposable
     {
         /// <summary>
-        /// Send a string as Kafka message. The string will be UTF8 encoded.
-        /// </summary>
-        /// <param name="topic">Kafka message topic</param>
-        /// <param name="data">Message value</param>
-        void Produce(string topic, string data);
-
-        /// <summary>
-        /// Send a string as Kafka message with the given key. The string and key will be UTF8 encoded.
-        /// </summary>
-        /// <param name="topic">Kafka message topic</param>
-        /// <param name="key">Message key</param>
-        /// <param name="data">Message value</param>
-        void Produce(string topic, string key, string data);
-
-        /// <summary>
         /// Send an array of bytes to a Kafka cluster.
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
@@ -101,9 +87,20 @@ namespace Kafka.Public
         /// Send an array of bytes to a Kafka Cluster, using the given key.
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
-        /// /// <param name="key">Message key</param>
+        /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
         void Produce(string topic, byte[] key, byte[] data);
+
+        /// <summary>
+        /// Send an array of bytes to a Kafka Cluster, using the given key.
+        /// The message will routed to the target partition. This allows
+        /// clients to partition data according to a specific scheme.
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="key">Message key</param>
+        /// <param name="data">Message value</param>
+        /// <param name="partition">Target partition</param>
+        void Produce(string topic, byte[] key, byte[] data, int partition);
 
         /// <summary>
         /// Consume messages from the given topic, from all partitions, and starting from
@@ -263,31 +260,31 @@ namespace Kafka.Public
 
         public void ConsumeFromEarliest(string topic)
         {
-            _cluster.ConsumeRouter.StartConsume(topic, Partition.All.Id, Offsets.Earliest);
+            _cluster.ConsumeRouter.StartConsume(topic, Partitions.All, Offsets.Earliest);
         }
 
         public void ConsumeFromLatest(string topic)
         {
-            _cluster.ConsumeRouter.StartConsume(topic, Partition.All.Id, Offsets.Latest);
+            _cluster.ConsumeRouter.StartConsume(topic, Partitions.All, Offsets.Latest);
         }
 
         public void ConsumeFromEarliest(string topic, int partition)
         {
-            if (partition < Partition.All.Id)
+            if (partition < Partitions.All)
                 throw new ArgumentException("Ivalid partition Id", "partition");
             _cluster.ConsumeRouter.StartConsume(topic, partition, Offsets.Earliest);
         }
 
         public void ConsumeFromLatest(string topic, int partition)
         {
-            if (partition < Partition.All.Id)
+            if (partition < Partitions.All)
                 throw new ArgumentException("Ivalid partition Id", "partition");
             _cluster.ConsumeRouter.StartConsume(topic, partition, Offsets.Latest);
         }
 
         public void Consume(string topic, int partition, long offset)
         {
-            if (partition < Partition.All.Id)
+            if (partition < Partitions.All)
                 throw new ArgumentException("Ivalid partition Id", "partition");
             if (offset < Offsets.Earliest)
                 throw new ArgumentException("Invalid offset", "offset");
@@ -296,7 +293,7 @@ namespace Kafka.Public
 
         public void StopConsume(string topic)
         {
-            _cluster.ConsumeRouter.StopConsume(topic, Partition.All.Id, Offsets.Now);
+            _cluster.ConsumeRouter.StopConsume(topic, Partitions.All, Offsets.Now);
         }
 
         public void StopConsume(string topic, int partition)
@@ -315,11 +312,23 @@ namespace Kafka.Public
             _cluster.ConsumeRouter.StopConsume(topic, partition, offset);
         }
 
+        /// <summary>
+        /// Send a string as Kafka message. The string will be UTF8 encoded.
+        /// This is useful for playing or testing.
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="data">Message value</param>
         public void Produce(string topic, string data)
         {
             Produce(topic, null, data);
         }
 
+        /// <summary>
+        /// Send a string as Kafka message with the given key. The string and key will be UTF8 encoded.
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="key">Message key</param>
+        /// <param name="data">Message value</param>
         public void Produce(string topic, string key, string data)
         {
             Produce(topic, key == null ? null : Encoding.UTF8.GetBytes(key), Encoding.UTF8.GetBytes(data));
@@ -330,9 +339,14 @@ namespace Kafka.Public
             Produce(topic, null, data);
         }
 
+        public void Produce(string topic, byte[] key, byte[] data)
+        {
+            Produce(topic, key, data, Partitions.Any);
+        }
+
         private long _sent;
 
-        public void Produce(string topic, byte[] key, byte[] data)
+        public void Produce(string topic, byte[] key, byte[] data, int partition)
         {
             if (_configuration.MaxBufferedMessages > 0)
             {
@@ -342,7 +356,7 @@ namespace Kafka.Public
                 }
                 Interlocked.Increment(ref _sent);
             }
-            _cluster.ProduceRouter.Route(topic, new Message {Key = key, Value = data}, DateTime.UtcNow.Add(_configuration.MessageTtl));
+            _cluster.ProduceRouter.Route(topic, new Message {Key = key, Value = data}, partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
         }
 
         public Task Shutdown()

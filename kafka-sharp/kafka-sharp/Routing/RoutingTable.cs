@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using Kafka.Cluster;
+using Kafka.Public;
 
 namespace Kafka.Routing
 {
@@ -12,9 +13,7 @@ namespace Kafka.Routing
         public int Id { get; set; }
         public INode Leader { get; set; }
 
-        // Yes they should not be the same value but it's convenient
-        public static readonly Partition None = new Partition {Id = -1};
-        public static readonly Partition All = new Partition {Id = -1};
+        public static Partition None = new Partition {Id = Partitions.None};
 
         public int CompareTo(Partition other)
         {

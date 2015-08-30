@@ -112,12 +112,12 @@ namespace tests_kafka_sharp
         [Test]
         public async Task TestMessagesAreSent()
         {
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _produceRouter.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _produceRouter.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
-            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test2p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test2p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("testallp", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("testallp", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
 
             await _produceRouter.Stop();
 
@@ -137,53 +137,6 @@ namespace tests_kafka_sharp
             Assert.AreEqual(expectedMessagesExpired, MessagesExpired);
             Assert.AreEqual(expectedMessagesPostponed, MessagesPostponed);
             Assert.AreEqual(expectedRoutingTableRequired, RoutingTableRequired);
-        }
-
-        class TestPartitioner : IPartitioner
-        {
-            private readonly int _p;
-            public TestPartitioner(int p)
-            {
-                _p = p;
-            }
-
-            public Partition GetPartition(Message message, Partition[] partitions)
-            {
-                return partitions[_p];
-            }
-        }
-
-        [Test]
-        public void TestPartitionerChanges()
-        {
-            var ev = new AutoResetEvent(false);
-            _produceRouter.MessageRouted += _ => ev.Set();
-            int node3rec = 0;
-            _nodes[3].ProduceAcknowledgement += (_, ack) => node3rec += ack.OriginalBatch.SelectMany(g => g).Count();
-            int node2rec = 0;
-            _nodes[2].ProduceAcknowledgement += (_, ack) => node2rec += ack.OriginalBatch.SelectMany(g => g).Count();
-
-            _produceRouter.SetPartitioners(new Dictionary<string, IPartitioner> {{"testallp", new TestPartitioner(3)}});
-            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
-            ev.WaitOne();
-            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
-            ev.WaitOne();
-
-            Assert.AreEqual(2, node3rec);
-            Assert.AreEqual(0, node2rec);
-
-            _produceRouter.SetPartitioner("testallp", new TestPartitioner(2));
-            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
-            ev.WaitOne();
-            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
-            ev.WaitOne();
-            _produceRouter.Route("testallp", new Message(), DateTime.UtcNow.AddMinutes(5));
-            ev.WaitOne();
-
-            Assert.AreEqual(2, node3rec);
-            Assert.AreEqual(3, node2rec);
-
-            CheckCounters(expectedMessagesEnqueued: 5, expectedMessagesRouted: 5, expectedRoutingTableRequired: 1);
         }
 
         [Test]
@@ -654,8 +607,8 @@ namespace tests_kafka_sharp
         [Test]
         public async Task TestExpiredMessagesAreNotRouted()
         {
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(-1));
-            _produceRouter.Route("test2p", new Message(), DateTime.UtcNow.AddMilliseconds(-1));
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMilliseconds(-1));
+            _produceRouter.Route("test2p", new Message(), Partitions.Any, DateTime.UtcNow.AddMilliseconds(-1));
 
             await _produceRouter.Stop();
 
@@ -667,11 +620,11 @@ namespace tests_kafka_sharp
         [Test]
         public async Task TestNoMessageIsSentAfterStop()
         {
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
             await _produceRouter.Stop();
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
 
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
             await Task.Delay(TimeSpan.FromMilliseconds(100));
 
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
@@ -684,9 +637,9 @@ namespace tests_kafka_sharp
             _cluster.Partitions = new Dictionary<string, Partition[]>();
 
             _finished = new AsyncCountdownEvent(8);
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, 1x RoutingTableRequired
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, no routing table required because postponed
-            _produceRouter.Route("test2p", new Message(), DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, 1x RoutingTableRequired
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, 1x RoutingTableRequired
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, no routing table required because postponed
+            _produceRouter.Route("test2p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed, 1x RoutingTableRequired
             await _finished.WaitAsync();
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
@@ -710,7 +663,7 @@ namespace tests_kafka_sharp
             _cluster.Partitions = new Dictionary<string, Partition[]>();
 
             _finished = new AsyncCountdownEvent(3);
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(50));
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMilliseconds(50));
             await _finished.WaitAsync();
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
@@ -734,8 +687,8 @@ namespace tests_kafka_sharp
             _cluster.Partitions = new Dictionary<string, Partition[]>();
 
             _finished = new AsyncCountdownEvent(5);
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMilliseconds(50));
-            _produceRouter.Route("test1p", new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMilliseconds(50));
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
             await _finished.WaitAsync();
 
             Assert.AreEqual(0, _messagesSentByTopic["test1p"]);

@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Text;
 using System.Threading.Tasks;
 using Kafka.Cluster;
@@ -55,12 +54,13 @@ namespace tests_kafka_sharp
         public void TestProduceValue()
         {
             _client.Produce(Topic, ValueB);
-            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<DateTime>()), Times.Once());
+            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Once());
             _producer.Verify(
                 p =>
                     p.Route(
-                        It.Is<string>(s => s == Topic),
+                        Topic,
                         It.Is<Message>(m => m.Key == null && AreEqual(ValueB, m.Value)),
+                        Partitions.Any,
                         It.Is<DateTime>(d => d != default(DateTime))));
         }
 
@@ -68,12 +68,27 @@ namespace tests_kafka_sharp
         public void TestProduceKeyValue()
         {
             _client.Produce(Topic, KeyB, ValueB);
-            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<DateTime>()), Times.Once());
+            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Once());
             _producer.Verify(
                 p =>
                     p.Route(
-                        It.Is<string>(s => s == Topic),
+                        Topic,
                         It.Is<Message>(m => AreEqual(KeyB, m.Key) && AreEqual(ValueB, m.Value)),
+                        Partitions.Any,
+                        It.Is<DateTime>(d => d != default(DateTime))));
+        }
+
+        [Test]
+        public void TestProduceKeyValuePartition()
+        {
+            _client.Produce(Topic, KeyB, ValueB, 28);
+            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Once());
+            _producer.Verify(
+                p =>
+                    p.Route(
+                        Topic,
+                        It.Is<Message>(m => AreEqual(KeyB, m.Key) && AreEqual(ValueB, m.Value)),
+                        28,
                         It.Is<DateTime>(d => d != default(DateTime))));
         }
 
@@ -81,12 +96,13 @@ namespace tests_kafka_sharp
         public void TestProduceStringValue()
         {
             _client.Produce(Topic, Value);
-            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<DateTime>()), Times.Once());
+            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Once());
             _producer.Verify(
                 p =>
                     p.Route(
                         It.Is<string>(s => s == Topic),
                         It.Is<Message>(m => m.Key == null && AreEqual(ValueB, m.Value)),
+                        Partitions.Any,
                         It.Is<DateTime>(d => d != default(DateTime))));
         }
 
@@ -94,12 +110,13 @@ namespace tests_kafka_sharp
         public void TestProduceStringKeyValue()
         {
             _client.Produce(Topic, Key, Value);
-            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<DateTime>()), Times.Once());
+            _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Once());
             _producer.Verify(
                 p =>
                     p.Route(
                         It.Is<string>(s => s == Topic),
                         It.Is<Message>(m => AreEqual(KeyB, m.Key) && AreEqual(ValueB, m.Value)),
+                        Partitions.Any,
                         It.Is<DateTime>(d => d != default(DateTime))));
         }
 
@@ -133,7 +150,7 @@ namespace tests_kafka_sharp
         {
             _client.ConsumeFromLatest(Topic);
 
-            VerifyConsume(Topic, Partition.All.Id, Offsets.Latest);
+            VerifyConsume(Topic, Partitions.All, Offsets.Latest);
         }
 
         [Test]
@@ -150,7 +167,7 @@ namespace tests_kafka_sharp
         {
             _client.ConsumeFromEarliest(Topic);
 
-            VerifyConsume(Topic, Partition.All.Id, Offsets.Earliest);
+            VerifyConsume(Topic, Partitions.All, Offsets.Earliest);
         }
 
         private void VerifyStopConsume(string topic, int partition, long offset)
@@ -183,7 +200,7 @@ namespace tests_kafka_sharp
         {
             _client.StopConsume(Topic);
 
-            VerifyStopConsume(Topic, Partition.All.Id, Offsets.Now);
+            VerifyStopConsume(Topic, Partitions.All, Offsets.Now);
         }
 
         [Test]

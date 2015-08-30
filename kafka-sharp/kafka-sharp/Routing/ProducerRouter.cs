@@ -15,8 +15,6 @@ using ICluster = Kafka.Cluster.ICluster;
 
 namespace Kafka.Routing
 {
-    using Partitioners = Dictionary<string, IPartitioner>;
-
     /// <summary>
     /// Acknowledgement class for produce requests. Produce requests
     /// are batched by the nodes, so this is an acknowlegement for
@@ -58,13 +56,15 @@ namespace Kafka.Routing
         void ChangeRoutingTable(RoutingTable table);
 
         /// <summary>
-        /// Route a new message to Kafka brokers.
+        /// Route a new message to Kafka brokers. If target partition is Any
+        /// we'll round robin through active partitions.
         /// </summary>
         /// <param name="topic">Message topic.</param>
         /// <param name="message">Message Key/Body.</param>
+        /// <param name="partition">Target partition, can be Partitions.Any</param>
         /// <param name="expirationDate">A date after which the message will not be tried
         /// again in case of errors</param>
-        void Route(string topic, Message message, DateTime expirationDate);
+        void Route(string topic, Message message, int partition, DateTime expirationDate);
 
         /// <summary>
         /// Route an already created ProduceMessage.
@@ -120,12 +120,6 @@ namespace Kafka.Routing
         enum RouterMessageType
         {
             /// <summary>
-            /// New partitioners have been provided.
-            /// Note: partitioner change feature is not exposed yet by the public API.
-            /// </summary>
-            PartitionerEvent,
-
-            /// <summary>
             /// A produce message is required to be sent or an
             /// acknowledgement has been received. We want to prioritize
             /// acknowledgement treatment over produce routing, so for
@@ -148,38 +142,17 @@ namespace Kafka.Routing
             CheckPostponedFollowingRoutingTableChange
         }
 
-        /// <summary>
-        /// This is used to describe a partitioner change.
-        /// </summary>
-        struct PartitionerMessage
-        {
-            /// <summary>
-            /// Topic associated to the new partitioner,
-            /// or null to describe a change on multiple topics.
-            /// </summary>
-            public string Topic;
-
-            /// <summary>
-            /// If Topic is not null this is assumed to be a IPartitioner.
-            /// If Topic is null this is assumed to be a Dictionary&lt;string, IPartitioner&gt;
-            /// </summary>
-            public object PartitionerInfo;
-        }
-
         private readonly ICluster _cluster;
         private readonly Configuration _configuration;
 
         private RoutingTable _routingTable = new RoutingTable(new Dictionary<string, Partition[]>());
-        private Partitioners _partitioners = new Partitioners();
+        private Dictionary<string, PartitionSelector> _partitioners = new Dictionary<string, PartitionSelector>();
 
         // The queue of produce messages waiting to be routed
         private readonly ConcurrentQueue<ProduceMessage> _produceMessages = new ConcurrentQueue<ProduceMessage>();
 
         // The queue of received acknowledgements
         private readonly ConcurrentQueue<ProduceAcknowledgement> _produceResponses = new ConcurrentQueue<ProduceAcknowledgement>();
-
-        // The queue of partitioner changes waiting to be processed
-        private readonly ConcurrentQueue<PartitionerMessage> _partitionerMessages = new ConcurrentQueue<PartitionerMessage>();
 
         // The actor used to orchestrate all processing
         private readonly ActionBlock<RouterMessageType> _messages;
@@ -268,9 +241,9 @@ namespace Kafka.Routing
         /// <param name="topic"></param>
         /// <param name="message"></param>
         /// <param name="expirationDate"></param>
-        public void Route(string topic, Message message,  DateTime expirationDate)
+        public void Route(string topic, Message message, int partition, DateTime expirationDate)
         {
-            Route(ProduceMessage.New(topic, message, expirationDate));
+            Route(ProduceMessage.New(topic, partition, message, expirationDate));
         }
 
         /// <summary>
@@ -299,6 +272,7 @@ namespace Kafka.Routing
                 return;
             }
 
+            message.Partition = Partitions.None; // so that round robined msgs are re robined
             if (Post(message))
             {
                 MessageReEnqueued(message.Topic);
@@ -334,48 +308,6 @@ namespace Kafka.Routing
         }
 
         /// <summary>
-        /// Post a partitioner change event for multiple topics.
-        /// </summary>
-        /// <param name="partitioners"></param>
-        public void SetPartitioners(Partitioners partitioners)
-        {
-            if (partitioners == null)
-                throw new ArgumentNullException("partitioners");
-
-            Post(new PartitionerMessage {PartitionerInfo = partitioners});
-        }
-
-        /// <summary>
-        /// Post a partitioner change event for a single topic.
-        /// </summary>
-        /// <param name="topic"></param>
-        /// <param name="partitioner"></param>
-        public void SetPartitioner(string topic, IPartitioner partitioner)
-        {
-            if (topic == null)
-                throw new ArgumentNullException("topic");
-            if (partitioner == null)
-                throw new ArgumentNullException("partitioner");
-
-            Post(new PartitionerMessage
-                {
-                    Topic = topic,
-                    PartitionerInfo = partitioner
-                });
-        }
-
-        private void Post(PartitionerMessage partitionerMessage)
-        {
-            if (_messages.Completion.IsCompleted)
-            {
-                return;
-            }
-
-            _partitionerMessages.Enqueue(partitionerMessage);
-            _messages.Post(RouterMessageType.PartitionerEvent);
-        }
-
-        /// <summary>
         /// Request a metadata refresh from the cluster.
         /// </summary>
         /// <returns></returns>
@@ -402,19 +334,6 @@ namespace Kafka.Routing
         {
             switch (messageType)
             {
-                case RouterMessageType.PartitionerEvent:
-                    {
-                        PartitionerMessage message;
-                        if (!_partitionerMessages.TryDequeue(out message))
-                        {
-                            // Something is messed up, we stop
-                            _messages.Complete();
-                            return;
-                        }
-                        HandlePartitionerMessage(message);
-                    }
-                    break;
-
                     // In this case we prioritize reading produce responses
                     // to refresh metadata as soon as possible if needed.
                     // Unless batching is set to batches of one message there
@@ -459,20 +378,6 @@ namespace Kafka.Routing
             }
         }
 
-        // Simply swap partitioners. No need to check the type casts, it has
-        // already been taken care of by strictly typed SetPartitioner(s) methods.
-        private void HandlePartitionerMessage(PartitionerMessage message)
-        {
-            if (message.Topic != null)
-            {
-                _partitioners[message.Topic] = message.PartitionerInfo as IPartitioner;
-            }
-            else
-            {
-                _partitioners = message.PartitionerInfo as Partitioners;
-            }
-        }
-
         /// <summary>
         /// Handle a produce message:
         ///  - check if expired,
@@ -501,11 +406,11 @@ namespace Kafka.Routing
                 return;
             }
 
-            IPartitioner partitioner;
-            if (!_partitioners.TryGetValue(topic, out partitioner))
+            PartitionSelector selector;
+            if (!_partitioners.TryGetValue(topic, out selector))
             {
-                partitioner = new DefaultPartitioner();
-                _partitioners[topic] = partitioner;
+                selector = new PartitionSelector();
+                _partitioners[topic] = selector;
             }
 
             var partitions = _routingTable.GetPartitions(topic);
@@ -515,9 +420,9 @@ namespace Kafka.Routing
                 partitions = _routingTable.GetPartitions(topic);
             }
 
-            var partition = partitioner.GetPartition(produceMessage.Message, partitions);
+            var partition = selector.GetPartition(produceMessage.RequiredPartition, partitions);
 
-            if (partition.Id == Partition.None.Id)
+            if (partition.Id == Partitions.None)
             {
                 // Messages for topics with no partition available are postponed.
                 // They will be checked again when the routing table is updated.

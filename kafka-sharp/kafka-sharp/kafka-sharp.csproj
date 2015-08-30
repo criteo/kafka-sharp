@@ -95,7 +95,7 @@
     <Compile Include="Public\ILogger.cs" />
     <Compile Include="Public\KafkaRecord.cs" />
     <Compile Include="Routing\ConsumerRouter.cs" />
-    <Compile Include="Routing\Partitioner.cs" />
+    <Compile Include="Routing\PartitionSelector.cs" />
     <Compile Include="Routing\ProducerRouter.cs" />
     <Compile Include="Routing\RoutingTable.cs" />
   </ItemGroup>

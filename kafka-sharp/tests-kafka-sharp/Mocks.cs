@@ -350,9 +350,9 @@ namespace tests_kafka_sharp
             OnChangeRouting(table);
         }
 
-        public void Route(string topic, Message message, DateTime expirationDate)
+        public void Route(string topic, Message message, int partition, DateTime expirationDate)
         {
-            Route(ProduceMessage.New(topic, message, expirationDate));
+            Route(ProduceMessage.New(topic, partition, message, expirationDate));
         }
 
         public void Route(ProduceMessage message)

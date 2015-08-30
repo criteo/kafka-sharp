@@ -5,6 +5,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using Kafka.Protocol;
+using Kafka.Public;
 
 namespace Kafka.Cluster
 {
@@ -17,16 +18,10 @@ namespace Kafka.Cluster
         public string Topic;
         public Message Message;
         public DateTime ExpirationDate;
-        public int Partition;
-
-        public static readonly int PartitionNotSet = -1;
+        public int RequiredPartition = Partitions.Any;
+        public int Partition = Partitions.None;
 
         private ProduceMessage() { }
-
-        public static ProduceMessage New(string topic, Message message, DateTime expirationDate)
-        {
-            return New(topic, PartitionNotSet, message, expirationDate);
-        }
 
         public static long Allocated { get { return _allocated; } }
         public static long Released { get { return _released; } }
@@ -42,7 +37,7 @@ namespace Kafka.Cluster
                 reserved = new ProduceMessage();
             }
             reserved.Topic = topic;
-            reserved.Partition = partition;
+            reserved.Partition = reserved.RequiredPartition = partition;
             reserved.Message = message;
             reserved.ExpirationDate = expirationDate;
             Interlocked.Increment(ref _allocated);

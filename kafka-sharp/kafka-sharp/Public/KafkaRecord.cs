@@ -4,6 +4,16 @@
 namespace Kafka.Public
 {
     /// <summary>
+    /// Partition Id magic values
+    /// </summary>
+    public static class Partitions
+    {
+        public const int None = -1;
+        public const int All = -2;
+        public const int Any = -3;
+    }
+
+    /// <summary>
     /// A Kafka record, as got from consuming a topic. This is
     /// what is returned by the consumer.
     /// </summary>

@@ -467,7 +467,7 @@ namespace Kafka.Routing
         {
             foreach (
                 var partition in
-                    topicOnOff.Partition == Partition.All.Id
+                    topicOnOff.Partition == Partitions.All
                         ? _partitionsStates[topicOnOff.Topic].Keys
                         : Enumerable.Repeat(topicOnOff.Partition, 1))
             {

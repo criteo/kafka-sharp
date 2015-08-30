@@ -42,7 +42,7 @@ namespace tests_kafka_sharp
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
             var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
-            consumer.StartConsume(TOPIC, Partition.All.Id, offset);
+            consumer.StartConsume(TOPIC, Partitions.All, offset);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(t => t == TOPIC)), Times.AtLeastOnce());
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(s => s != TOPIC)), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -91,7 +91,7 @@ namespace tests_kafka_sharp
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
             var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
             const long OFFSET = 42L;
-            consumer.StartConsume(TOPIC, Partition.All.Id, OFFSET);
+            consumer.StartConsume(TOPIC, Partitions.All, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(t => t == TOPIC)), Times.AtLeastOnce());
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(s => s != TOPIC)), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
