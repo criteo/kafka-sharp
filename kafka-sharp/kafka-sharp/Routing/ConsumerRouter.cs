@@ -147,7 +147,7 @@ namespace Kafka.Routing
             public ConsumerMessageValue MessageValue;
         }
 
-        struct TopicOnOff
+        class TopicOnOff
         {
             public string Topic;
             public long Offset;
