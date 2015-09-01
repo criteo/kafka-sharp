@@ -119,7 +119,10 @@ namespace tests_kafka_sharp
             }
         }
 
-        private static void TestSerializeMessageSetCompressed(CompressionCodec codec, byte attr)
+        [Test]
+        [TestCase(CompressionCodec.Gzip, 1)]
+        [TestCase(CompressionCodec.Snappy, 2)]
+        public void TestSerializeMessageSetCompressed(CompressionCodec codec, byte attr)
         {
             using (var serialized = ReusableMemoryStream.Reserve())
             {
@@ -153,18 +156,10 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestSerializeMessageSetGzip()
-        {
-            TestSerializeMessageSetCompressed(CompressionCodec.Gzip, 1);
-        }
-
-        [Test]
-        public void TestSerializeMessageSetSnappy()
-        {
-            TestSerializeMessageSetCompressed(CompressionCodec.Snappy, 2);
-        }
-
-        private static void TestDeserializeMessageSet(CompressionCodec codec)
+        [TestCase(CompressionCodec.None)]
+        [TestCase(CompressionCodec.Gzip)]
+        [TestCase(CompressionCodec.Snappy)]
+        public void TestDeserializeMessageSet(CompressionCodec codec)
         {
             using (var serialized = ReusableMemoryStream.Reserve())
             {
@@ -190,24 +185,6 @@ namespace tests_kafka_sharp
                     CollectionAssert.AreEqual(Value, msg.Message.Value);
                 }
             }
-        }
-
-        [Test]
-        public void TestDeserializeMessageSetNoCodec()
-        {
-            TestDeserializeMessageSet(CompressionCodec.None);
-        }
-
-        [Test]
-        public void TestDeserializeMessageSetGzip()
-        {
-            TestDeserializeMessageSet(CompressionCodec.Gzip);
-        }
-
-        [Test]
-        public void TestDeserializeMessageSetSnappy()
-        {
-            TestDeserializeMessageSet(CompressionCodec.Snappy);
         }
 
         private static void CheckHeader(
