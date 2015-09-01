@@ -71,12 +71,12 @@ namespace Kafka.Routing
     // Magic values for Offset APIs. Some from Kafka protocol, some special to us
     static class Offsets
     {
-        public static readonly long Some = 0; // From Kafka protocol
-        public static readonly long Latest = -1; // From Kafka protocol
-        public static readonly long Earliest = -2; // From Kafka protocol
-        public static readonly long Now = -42;
-        public static readonly long None = -42;
-        public static readonly long Never = -42;
+        public const long Some = 0; // From Kafka protocol
+        public const long Latest = -1; // From Kafka protocol
+        public const long Earliest = -2; // From Kafka protocol
+        public const long Now = -42;
+        public const long None = -42;
+        public const long Never = -42;
     }
 
     /// <summary>
@@ -562,8 +562,16 @@ namespace Kafka.Routing
             else
             {
                 // start Fetch loop
-                state.NextOffsetExpected = partitionResponse.Offsets[0];
-                await Fetch(topic, partitionResponse.Partition, state.NextOffsetExpected);
+                var nextOffset = partitionResponse.Offsets[0];
+                if (state.StopAt < 0 || nextOffset <= state.StopAt)
+                {
+                    state.NextOffsetExpected = nextOffset;
+                    await Fetch(topic, partitionResponse.Partition, state.NextOffsetExpected);
+                }
+                else
+                {
+                    state.Active = false;
+                }
             }
         }
 
@@ -601,13 +609,13 @@ namespace Kafka.Routing
             {
                 state.LastOffsetSeen = message.Offset;
                 MessageReceived(new KafkaRecord
-                {
-                    Topic = topic,
-                    Key = message.Message.Key,
-                    Value = message.Message.Value,
-                    Offset = message.Offset,
-                    Partition = partitionResponse.Partition
-                });
+                    {
+                        Topic = topic,
+                        Key = message.Message.Key,
+                        Value = message.Message.Value,
+                        Offset = message.Offset,
+                        Partition = partitionResponse.Partition
+                    });
             }
 
             ResponseMessageListPool.Release(partitionResponse.Messages);

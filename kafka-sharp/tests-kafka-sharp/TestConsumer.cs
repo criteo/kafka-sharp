@@ -18,11 +18,16 @@ namespace tests_kafka_sharp
     {
         private const string TOPIC = "poulpe";
         private const string TOPIC2 = "tako";
+        private const long OFFSET = 42L;
+        private const int PARTITION = 0;
 
-        private static void TestStart_AllPartition_Offset(long offset)
+        [Test]
+        [TestCase(Offsets.Latest)]
+        [TestCase(Offsets.Earliest)]
+        public void TestStart_AllPartition_OffsetUnknown(long offset)
         {
             var node = new Mock<INode>();
-            var cluster = new Mock<Kafka.Cluster.ICluster>();
+            var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
                 .Returns(Task.FromResult(new[] {0, 1, 2}));
             cluster.Setup(c => c.RequireNewRoutingTable())
@@ -55,22 +60,10 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestStart_AllPartitions_LatestOffset()
-        {
-            TestStart_AllPartition_Offset(Offsets.Latest);
-        }
-
-        [Test]
-        public void TestStart_AllPartitions_EarliestOffset()
-        {
-            TestStart_AllPartition_Offset(Offsets.Earliest);
-        }
-
-        [Test]
         public void TestStart_AllPartitions_KnownOffset()
         {
             var node = new Mock<INode>();
-            var cluster = new Mock<Kafka.Cluster.ICluster>();
+            var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
                 .Returns(Task.FromResult(new[] {0, 1, 2}));
             cluster.Setup(c => c.RequireNewRoutingTable())
@@ -90,7 +83,6 @@ namespace tests_kafka_sharp
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
             var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
-            const long OFFSET = 42L;
             consumer.StartConsume(TOPIC, Partitions.All, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(t => t == TOPIC)), Times.AtLeastOnce());
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(s => s != TOPIC)), Times.Never());
@@ -105,10 +97,13 @@ namespace tests_kafka_sharp
                 Times.Never());
         }
 
-        private static void TestStart_OnePartition_Offset(long offset)
+        [Test]
+        [TestCase(Offsets.Latest)]
+        [TestCase(Offsets.Earliest)]
+        public void TestStart_OnePartition_OffsetUnknown(long offset)
         {
             var node = new Mock<INode>();
-            var cluster = new Mock<Kafka.Cluster.ICluster>();
+            var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(
                     Task.FromResult(
@@ -126,7 +121,6 @@ namespace tests_kafka_sharp
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
             var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
-            const int PARTITION = 0;
             consumer.StartConsume(TOPIC, PARTITION, offset);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -137,22 +131,10 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestStart_OnePartition_LatestOffset()
-        {
-            TestStart_OnePartition_Offset(Offsets.Latest);
-        }
-
-        [Test]
-        public void TestStart_OnePartition_EarliestOffset()
-        {
-            TestStart_OnePartition_Offset(Offsets.Earliest);
-        }
-
-        [Test]
         public void TestStart_OnePartition_KnownOffset()
         {
             var node = new Mock<INode>();
-            var cluster = new Mock<Kafka.Cluster.ICluster>();
+            var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(
                     Task.FromResult(
@@ -170,8 +152,6 @@ namespace tests_kafka_sharp
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
             var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
-            const int PARTITION = 0;
-            const long OFFSET = 42L;
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -183,11 +163,129 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        [TestCase(OFFSET - 1)]
+        [TestCase(Offsets.Now)]
+        public void TestStopConsumeBeforeFetchLoop(long offset)
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            consumer.StartConsume(TOPIC, PARTITION, Offsets.Latest);
+            consumer.StopConsume(TOPIC, PARTITION, offset);
+
+            // Now simulate an offset response, this should not trigger any fetch request.
+            consumer.Acknowledge(new CommonAcknowledgement<OffsetPartitionResponse>
+            {
+                Response = new CommonResponse<OffsetPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<OffsetPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData =
+                                new[]
+                                {
+                                    new OffsetPartitionResponse
+                                    {
+                                        ErrorCode = ErrorCode.NoError,
+                                        Partition = PARTITION,
+                                        Offsets = new[] {OFFSET}
+                                    }
+                                }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            // Check
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Never());
+        }
+
+        [Test]
+        [TestCase(OFFSET + 1)]
+        [TestCase(Offsets.Now)]
+        public void TestStopConsumeAfterFetchLoop(long offset)
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+            consumer.StopConsume(TOPIC, PARTITION, offset);
+
+            // Now simulate a fetch response getting out of range, this should not trigger any new fetch request.
+            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            {
+                Response = new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<FetchPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData = new[]
+                            {
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = PARTITION,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            // Check
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Once());
+        }
+
+        [Test]
         public void TestOffsetResponseIsFollowedByFetchRequest_NoError()
         {
-            const int PARTITION = 0;
             var node = new Mock<INode>();
-            var cluster = new Mock<Kafka.Cluster.ICluster>();
+            var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(
                     Task.FromResult(
@@ -214,7 +312,6 @@ namespace tests_kafka_sharp
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
             consumer.StartConsume(TOPIC, PARTITION + 1, Offsets.Earliest);
             consumer.StartConsume(TOPIC2, PARTITION, Offsets.Earliest);
-            const long OFFSET = 32155L;
             consumer.Acknowledge(new CommonAcknowledgement<OffsetPartitionResponse>
             {
                 Response = new CommonResponse<OffsetPartitionResponse>
@@ -266,9 +363,8 @@ namespace tests_kafka_sharp
         [Test]
         public void TestFetchResponseIsFollowedByFetchRequest_NoError()
         {
-            const int PARTITION = 0;
             var node = new Mock<INode>();
-            var cluster = new Mock<Kafka.Cluster.ICluster>();
+            var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(
                     Task.FromResult(
@@ -295,7 +391,6 @@ namespace tests_kafka_sharp
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
             consumer.StartConsume(TOPIC, PARTITION + 1, Offsets.Earliest);
             consumer.StartConsume(TOPIC2, PARTITION, Offsets.Earliest);
-            const long OFFSET = 32155L;
             consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
             {
                 Response = new CommonResponse<FetchPartitionResponse>
@@ -376,11 +471,10 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestMessagesArePropagated()
+        public void TestMessagesAreFilteredAndPropagated()
         {
-            const int PARTITION = 0;
             var node = new Mock<INode>();
-            var cluster = new Mock<Kafka.Cluster.ICluster>();
+            var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(
                     Task.FromResult(
@@ -396,8 +490,8 @@ namespace tests_kafka_sharp
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
             var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
-            consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
-            const long OFFSET = 32155L;
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+            consumer.StopConsume(TOPIC, PARTITION, OFFSET + 1);
             int messageReceivedRaised = 0;
             consumer.MessageReceived += kr =>
             {
@@ -424,8 +518,10 @@ namespace tests_kafka_sharp
                                     HighWatermarkOffset = 432515L,
                                     Messages = new List<ResponseMessage>
                                     {
+                                        new ResponseMessage {Offset = OFFSET - 1, Message = new Message()}, // Will be filtered
                                         new ResponseMessage {Offset = OFFSET, Message = new Message()},
                                         new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
                                     }
                                 }
                             }
@@ -440,8 +536,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestPostponeIfNoRoute()
         {
-            const int PARTITION = 0;
-            var cluster = new Mock<Kafka.Cluster.ICluster>();
+            var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(
                     Task.FromResult(
