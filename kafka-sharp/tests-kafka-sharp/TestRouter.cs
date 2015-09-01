@@ -41,7 +41,7 @@ namespace tests_kafka_sharp
                 ++MessagesReEnqueued;
                 if (_finished != null) _finished.Signal();
             };
-            _produceRouter.MessageExpired += _ =>
+            _produceRouter.MessageExpired += (t, m) =>
             {
                 ++MessagesExpired;
                 if (_finished != null) _finished.Signal();
@@ -313,10 +313,10 @@ namespace tests_kafka_sharp
                     ev.Set();
                 }
             };
-            _produceRouter.MessagesDiscarded += (t, i) =>
+            _produceRouter.MessageDiscarded += (t, m) =>
             {
-                Interlocked.Add(ref discarded, i);
-                if (Interlocked.Add(ref rec, i) == expected)
+                Interlocked.Increment(ref discarded);
+                if (Interlocked.Increment(ref rec) == expected)
                 {
                     ev.Set();
                 }
@@ -357,11 +357,10 @@ namespace tests_kafka_sharp
         {
             _finished = new AsyncCountdownEvent(1);
             int discarded = 0;
-            _produceRouter.MessagesDiscarded += (t, n) =>
+            _produceRouter.MessageDiscarded += (t, m) =>
                 {
-                    discarded += n;
-                    for (int i = 0; i < n; ++i)
-                        _finished.Signal();
+                    discarded += 1;
+                    _finished.Signal();
                 };
             var acknowledgement = new ProduceAcknowledgement
                 {
@@ -475,10 +474,10 @@ namespace tests_kafka_sharp
                     ev.Set();
                 }
             };
-            _produceRouter.MessagesDiscarded += (t, i) =>
+            _produceRouter.MessageDiscarded += (t, m) =>
             {
-                Interlocked.Add(ref discarded, i);
-                if (Interlocked.Add(ref rec, i) == 2)
+                Interlocked.Increment(ref discarded);
+                if (Interlocked.Increment(ref rec) == 2)
                 {
                     ev.Set();
                 }
@@ -586,10 +585,10 @@ namespace tests_kafka_sharp
                     ev.Set();
                 }
             };
-            _produceRouter.MessagesDiscarded += (t, i) =>
+            _produceRouter.MessageDiscarded += (t, m) =>
             {
-                Interlocked.Add(ref discarded, i);
-                if (Interlocked.Add(ref rec, i) == exp)
+                Interlocked.Increment(ref discarded);
+                if (Interlocked.Increment(ref rec) == exp)
                 {
                     ev.Set();
                 }

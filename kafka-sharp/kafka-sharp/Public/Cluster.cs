@@ -173,6 +173,27 @@ namespace Kafka.Public
         IObservable<KafkaRecord> Messages { get; }
 
         /// <summary>
+        /// This is raised when a produce message has expired.
+        /// </summary>
+        event Action<KafkaRecord> MessageExpired;
+
+        /// <summary>
+        /// Rx observable version of the MessageExpired event.
+        /// </summary>
+        IObservable<KafkaRecord> ExpiredMessages { get; }
+
+        /// <summary>
+        /// This is raised when a produce message is discarded due
+        /// to a network error or some other Kafka unrecoverable error.
+        /// </summary>
+        event Action<KafkaRecord> MessageDiscarded;
+
+        /// <summary>
+        /// Rx observable version of the MessageDiscarded event.
+        /// </summary>
+        IObservable<KafkaRecord> DiscardedMessages { get; }
+
+        /// <summary>
         /// Current statistics if the cluster.
         /// </summary>
         Statistics Statistics { get; }
@@ -233,6 +254,35 @@ namespace Kafka.Public
         public IObservable<KafkaRecord> Messages { get; private set; }
 
         /// <summary>
+        /// This is raised when a produce message has expired.
+        /// The message partition will be set to None and the offset to 0.
+        /// </summary>
+        public event Action<KafkaRecord> MessageExpired = _ => { };
+
+        /// <summary>
+        /// Rx observable version of the MessageExpired event.
+        /// The message partition will be set to None and the offset to 0.
+        /// </summary>
+        public IObservable<KafkaRecord> ExpiredMessages { get; private set; }
+
+        /// <summary>
+        /// This is raised when a produce message is discarded due
+        /// to a network error or some other Kafka unrecoverable error.
+        /// Note that if you set the cluster in retry mode, it will only
+        /// be raised iin case of very strange errors, most of the case
+        /// you should get a MessageExpired event instead (cluster will
+        /// retry produce on most errors until expiration date comes).
+        /// The message partition will be set to None and the offset to 0.
+        /// </summary>
+        public event Action<KafkaRecord> MessageDiscarded = _ => { };
+
+        /// <summary>
+        /// Rx observable version of the MessageDiscarded event.
+        /// The message partition will be set to None and the offset to 0.
+        /// </summary>
+        public IObservable<KafkaRecord> DiscardedMessages { get; private set; }
+
+        /// <summary>
         /// Initialize a client to a Kafka cluster.
         /// </summary>
         /// <param name="configuration"></param>
@@ -250,6 +300,28 @@ namespace Kafka.Public
             _cluster.InternalError += e => _logger.LogError("Cluster internal error: " + e);
             _cluster.ConsumeRouter.MessageReceived += kr => MessageReceived(kr);
             Messages = Observable.FromEvent<KafkaRecord>(a => MessageReceived += a, a => MessageReceived -= a);
+            _cluster.ProduceRouter.MessageExpired +=
+                (t, m) =>
+                    MessageExpired(new KafkaRecord
+                    {
+                        Key = m.Key,
+                        Value = m.Value,
+                        Topic = t,
+                        Partition = Partitions.None,
+                        Offset = 0
+                    });
+            ExpiredMessages = Observable.FromEvent<KafkaRecord>(a => MessageExpired += a, a => MessageExpired -= a);
+            _cluster.ProduceRouter.MessageDiscarded +=
+                (t, m) =>
+                    MessageDiscarded(new KafkaRecord
+                    {
+                        Key = m.Key,
+                        Value = m.Value,
+                        Topic = t,
+                        Partition = Partitions.None,
+                        Offset = 0
+                    });
+            DiscardedMessages = Observable.FromEvent<KafkaRecord>(a => MessageDiscarded += a, a => MessageDiscarded -= a);
             _cluster.Start();
         }
 

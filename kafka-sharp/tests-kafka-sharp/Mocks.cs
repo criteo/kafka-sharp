@@ -371,8 +371,8 @@ namespace tests_kafka_sharp
         }
 
         public event Action<string> MessageRouted;
-        public event Action<string> MessageExpired;
-        public event Action<string, int> MessagesDiscarded;
+        public event Action<string, Message> MessageExpired;
+        public event Action<string, Message> MessageDiscarded;
         public event Action<string, int> MessagesAcknowledged = (t, c) => { };
         public event Action<RoutingTable> OnChangeRouting = _ => { };
     }

@@ -255,7 +255,7 @@ namespace tests_kafka_sharp
         public async Task TestMessageExpired()
         {
             _cluster.Start();
-            _routerMock.Raise(r => r.MessageExpired += null, "testTopic");
+            _routerMock.Raise(r => r.MessageExpired += null, "testTopic", new Message());
 
             await _cluster.Stop();
             Assert.AreEqual(0, _errors);
@@ -279,7 +279,10 @@ namespace tests_kafka_sharp
         {
             _cluster.Start();
             const int messagesDiscarded = 3;
-            _routerMock.Raise(r => r.MessagesDiscarded += null, "testTopic", messagesDiscarded);
+            var message = new Message();
+            _routerMock.Raise(r => r.MessageDiscarded += null, "testTopic", message);
+            _routerMock.Raise(r => r.MessageDiscarded += null, "testTopic", message);
+            _routerMock.Raise(r => r.MessageDiscarded += null, "testTopic", message);
 
             await _cluster.Stop();
             Assert.AreEqual(0, _errors);

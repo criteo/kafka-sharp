@@ -220,5 +220,79 @@ namespace tests_kafka_sharp
         {
             Assert.IsNotNull(_client.Statistics);
         }
+
+        void AssertRecords(KafkaRecord expected, KafkaRecord record)
+        {
+            Assert.That(record, Is.Not.Null);
+            Assert.That(record.Topic, Is.EqualTo(expected.Topic));
+            CollectionAssert.AreEqual(expected.Key, record.Key);
+            CollectionAssert.AreEqual(expected.Value, record.Value);
+            Assert.That(record.Partition, Is.EqualTo(expected.Partition));
+            Assert.That(record.Offset, Is.EqualTo(expected.Offset));
+        }
+
+        [Test]
+        public void TestMessageReceived()
+        {
+            KafkaRecord record = null;
+            _client.MessageReceived += kr => record = kr;
+            var expected = new KafkaRecord {Topic = Topic, Key = KeyB, Value = ValueB, Partition = 1, Offset = 123};
+            _consumer.Raise(c => c.MessageReceived += null, expected);
+            AssertRecords(expected, record);
+        }
+
+        [Test]
+        public void TestMessageReceivedObservable()
+        {
+            KafkaRecord record = null;
+            _client.Messages.Subscribe(kr => record = kr);
+            var expected = new KafkaRecord { Topic = Topic, Key = KeyB, Value = ValueB, Partition = 1, Offset = 123 };
+            _consumer.Raise(c => c.MessageReceived += null, expected);
+            AssertRecords(expected, record);
+        }
+
+        [Test]
+        public void TestMessageExpired()
+        {
+            KafkaRecord record = null;
+            _client.MessageExpired += kr => record = kr;
+            _producer.Raise(c => c.MessageExpired += null, Topic, new Message {Key = KeyB, Value = ValueB});
+            AssertRecords(
+                new KafkaRecord {Topic = Topic, Key = KeyB, Value = ValueB, Partition = Partitions.None, Offset = 0},
+                record);
+        }
+
+        [Test]
+        public void TestMessageExpiredObservable()
+        {
+            KafkaRecord record = null;
+            _client.ExpiredMessages.Subscribe(kr => record = kr);
+            _producer.Raise(c => c.MessageExpired += null, Topic, new Message {Key = KeyB, Value = ValueB});
+            AssertRecords(
+                new KafkaRecord {Topic = Topic, Key = KeyB, Value = ValueB, Partition = Partitions.None, Offset = 0},
+                record);
+        }
+
+        [Test]
+        public void TestMessageDiscarded()
+        {
+            KafkaRecord record = null;
+            _client.MessageDiscarded += kr => record = kr;
+            _producer.Raise(c => c.MessageDiscarded += null, Topic, new Message { Key = KeyB, Value = ValueB });
+            AssertRecords(
+                new KafkaRecord { Topic = Topic, Key = KeyB, Value = ValueB, Partition = Partitions.None, Offset = 0 },
+                record);
+        }
+
+        [Test]
+        public void TestMessageDiscardedObservable()
+        {
+            KafkaRecord record = null;
+            _client.DiscardedMessages.Subscribe(kr => record = kr);
+            _producer.Raise(c => c.MessageDiscarded += null, Topic, new Message { Key = KeyB, Value = ValueB });
+            AssertRecords(
+                new KafkaRecord { Topic = Topic, Key = KeyB, Value = ValueB, Partition = Partitions.None, Offset = 0 },
+                record);
+        }
     }
 }

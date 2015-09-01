@@ -93,12 +93,12 @@ namespace Kafka.Routing
         /// <summary>
         /// Raised when a message has expired and we discarded it.
         /// </summary>
-        event Action<string /* topic */> MessageExpired;
+        event Action<string /* topic */, Message /* message */> MessageExpired;
 
         /// <summary>
         /// Raised when a bunch of messages have been discarded due to errors (but not expired).
         /// </summary>
-        event Action<string /* topic */, int /* number */> MessagesDiscarded;
+        event Action<string /* topic */, Message /* message */> MessageDiscarded;
 
         /// <summary>
         /// Raised when a bunch of messages has been successfully acknowledged.
@@ -167,8 +167,8 @@ namespace Kafka.Routing
         #region events from IProducerRouter
 
         public event Action<string> MessageRouted = _ => { };
-        public event Action<string> MessageExpired = _ => { };
-        public event Action<string, int> MessagesDiscarded = (t, c) => { };
+        public event Action<string, Message> MessageExpired = (t, m) => { };
+        public event Action<string, Message> MessageDiscarded = (t, m) => { };
         public event Action<string, int> MessagesAcknowledged = (t, c) => { };
 
         #endregion
@@ -450,24 +450,18 @@ namespace Kafka.Routing
         /// <param name="acknowledgement"></param>
         private void HandleProduceAcknowledgementNone(ProduceAcknowledgement acknowledgement)
         {
-            if (_configuration.ErrorStrategy == ErrorStrategy.Retry || acknowledgement.ReceiveDate == default(DateTime))
+            foreach (var message in acknowledgement.OriginalBatch.SelectMany(g => g))
             {
-                // Repost
-                foreach (var message in acknowledgement.OriginalBatch.SelectMany(g => g))
+                if (_configuration.ErrorStrategy == ErrorStrategy.Retry ||
+                    acknowledgement.ReceiveDate == default(DateTime))
                 {
+                    // Repost
                     ReEnqueue(message);
                 }
-            }
-            else
-            {
-                // Discard
-                foreach (var grouping in acknowledgement.OriginalBatch)
+                else
                 {
-                    MessagesDiscarded(grouping.Key, grouping.Count());
-                    foreach (var message in grouping)
-                    {
-                        ProduceMessage.Release(message);
-                    }
+                    // Discard
+                    OnMessageDiscarded(message);
                 }
             }
         }
@@ -530,7 +524,6 @@ namespace Kafka.Routing
             foreach (var grouping in originalBatch)
             {
                 int sent = 0;
-                int discarded = 0;
                 HashSet<int> errPartitions;
                 if (!_tmpPartitionsInError.TryGetValue(grouping.Key, out errPartitions))
                 {
@@ -552,22 +545,18 @@ namespace Kafka.Routing
                     {
                         if (errPartitions.Contains(pm.Partition))
                         {
-                            ++discarded;
+                            OnMessageDiscarded(pm);
                         }
                         else
                         {
                             ++sent;
+                            ProduceMessage.Release(pm);
                         }
-                        ProduceMessage.Release(pm);
                     }
                 }
                 if (sent > 0)
                 {
                     MessagesAcknowledged(grouping.Key, sent);
-                }
-                if (discarded > 0)
-                {
-                    MessagesDiscarded(grouping.Key, discarded);
                 }
             }
         }
@@ -650,7 +639,14 @@ namespace Kafka.Routing
         // Raise the MessageExpired event and release a message.
         private void OnMessageExpired(ProduceMessage message)
         {
-            MessageExpired(message.Topic);
+            MessageExpired(message.Topic, message.Message);
+            ProduceMessage.Release(message);
+        }
+
+        // Raise the MessageDiscarded event and release a message.
+        private void OnMessageDiscarded(ProduceMessage message)
+        {
+            MessageDiscarded(message.Topic, message.Message);
             ProduceMessage.Release(message);
         }
     }

@@ -163,7 +163,7 @@ namespace Kafka.Cluster
 
             // Producer init
             ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration);
-            ProduceRouter.MessageExpired += _ =>
+            ProduceRouter.MessageExpired += (t, m) =>
             {
                 Interlocked.Increment(ref _expired);
                 Interlocked.Increment(ref _exited);
@@ -173,10 +173,10 @@ namespace Kafka.Cluster
                 Interlocked.Add(ref _successfulSent, c);
                 Interlocked.Add(ref _exited, c);
             };
-            ProduceRouter.MessagesDiscarded += (t, c) =>
+            ProduceRouter.MessageDiscarded += (t, m) =>
             {
-                Interlocked.Add(ref _discarded, c);
-                Interlocked.Add(ref _exited, c);
+                Interlocked.Increment(ref _discarded);
+                Interlocked.Increment(ref _exited);
             };
             RoutingTableChange += ProduceRouter.ChangeRoutingTable;
 
