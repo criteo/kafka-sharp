@@ -104,7 +104,7 @@ namespace tests_kafka_sharp
             }
         }
 
-        private void AssertStatistics(Statistics statistics, int successfulSent = 0, int requestSent = 0, int responseReceived = 0, int errors = 0,
+        private void AssertStatistics(IStatistics statistics, int successfulSent = 0, int requestSent = 0, int responseReceived = 0, int errors = 0,
             int nodeDead = 0, int expired = 0, int discarded = 0, int exit = 0, int received = 0)
         {
             Assert.AreEqual(successfulSent, statistics.SuccessfulSent);
@@ -114,7 +114,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(nodeDead, statistics.NodeDead);
             Assert.AreEqual(expired, statistics.Expired);
             Assert.AreEqual(discarded, statistics.Discarded);
-            Assert.AreEqual(exit, statistics.Exit);
+            Assert.AreEqual(exit, statistics.Exited);
             Assert.AreEqual(received, statistics.Received);
         }
 

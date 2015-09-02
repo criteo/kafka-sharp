@@ -39,10 +39,10 @@ namespace tests_kafka_sharp
             var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse);
 
             cluster.Produce("topic1", "key", "value");
-            SpinWait.SpinUntil(() => cluster.Statistics.Exit == 1);
+            SpinWait.SpinUntil(() => cluster.Statistics.Exited == 1);
             cluster.Dispose();
             var statistics = cluster.Statistics;
-            Assert.AreEqual(1, statistics.Exit);
+            Assert.AreEqual(1, statistics.Exited);
             Assert.AreEqual(1, statistics.SuccessfulSent);
             Assert.AreEqual(0, statistics.Errors);
             Assert.AreEqual(0, statistics.Expired);
@@ -76,10 +76,10 @@ namespace tests_kafka_sharp
             cluster.Produce("topic3", "key", "value");
             cluster.Produce("topic1", "key", "value");
 
-            SpinWait.SpinUntil(() => cluster.Statistics.Exit == 14);
+            SpinWait.SpinUntil(() => cluster.Statistics.Exited == 14);
             cluster.Dispose();
             var statistics = cluster.Statistics;
-            Assert.AreEqual(14, statistics.Exit);
+            Assert.AreEqual(14, statistics.Exited);
             Assert.AreEqual(14, statistics.SuccessfulSent);
             Assert.AreEqual(0, statistics.Errors);
             Assert.AreEqual(0, statistics.Expired);
@@ -147,10 +147,10 @@ namespace tests_kafka_sharp
             cluster.Produce("topic3", "key", "value");
             cluster.Produce("topic1", "key", "value");
 
-            SpinWait.SpinUntil(() => cluster.Statistics.Exit == 14);
+            SpinWait.SpinUntil(() => cluster.Statistics.Exited == 14);
             cluster.Dispose();
             var statistics = cluster.Statistics;
-            Assert.AreEqual(14, statistics.Exit);
+            Assert.AreEqual(14, statistics.Exited);
             Assert.GreaterOrEqual(statistics.SuccessfulSent, 1);
             Assert.GreaterOrEqual(statistics.Errors, 0);
             Assert.AreEqual(0, statistics.Expired);
@@ -191,10 +191,10 @@ namespace tests_kafka_sharp
             cluster.Produce("topic3", "key", "value");
             cluster.Produce("topic1", "key", "value");
 
-            SpinWait.SpinUntil(() => cluster.Statistics.Exit == 14);
+            SpinWait.SpinUntil(() => cluster.Statistics.Exited == 14);
             cluster.Dispose();
             var statistics = cluster.Statistics;
-            Assert.AreEqual(14, statistics.Exit);
+            Assert.AreEqual(14, statistics.Exited);
             Assert.GreaterOrEqual(statistics.SuccessfulSent, 1);
             Assert.GreaterOrEqual(statistics.Errors, 1);
             Assert.AreEqual(0, statistics.Expired);
@@ -235,10 +235,10 @@ namespace tests_kafka_sharp
             cluster.Produce("topic3", "key", "value");
             cluster.Produce("topic1", "key", "value");
 
-            SpinWait.SpinUntil(() => cluster.Statistics.Exit == 14);
+            SpinWait.SpinUntil(() => cluster.Statistics.Exited == 14);
             cluster.Dispose();
             var statistics = cluster.Statistics;
-            Assert.AreEqual(14, statistics.Exit);
+            Assert.AreEqual(14, statistics.Exited);
             Assert.GreaterOrEqual(statistics.SuccessfulSent, 1);
             Assert.GreaterOrEqual(statistics.Errors, 1);
             Assert.AreEqual(0, statistics.Expired);

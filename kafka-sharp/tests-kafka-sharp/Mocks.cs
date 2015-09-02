@@ -209,7 +209,7 @@ namespace tests_kafka_sharp
             return Task.FromResult(r);
         }
 
-        public Statistics Statistics
+        public IStatistics Statistics
         {
             get { return new Statistics(); }
         }

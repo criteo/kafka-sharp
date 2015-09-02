@@ -2,7 +2,6 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
-using System.Collections.Generic;
 using System.Reactive.Linq;
 using System.Text;
 using System.Threading;
@@ -13,64 +12,6 @@ using Kafka.Routing;
 
 namespace Kafka.Public
 {
-    /// <summary>
-    /// Some statistics about the cluster.
-    /// </summary>
-    public class Statistics
-    {
-        /// <summary>
-        /// Number of messages successfully sent (for which we have received an ack)
-        /// </summary>
-        public long SuccessfulSent { get; internal set; }
-
-        /// <summary>
-        /// Number of requests sent to the Kafka cluster
-        /// </summary>
-        public long RequestSent { get; internal set; }
-
-        /// <summary>
-        /// Number of responses received from the Kafka cluster
-        /// </summary>
-        public long ResponseReceived { get; internal set; }
-
-        /// <summary>
-        /// Number of hard errors encountered (network errors or decode errors)
-        /// </summary>
-        public long Errors { get; internal set; }
-
-        /// <summary>
-        ///  Number of times nodes have been marked dead (not the current number of dead nodes)
-        /// </summary>
-        public long NodeDead { get; internal set; }
-
-        /// <summary>
-        /// Number of expired messages.
-        /// </summary>
-        public long Expired { get; internal set; }
-
-        /// <summary>
-        /// Number of discarded messages.
-        /// </summary>
-        public long Discarded { get; internal set; }
-
-        /// <summary>
-        /// Number of produce request that have exited the system either successful, discard or expired.
-        /// </summary>
-        public long Exit { get; internal set; }
-
-        /// <summary>
-        /// Number of received messages.
-        /// </summary>
-        public long Received { get; internal set; }
-
-        public override string ToString()
-        {
-            return string.Format(
-                "{{Messages successfully sent: {0} - Messages received: {8} - Requests sent: {1} - Responses received: {2} - Errors: {3} - Dead nodes: {4} - Expired: {5} - Discarded: {6} - Exit: {7}}}",
-                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exit, Received);
-        }
-    }
-
     /// <summary>
     /// Cluster public interface, so you may mock it.
     /// </summary>
@@ -196,7 +137,7 @@ namespace Kafka.Public
         /// <summary>
         /// Current statistics if the cluster.
         /// </summary>
-        Statistics Statistics { get; }
+        IStatistics Statistics { get; }
 
         /// <summary>
         /// Shutdown the cluster connection
@@ -287,16 +228,17 @@ namespace Kafka.Public
         /// </summary>
         /// <param name="configuration"></param>
         /// <param name="logger"></param>
-        public ClusterClient(Configuration configuration, ILogger logger)
-            : this(CloneConfig(configuration), logger, null)
+        /// <param name="statistics"></param>
+        public ClusterClient(Configuration configuration, ILogger logger, IStatistics statistics = null)
+            : this(CloneConfig(configuration), logger, null, statistics)
         {
         }
 
-        internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster)
+        internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster, IStatistics statistics = null)
         {
             _configuration = configuration;
             _logger = logger;
-            _cluster = cluster ?? new Cluster.Cluster(configuration, logger);
+            _cluster = cluster ?? new Cluster.Cluster(configuration, logger, statistics);
             _cluster.InternalError += e => _logger.LogError("Cluster internal error: " + e);
             _cluster.ConsumeRouter.MessageReceived += kr => MessageReceived(kr);
             Messages = Observable.FromEvent<KafkaRecord>(a => MessageReceived += a, a => MessageReceived -= a);
@@ -325,7 +267,7 @@ namespace Kafka.Public
             _cluster.Start();
         }
 
-        public Statistics Statistics
+        public IStatistics Statistics
         {
             get { return _cluster.Statistics; }
         }

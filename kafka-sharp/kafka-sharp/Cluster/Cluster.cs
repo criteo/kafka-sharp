@@ -38,7 +38,7 @@ namespace Kafka.Cluster
         /// <summary>
         /// Get the current statistics of the cluster.
         /// </summary>
-        Statistics Statistics { get; }
+        IStatistics Statistics { get; }
 
         /// <summary>
         /// The logger used for feedback.
@@ -105,36 +105,9 @@ namespace Kafka.Cluster
         private RoutingTable _routingTable; // The current routing table
         private bool _started; // Cluster is active
 
-        // Statistics
-        private long _successfulSent;
-        private long _requestsSent;
-        private long _responseReceived;
-        private long _errors;
-        private long _nodeDead;
-        private long _expired;
-        private long _discarded;
-        private long _exited;
-        private long _received;
         private double _resolution = 1000.0;
 
-        public Statistics Statistics
-        {
-            get
-            {
-                return new Statistics
-                {
-                    SuccessfulSent = _successfulSent,
-                    RequestSent = _requestsSent,
-                    ResponseReceived = _responseReceived,
-                    Errors = _errors,
-                    NodeDead = _nodeDead,
-                    Expired = _expired,
-                    Discarded = _discarded,
-                    Exit = _exited,
-                    Received = _received
-                };
-            }
-        }
+        public IStatistics Statistics { get; private set; }
 
         public IProduceRouter ProduceRouter { get; private set; }
         public IConsumeRouter ConsumeRouter { get; private set; }
@@ -145,44 +118,46 @@ namespace Kafka.Cluster
 
         internal long PassedThrough
         {
-            get { return _exited; }
+            get { return Statistics.Exited; }
         }
 
         public Cluster() : this(new Configuration(), new DevNullLogger(), null, null, null)
         {
         }
 
-        public Cluster(Configuration configuration, ILogger logger) : this(configuration, logger, null, null, null)
+        public Cluster(Configuration configuration, ILogger logger, IStatistics statistics = null)
+            : this(configuration, logger, null, null, null, statistics)
         {
         }
 
-        public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, ProducerFactory producerFactory, ConsumerFactory consumerFactory)
+        public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, ProducerFactory producerFactory, ConsumerFactory consumerFactory, IStatistics statistics = null)
         {
             _seeds = configuration.Seeds;
             Logger = logger;
+            Statistics = statistics ?? new Statistics();
 
             // Producer init
             ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration);
             ProduceRouter.MessageExpired += (t, m) =>
             {
-                Interlocked.Increment(ref _expired);
-                Interlocked.Increment(ref _exited);
+                Statistics.IncrementExpired();
+                Statistics.IncrementExited();
             };
             ProduceRouter.MessagesAcknowledged += (t, c) =>
             {
-                Interlocked.Add(ref _successfulSent, c);
-                Interlocked.Add(ref _exited, c);
+                Statistics.AddToSuccessfulSent(c);
+                Statistics.AddToExited(c);
             };
             ProduceRouter.MessageDiscarded += (t, m) =>
             {
-                Interlocked.Increment(ref _discarded);
-                Interlocked.Increment(ref _exited);
+                Statistics.IncrementDiscarded();
+                Statistics.IncrementExited();
             };
             RoutingTableChange += ProduceRouter.ChangeRoutingTable;
 
             // Consumer init
             ConsumeRouter = consumerFactory != null ? consumerFactory() : new ConsumeRouter(this, configuration);
-            ConsumeRouter.MessageReceived += _ => Interlocked.Increment(ref _received);
+            ConsumeRouter.MessageReceived += _ => Statistics.IncrementReceived();
             if (ConsumeRouter is ConsumeRouter)
             {
                 (ConsumeRouter as ConsumeRouter).InternalError +=
@@ -237,8 +212,8 @@ namespace Kafka.Cluster
             node.Dead += n => OnNodeEvent(() => ProcessDeadNode(n));
             node.ConnectionError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
-            node.RequestSent += _ => Interlocked.Increment(ref _requestsSent);
-            node.ResponseReceived += _ => Interlocked.Increment(ref _responseReceived);
+            node.RequestSent += _ => Statistics.IncrementRequestSent();
+            node.ResponseReceived += _ => Statistics.IncrementResponseReceived();
             node.Connected +=
                 n => OnNodeEvent(() => Logger.LogInformation(string.Format("Connected to {0}", GetNodeName(n))));
             node.ProduceAcknowledgement += (n, ack) => ProduceRouter.Acknowledge(ack);
@@ -268,13 +243,13 @@ namespace Kafka.Cluster
 
         private void ProcessDecodeError(INode node, Exception exception)
         {
-            Interlocked.Increment(ref _errors);
+            Statistics.IncrementErrors();
             Logger.LogError(string.Format("A response could not be decoded for the node {0}: {1}", GetNodeName(node), exception));
         }
 
         private void ProcessNodeError(INode node, Exception exception)
         {
-            Interlocked.Increment(ref _errors);
+            Statistics.IncrementErrors();
             var ex = exception as TransportException;
             var n = GetNodeName(node);
             if (ex != null)
@@ -371,7 +346,7 @@ namespace Kafka.Cluster
         // Remove the node from current nodes and refresh the metadata.
         private void ProcessDeadNode(INode deadNode)
         {
-            Interlocked.Increment(ref _nodeDead);
+            Statistics.IncrementNodeDead();
             BrokerMeta m;
             if (!_nodes.TryGetValue(deadNode, out m))
             {
