@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
+using Kafka.Network;
 using Kafka.Protocol;
 using Kafka.Public;
 using Kafka.Routing;
@@ -22,7 +23,7 @@ namespace tests_kafka_sharp
         private RoutingTable _routingTable;
 
         private Cluster _cluster;
-        private int _errors;
+        private int _internalErrors;
 
         [SetUp]
         public void Setup()
@@ -47,8 +48,8 @@ namespace tests_kafka_sharp
             _cluster = new Cluster(new Configuration { Seeds = "localhost:1", TaskScheduler = new CurrentThreadTaskScheduler() }, new DevNullLogger(),
                                    (h, p) => _nodeMocks[p - 1].Object,
                                    () => _routerMock.Object, () => _consumeMock.Object);
-            _errors = 0;
-            _cluster.InternalError += _ => ++_errors;
+            _internalErrors = 0;
+            _cluster.InternalError += _ => ++_internalErrors;
         }
 
         private Mock<INode> GenerateNodeMock(int port)
@@ -105,7 +106,8 @@ namespace tests_kafka_sharp
         }
 
         private void AssertStatistics(IStatistics statistics, int successfulSent = 0, int requestSent = 0, int responseReceived = 0, int errors = 0,
-            int nodeDead = 0, int expired = 0, int discarded = 0, int exit = 0, int received = 0)
+            int nodeDead = 0, int expired = 0, int discarded = 0, int exit = 0, int received = 0,
+            int rawReceived = 0, int rawReceivedBytes = 0, int rawProduced = 0, int rawProducedBytes = 0)
         {
             Assert.AreEqual(successfulSent, statistics.SuccessfulSent);
             Assert.AreEqual(requestSent, statistics.RequestSent);
@@ -116,6 +118,10 @@ namespace tests_kafka_sharp
             Assert.AreEqual(discarded, statistics.Discarded);
             Assert.AreEqual(exit, statistics.Exited);
             Assert.AreEqual(received, statistics.Received);
+            Assert.AreEqual(rawProduced, statistics.RawProduced);
+            Assert.AreEqual(rawProducedBytes, statistics.RawProducedBytes);
+            Assert.AreEqual(rawReceived, statistics.RawReceived);
+            Assert.AreEqual(rawReceivedBytes, statistics.RawReceivedBytes);
         }
 
         [Test]
@@ -124,7 +130,7 @@ namespace tests_kafka_sharp
             _cluster.Start();
             var routing = await _cluster.RequireNewRoutingTable();
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
             AssertDefaultRouting(routing);
         }
 
@@ -133,7 +139,7 @@ namespace tests_kafka_sharp
         {
             _cluster.Start();
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
             AssertDefaultRouting(_routingTable);
         }
 
@@ -204,29 +210,7 @@ namespace tests_kafka_sharp
 
             AssertRouting(_routingTable, routingTableAfterDeadNode);
 
-            Assert.AreEqual(0, _errors);
-        }
-
-        [Test]
-        public async Task TestConnectionError()
-        {
-            _cluster.Start();
-            _nodeMocks[0].Raise(n => n.ConnectionError += null, _nodeMocks[0].Object, null);
-
-            await _cluster.Stop();
-            Assert.AreEqual(0, _errors);
-            AssertStatistics(_cluster.Statistics, errors: 1);
-        }
-
-        [Test]
-        public async Task TestDecodeError()
-        {
-            _cluster.Start();
-            _nodeMocks[0].Raise(n => n.DecodeError += null, _nodeMocks[0].Object, null);
-
-            await _cluster.Stop();
-            Assert.AreEqual(0, _errors);
-            AssertStatistics(_cluster.Statistics, errors: 1);
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]
@@ -236,7 +220,7 @@ namespace tests_kafka_sharp
             _nodeMocks[0].Raise(n => n.RequestSent += null, _nodeMocks[0].Object);
 
             await _cluster.Stop();
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
             AssertStatistics(_cluster.Statistics, requestSent: 1);
         }
 
@@ -247,7 +231,7 @@ namespace tests_kafka_sharp
             _nodeMocks[0].Raise(n => n.ResponseReceived += null, _nodeMocks[0].Object);
 
             await _cluster.Stop();
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
             AssertStatistics(_cluster.Statistics, responseReceived: 1);
         }
 
@@ -258,7 +242,7 @@ namespace tests_kafka_sharp
             _routerMock.Raise(r => r.MessageExpired += null, "testTopic", new Message());
 
             await _cluster.Stop();
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
             AssertStatistics(_cluster.Statistics, expired: 1, exit: 1);
         }
 
@@ -270,7 +254,7 @@ namespace tests_kafka_sharp
             _routerMock.Raise(r => r.MessagesAcknowledged += null, "testTopic", messagesAcknowledged);
 
             await _cluster.Stop();
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
             AssertStatistics(_cluster.Statistics, successfulSent: messagesAcknowledged, exit: messagesAcknowledged);
         }
 
@@ -285,8 +269,58 @@ namespace tests_kafka_sharp
             _routerMock.Raise(r => r.MessageDiscarded += null, "testTopic", message);
 
             await _cluster.Stop();
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
             AssertStatistics(_cluster.Statistics, discarded: messagesDiscarded, exit: messagesDiscarded);
+        }
+
+        [Test]
+        public async Task TestConnectionError()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.ConnectionError += null, _nodeMocks[0].Object, null);
+            _nodeMocks[0].Raise(n => n.ConnectionError += null, _nodeMocks[0].Object, new TransportException(TransportError.ConnectError));
+            _nodeMocks[0].Raise(n => n.ConnectionError += null, _nodeMocks[0].Object, new TransportException(TransportError.ReadError));
+            _nodeMocks[0].Raise(n => n.ConnectionError += null, _nodeMocks[0].Object, new TransportException(TransportError.WriteError));
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _internalErrors);
+            AssertStatistics(_cluster.Statistics, errors: 4);
+        }
+
+        [Test]
+        public async Task TestDecodeError()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.DecodeError += null, _nodeMocks[0].Object, new CrcException("some message"));
+            _nodeMocks[0].Raise(n => n.DecodeError += null, _nodeMocks[0].Object, new UncompressException("some message", CompressionCodec.Gzip, null));
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _internalErrors);
+            AssertStatistics(_cluster.Statistics, errors: 2);
+        }
+
+        [Test]
+        public async Task TestProduceBatchSent()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.ProduceBatchSent += null, _nodeMocks[0].Object, 3, 14);
+            _nodeMocks[0].Raise(n => n.ProduceBatchSent += null, _nodeMocks[0].Object, 3, 14);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _internalErrors);
+            AssertStatistics(_cluster.Statistics, rawProduced: 6, rawProducedBytes: 28);
+        }
+
+        [Test]
+        public async Task TestFetchResponseReceived()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.FetchResponseReceived += null, _nodeMocks[0].Object, 3, 14);
+            _nodeMocks[0].Raise(n => n.FetchResponseReceived += null, _nodeMocks[0].Object, 3, 14);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _internalErrors);
+            AssertStatistics(_cluster.Statistics, rawReceived: 6, rawReceivedBytes: 28);
         }
 
         [Test]
@@ -299,7 +333,7 @@ namespace tests_kafka_sharp
             await _cluster.Stop();
             _routerMock.Verify(r => r.Acknowledge(pa));
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]
@@ -311,7 +345,7 @@ namespace tests_kafka_sharp
 
             _consumeMock.Verify(r => r.Acknowledge(ca));
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]
@@ -323,7 +357,7 @@ namespace tests_kafka_sharp
 
             _consumeMock.Verify(r => r.Acknowledge(ca));
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]
@@ -332,7 +366,7 @@ namespace tests_kafka_sharp
             _cluster.Start();
             _consumeMock.Raise(r => r.MessageReceived += null, It.IsAny<KafkaRecord>());
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
             AssertStatistics(_cluster.Statistics, received: 1);
         }
 
@@ -407,7 +441,7 @@ namespace tests_kafka_sharp
 
             AssertRouting(routing, routingTableAfterNewNode);
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]
@@ -423,7 +457,7 @@ namespace tests_kafka_sharp
             _cluster.Start();
             await _cluster.Stop();
 
-            Assert.AreEqual(1, _errors);
+            Assert.AreEqual(1, _internalErrors);
         }
 
         [Test]
@@ -433,7 +467,7 @@ namespace tests_kafka_sharp
 
             Assert.That(async () => await _cluster.RequireAllPartitionsForTopic("nonexistingTopic"), Throws.TypeOf<TaskCanceledException>());
 
-            Assert.AreEqual(1, _errors);
+            Assert.AreEqual(1, _internalErrors);
         }
 
         [Test]
@@ -494,7 +528,7 @@ namespace tests_kafka_sharp
                 });
 
             AssertRouting(routing, routingTableWithNodes);
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]
@@ -529,7 +563,7 @@ namespace tests_kafka_sharp
             await _cluster.RequireNewRoutingTable();
             _nodeMocks[0].Verify(n=>n.FetchMetadata(), Times.Exactly(2));
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]
@@ -545,7 +579,7 @@ namespace tests_kafka_sharp
             await Task.Delay(100);
             AssertStatistics(_cluster.Statistics, errors: 1);
 
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]
@@ -587,7 +621,7 @@ namespace tests_kafka_sharp
             var partitions = await _cluster.RequireAllPartitionsForTopic("topic1");
 
             CollectionAssert.AreEqual(new[] { 1, 2, 3 }, partitions);
-            Assert.AreEqual(0, _errors);
+            Assert.AreEqual(0, _internalErrors);
         }
     }
 }

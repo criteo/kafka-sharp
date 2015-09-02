@@ -219,6 +219,7 @@ namespace tests_kafka_sharp
         public void TestStats()
         {
             Assert.IsNotNull(_client.Statistics);
+            Assert.IsNotNull(_client.Statistics.ToString());
         }
 
         void AssertRecords(KafkaRecord expected, KafkaRecord record)

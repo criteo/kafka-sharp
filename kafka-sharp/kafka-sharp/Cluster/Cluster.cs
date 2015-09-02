@@ -214,6 +214,16 @@ namespace Kafka.Cluster
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
             node.RequestSent += _ => Statistics.IncrementRequestSent();
             node.ResponseReceived += _ => Statistics.IncrementResponseReceived();
+            node.ProduceBatchSent += (_, c, s) =>
+            {
+                Statistics.AddToRawProduced(c);
+                Statistics.AddToRawProducedBytes(s);
+            };
+            node.FetchResponseReceived += (_, c, s) =>
+            {
+                Statistics.AddToRawReceived(c);
+                Statistics.AddToRawReceivedBytes(s);
+            };
             node.Connected +=
                 n => OnNodeEvent(() => Logger.LogInformation(string.Format("Connected to {0}", GetNodeName(n))));
             node.ProduceAcknowledgement += (n, ack) => ProduceRouter.Acknowledge(ack);

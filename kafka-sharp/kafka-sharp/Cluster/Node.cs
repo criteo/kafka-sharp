@@ -4,9 +4,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.InteropServices;
@@ -80,6 +78,16 @@ namespace Kafka.Cluster
         /// Some request has been sent on the wire.
         /// </summary>
         event Action<INode> RequestSent;
+
+        /// <summary>
+        /// A batch of produce message has been sent over the wire.
+        /// </summary>
+        event Action<INode, long /* batch # of messages */, long /* batch size in byte */> ProduceBatchSent;
+
+        /// <summary>
+        /// A fetch response has been received.
+        /// </summary>
+        event Action<INode, long /* # of messages */, long /* batch size in byte */> FetchResponseReceived;
 
         /// <summary>
         /// Some response has been received from the wire.
@@ -259,12 +267,15 @@ namespace Kafka.Cluster
         internal struct BatchRequest<TBatched>
         {
             public IEnumerable<IGrouping<string, TBatched>> Batch;
+            private object _dummyAlignementPadding;
+            public int Count;
         }
 
         internal struct MetadataRequest
         {
             public string Topic;
             public TaskCompletionSource<MetadataResponse> Promise;
+            private int _dummyAlignmentPadding;
         }
 
         [StructLayout(LayoutKind.Explicit)]
@@ -379,13 +390,13 @@ namespace Kafka.Cluster
             int bufferingCount,
             TimeSpan bufferingTime,
             Func<TData, string> grouper,
-            Func<IEnumerable<IGrouping<string, TData>>, Request> rbuilder)
+            Func<BatchRequest<TData>, Request> rbuilder)
         {
             var subject = new Subject<TData>();
             subject
                 .Buffer(bufferingTime, bufferingCount)
                 .Where(batch => batch.Count > 0)
-                .Select(batch => batch.GroupBy(grouper))
+                .Select(batch => new BatchRequest<TData> {Batch = batch.GroupBy(grouper), Count = batch.Count})
                 .Subscribe(batch => Post(rbuilder(batch)));
             return subject;
         }
@@ -398,7 +409,7 @@ namespace Kafka.Cluster
                     RequestType = RequestType.Produce,
                     RequestValue = new RequestValue
                     {
-                        ProduceBatchRequest = new BatchRequest<ProduceMessage> {Batch = batch}
+                        ProduceBatchRequest = batch
                     }
                 });
         }
@@ -412,7 +423,7 @@ namespace Kafka.Cluster
                     RequestType = RequestType.Fetch,
                     RequestValue = new RequestValue
                     {
-                        FetchBatchRequest = new BatchRequest<FetchMessage> {Batch = batch}
+                        FetchBatchRequest = batch
                     }
                 });
         }
@@ -427,7 +438,7 @@ namespace Kafka.Cluster
                     RequestType = RequestType.Offset,
                     RequestValue = new RequestValue
                     {
-                        OffsetBatchRequest = new BatchRequest<OffsetMessage> {Batch = batch}
+                        OffsetBatchRequest = batch
                     }
                 });
         }
@@ -644,6 +655,10 @@ namespace Kafka.Cluster
                     await connection.SendAsync(correlationId, data, true);
                     Interlocked.Exchange(ref _successiveErrors, 0);
                     OnRequestSent();
+                    if (request.RequestType == RequestType.Produce)
+                    {
+                        OnProduceBatchSent(request.RequestValue.ProduceBatchRequest.Count, data.Length);
+                    }
                 }
             }
             catch (TransportException ex)
@@ -803,10 +818,11 @@ namespace Kafka.Cluster
         private void ProcessFetchResponse(int correlationId, ReusableMemoryStream responseData,
             BatchRequest<FetchMessage> originalRequest)
         {
-            var response = new CommonAcknowledgement<FetchPartitionResponse>{ReceivedDate = DateTime.UtcNow};
+            var response = new CommonAcknowledgement<FetchPartitionResponse> {ReceivedDate = DateTime.UtcNow};
             try
             {
-                response.Response = _serializer.DeserializeCommonResponse<FetchPartitionResponse>(correlationId, responseData);
+                response.Response = _serializer.DeserializeCommonResponse<FetchPartitionResponse>(correlationId,
+                    responseData);
             }
             catch (Exception ex)
             {
@@ -814,6 +830,10 @@ namespace Kafka.Cluster
                 response.Response = BuildEmptyFetchResponseFromOriginal(originalRequest);
             }
 
+            var tr = response.Response.TopicsResponse;
+            OnFetchResponseReceived(
+                tr.Aggregate(0L, (l1, td) => td.PartitionsData.Aggregate(l1, (l2, pd) => l2 + pd.Messages.Count)),
+                responseData.Length);
             OnMessagesReceived(response);
         }
 
@@ -970,10 +990,22 @@ namespace Kafka.Cluster
             RequestSent(this);
         }
 
+        public event Action<INode, long, long> ProduceBatchSent = (n, m, s) => { };
+        private void OnProduceBatchSent(long count, long size)
+        {
+            ProduceBatchSent(this, count, size);
+        }
+
         public event Action<INode> ResponseReceived = n => { };
         private void OnResponseReceived()
         {
             ResponseReceived(this);
+        }
+
+        public event Action<INode, long, long> FetchResponseReceived = (n, m, s) => { };
+        private void OnFetchResponseReceived(long count, long size)
+        {
+            FetchResponseReceived(this, count, size);
         }
 
         public event Action<INode, Exception> ConnectionError = (n, e) => { };

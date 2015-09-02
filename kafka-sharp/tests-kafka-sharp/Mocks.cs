@@ -182,6 +182,8 @@ namespace tests_kafka_sharp
         }
 
         public event Action<INode> RequestSent = n => { };
+        public event Action<INode, long, long> ProduceBatchSent = (n, m, s) => { };
+        public event Action<INode, long, long> FetchResponseReceived = (n, m, s) => { };
         public event Action<INode> ResponseReceived = n => { };
         public event Action<INode, Exception> ConnectionError = (n, e) => { };
         public event Action<INode, Exception> DecodeError = (n, e) => { };

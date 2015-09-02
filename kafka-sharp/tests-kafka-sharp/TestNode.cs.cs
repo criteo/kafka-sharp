@@ -106,10 +106,20 @@ namespace tests_kafka_sharp
                         }
                 });
 
+            bool resp = false;
+            node.FetchResponseReceived += (n, c, s) =>
+            {
+                Assert.That(n, Is.EqualTo(node));
+                Assert.That(c, Is.EqualTo(1));
+                Assert.That(s ,Is.EqualTo(28));
+                resp = true;
+            };
+
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve());
+            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve(28));
 
             // Checks
+            Assert.IsTrue(resp);
             Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
             Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
             Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
@@ -345,7 +355,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public async Task TestMetadataDecodeError()
+        public void TestMetadataDecodeError()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
                                 new Node.Serializer(new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
@@ -365,16 +375,26 @@ namespace tests_kafka_sharp
         {
             var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerializer(new CommonResponse<ProducePartitionResponse>()),
                                 new Configuration {BufferingTime = TimeSpan.FromMilliseconds(15)}).SetResolution(1);
-            var ev = new ManualResetEvent(false);
+            var count = new CountdownEvent(2);
             node.ResponseReceived += n =>
                 {
                     Assert.AreSame(node, n);
-                    ev.Set();
+                    count.Signal();
                 };
+            bool batch = false;
+            node.ProduceBatchSent += (n, c, s) =>
+            {
+                Assert.That(n, Is.EqualTo(node));
+                Assert.That(c, Is.EqualTo(1));
+                Assert.That(s, Is.EqualTo(0));
+                batch = true;
+                count.Signal();
+            };
 
             node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
 
-            ev.WaitOne();
+            count.Wait();
+            Assert.IsTrue(batch);
         }
 
         [Test]
