@@ -140,24 +140,24 @@ namespace Kafka.Cluster
             ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration);
             ProduceRouter.MessageExpired += (t, m) =>
             {
-                Statistics.IncrementExpired();
-                Statistics.IncrementExited();
+                Statistics.UpdateExpired();
+                Statistics.UpdateExited();
             };
             ProduceRouter.MessagesAcknowledged += (t, c) =>
             {
-                Statistics.AddToSuccessfulSent(c);
-                Statistics.AddToExited(c);
+                Statistics.UpdateSuccessfulSent(c);
+                Statistics.UpdateExited(c);
             };
             ProduceRouter.MessageDiscarded += (t, m) =>
             {
-                Statistics.IncrementDiscarded();
-                Statistics.IncrementExited();
+                Statistics.UpdateDiscarded();
+                Statistics.UpdateExited();
             };
             RoutingTableChange += ProduceRouter.ChangeRoutingTable;
 
             // Consumer init
             ConsumeRouter = consumerFactory != null ? consumerFactory() : new ConsumeRouter(this, configuration);
-            ConsumeRouter.MessageReceived += _ => Statistics.IncrementReceived();
+            ConsumeRouter.MessageReceived += _ => Statistics.UpdateReceived();
             if (ConsumeRouter is ConsumeRouter)
             {
                 (ConsumeRouter as ConsumeRouter).InternalError +=
@@ -212,17 +212,17 @@ namespace Kafka.Cluster
             node.Dead += n => OnNodeEvent(() => ProcessDeadNode(n));
             node.ConnectionError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
-            node.RequestSent += _ => Statistics.IncrementRequestSent();
-            node.ResponseReceived += _ => Statistics.IncrementResponseReceived();
+            node.RequestSent += _ => Statistics.UpdateRequestSent();
+            node.ResponseReceived += _ => Statistics.UpdateResponseReceived();
             node.ProduceBatchSent += (_, c, s) =>
             {
-                Statistics.AddToRawProduced(c);
-                Statistics.AddToRawProducedBytes(s);
+                Statistics.UpdateRawProduced(c);
+                Statistics.UpdateRawProducedBytes(s);
             };
             node.FetchResponseReceived += (_, c, s) =>
             {
-                Statistics.AddToRawReceived(c);
-                Statistics.AddToRawReceivedBytes(s);
+                Statistics.UpdateRawReceived(c);
+                Statistics.UpdateRawReceivedBytes(s);
             };
             node.Connected +=
                 n => OnNodeEvent(() => Logger.LogInformation(string.Format("Connected to {0}", GetNodeName(n))));
@@ -253,13 +253,13 @@ namespace Kafka.Cluster
 
         private void ProcessDecodeError(INode node, Exception exception)
         {
-            Statistics.IncrementErrors();
+            Statistics.UpdateErrors();
             Logger.LogError(string.Format("A response could not be decoded for the node {0}: {1}", GetNodeName(node), exception));
         }
 
         private void ProcessNodeError(INode node, Exception exception)
         {
-            Statistics.IncrementErrors();
+            Statistics.UpdateErrors();
             var ex = exception as TransportException;
             var n = GetNodeName(node);
             if (ex != null)
@@ -356,7 +356,7 @@ namespace Kafka.Cluster
         // Remove the node from current nodes and refresh the metadata.
         private void ProcessDeadNode(INode deadNode)
         {
-            Statistics.IncrementNodeDead();
+            Statistics.UpdateNodeDead();
             BrokerMeta m;
             if (!_nodes.TryGetValue(deadNode, out m))
             {

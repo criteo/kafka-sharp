@@ -77,33 +77,33 @@ namespace Kafka.Public
         /// </summary>
         long RawProducedBytes { get; }
 
-        void AddToSuccessfulSent(long nb);
+        void UpdateSuccessfulSent(long nb);
 
-        void IncrementRequestSent();
+        void UpdateRequestSent();
 
-        void IncrementResponseReceived();
+        void UpdateResponseReceived();
 
-        void IncrementErrors();
+        void UpdateErrors();
 
-        void IncrementNodeDead();
+        void UpdateNodeDead();
 
-        void IncrementExpired();
+        void UpdateExpired();
 
-        void IncrementDiscarded();
+        void UpdateDiscarded();
 
-        void AddToExited(long nb);
+        void UpdateExited(long nb);
 
-        void IncrementExited();
+        void UpdateExited();
 
-        void IncrementReceived();
+        void UpdateReceived();
 
-        void AddToRawReceived(long nb);
+        void UpdateRawReceived(long nb);
 
-        void AddToRawReceivedBytes(long nb);
+        void UpdateRawReceivedBytes(long nb);
 
-        void AddToRawProduced(long nb);
+        void UpdateRawProduced(long nb);
 
-        void AddToRawProducedBytes(long nb);
+        void UpdateRawProducedBytes(long nb);
     }
 
     public class Statistics : IStatistics
@@ -155,72 +155,72 @@ namespace Kafka.Public
                 SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exited, Received, RawProduced, RawProducedBytes, RawReceived, RawReceivedBytes);
         }
 
-        public void AddToSuccessfulSent(long nb)
+        public void UpdateSuccessfulSent(long nb)
         {
             Interlocked.Add(ref _successfulSent, nb);
         }
 
-        public void IncrementRequestSent()
+        public void UpdateRequestSent()
         {
             Interlocked.Increment(ref _requestSent);
         }
 
-        public void IncrementResponseReceived()
+        public void UpdateResponseReceived()
         {
             Interlocked.Increment(ref _responseReceived);
         }
 
-        public void IncrementErrors()
+        public void UpdateErrors()
         {
             Interlocked.Increment(ref _errors);
         }
 
-        public void IncrementNodeDead()
+        public void UpdateNodeDead()
         {
             Interlocked.Increment(ref _nodeDead);
         }
 
-        public void IncrementExpired()
+        public void UpdateExpired()
         {
             Interlocked.Increment(ref _expired);
         }
 
-        public void IncrementDiscarded()
+        public void UpdateDiscarded()
         {
             Interlocked.Increment(ref _discarded);
         }
 
-        public void AddToExited(long nb)
+        public void UpdateExited(long nb)
         {
             Interlocked.Add(ref _exited, nb);
         }
 
-        public void IncrementExited()
+        public void UpdateExited()
         {
             Interlocked.Increment(ref _exited);
         }
 
-        public void IncrementReceived()
+        public void UpdateReceived()
         {
             Interlocked.Increment(ref _received);
         }
 
-        public void AddToRawReceived(long nb)
+        public void UpdateRawReceived(long nb)
         {
             Interlocked.Add(ref _rawReceived, nb);
         }
 
-        public void AddToRawReceivedBytes(long nb)
+        public void UpdateRawReceivedBytes(long nb)
         {
             Interlocked.Add(ref _rawReceivedBytes, nb);
         }
 
-        public void AddToRawProduced(long nb)
+        public void UpdateRawProduced(long nb)
         {
             Interlocked.Add(ref _rawProduced, nb);
         }
 
-        public void AddToRawProducedBytes(long nb)
+        public void UpdateRawProducedBytes(long nb)
         {
             Interlocked.Add(ref _rawProducedBytes, nb);
         }
