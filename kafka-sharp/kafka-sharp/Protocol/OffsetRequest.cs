@@ -12,12 +12,12 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId)
+        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId, object noextra)
         {
-            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.OffsetRequest);
+            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.OffsetRequest, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream)
+        public void SerializeBody(ReusableMemoryStream stream, object noextra)
         {
             stream.Write(Basics.MinusOne32, 0, 4); // ReplicaId, non clients that are not a broker must use -1
             Basics.WriteArray(stream, TopicsData);
@@ -34,14 +34,14 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream, object noextra)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, Time);
             BigEndianConverter.Write(stream, MaxNumberOfOffsets);
         }
 
-        public void Deserialize(ReusableMemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream, object noextra)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             Time = BigEndianConverter.ReadInt64(stream);

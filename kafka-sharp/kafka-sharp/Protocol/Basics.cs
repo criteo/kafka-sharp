@@ -3,17 +3,18 @@
 
 using System;
 using System.Collections.Generic;
-using System.Text;
 using Kafka.Common;
+using Kafka.Public;
 
 namespace Kafka.Protocol
 {
-    interface IMemoryStreamSerializable
+    // Utility interface to facilitate code factorization.
+    // This is not intended to be beautiful.
+    internal interface IMemoryStreamSerializable
     {
-        void Serialize(ReusableMemoryStream stream);
-        void Deserialize(ReusableMemoryStream stream);
+        void Serialize(ReusableMemoryStream stream, object extra);
+        void Deserialize(ReusableMemoryStream stream, object extra);
     }
-
 
     static class Basics
     {
@@ -35,6 +36,8 @@ namespace Kafka.Protocol
             ConsumerMetadataRequest = 10
         }
 
+        private static readonly StringDeserializer _stringDeser = new StringDeserializer();
+
         public static string DeserializeString(ReusableMemoryStream stream)
         {
             var len = BigEndianConverter.ReadInt16(stream);
@@ -42,10 +45,10 @@ namespace Kafka.Protocol
             if (len == -1)
                 return null;
 
-            var buffer = new byte[len];
-            stream.Read(buffer, 0, len);
-            return Encoding.UTF8.GetString(buffer);
+            return _stringDeser.Deserialize(stream, len) as string;
         }
+
+        private static readonly StringSerializer _stringSer = new StringSerializer();
 
         public static void SerializeString(ReusableMemoryStream stream, string s)
         {
@@ -55,9 +58,8 @@ namespace Kafka.Protocol
                 return;
             }
 
-            BigEndianConverter.Write(stream, (short)s.Length);
-            var b = Encoding.UTF8.GetBytes(s);
-            stream.Write(b, 0, b.Length);
+            BigEndianConverter.Write(stream, (short) s.Length);
+            _stringSer.Serialize(s, stream);
         }
 
         public static ReusableMemoryStream WriteMessageLength(ReusableMemoryStream stream)
@@ -107,31 +109,59 @@ namespace Kafka.Protocol
         }
 
         // To avoid dynamically allocated closure
-        private static void WriteMemoryStreamSerializable<T>(ReusableMemoryStream stream, T item)
+        private static void WriteMemoryStreamSerializable<T>(ReusableMemoryStream stream, T item, object extra)
             where T : IMemoryStreamSerializable
         {
-            item.Serialize(stream);
+            item.Serialize(stream, extra);
         }
 
         public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items) where T : IMemoryStreamSerializable
         {
-            WriteArray(stream, items, WriteMemoryStreamSerializable);
+            WriteArray(stream, items, null, WriteMemoryStreamSerializable);
         }
 
-        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, Action<ReusableMemoryStream, T> write)
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra) where T : IMemoryStreamSerializable
+        {
+            WriteArray(stream, items, extra, WriteMemoryStreamSerializable);
+        }
+
+        private static long WriteArrayHeader(ReusableMemoryStream stream)
         {
             var sizePosition = stream.Position;
             stream.Write(MinusOne32, 0, 4); // placeholder for count field
-            var count = 0;
-            foreach (var item in items)
-            {
-                write(stream, item);
-                count++;
-            }
+            return sizePosition;
+        }
+
+        private static void WriteArraySize(ReusableMemoryStream stream, long sizePosition, int count)
+        {
             var pos = stream.Position; // update count field
             stream.Position = sizePosition;
             BigEndianConverter.Write(stream, count);
             stream.Position = pos;
+        }
+
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, Action<ReusableMemoryStream, T> write)
+        {
+            var sizePosition = WriteArrayHeader(stream);
+            var count = 0;
+            foreach (var item in items)
+            {
+                write(stream, item);
+                ++count;
+            }
+            WriteArraySize(stream, sizePosition, count);
+        }
+
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra, Action<ReusableMemoryStream, T, object> write)
+        {
+            var sizePosition = WriteArrayHeader(stream);
+            var count = 0;
+            foreach (var item in items)
+            {
+                write(stream, item, extra);
+                ++count;
+            }
+            WriteArraySize(stream, sizePosition, count);
         }
 
         public static void WriteRequestHeader(ReusableMemoryStream stream, int correlationId, ApiKey requestType, byte[] clientId)
@@ -152,14 +182,20 @@ namespace Kafka.Protocol
             stream.Position = currPos;
         }
 
-        public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream) where TData : IMemoryStreamSerializable, new()
+        public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream)
+            where TData : IMemoryStreamSerializable, new()
+        {
+            return DeserializeArrayExtra<TData>(stream, null);
+        }
+
+        public static TData[] DeserializeArrayExtra<TData>(ReusableMemoryStream stream, object extra) where TData : IMemoryStreamSerializable, new()
         {
             var count = BigEndianConverter.ReadInt32(stream);
             var array = new TData[count];
             for (int i = 0; i < count; ++i)
             {
                 array[i] = new TData();
-                array[i].Deserialize(stream);
+                array[i].Deserialize(stream, extra);
             }
             return array;
         }
@@ -183,6 +219,14 @@ namespace Kafka.Protocol
             var buff = new byte[len];
             stream.Read(buff, 0, len);
             return buff;
+        }
+
+        public static object DeserializeByteArray(ReusableMemoryStream stream, IDeserializer deserializer)
+        {
+            var len = BigEndianConverter.ReadInt32(stream);
+            if (len == -1)
+                return null;
+            return deserializer.Deserialize(stream, len);
         }
     }
 }

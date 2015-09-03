@@ -9,12 +9,12 @@ namespace Kafka.Protocol
     {
         public TopicData<TPartitionData>[] TopicsResponse;
 
-        public static CommonResponse<TPartitionData> Deserialize(ReusableMemoryStream body)
+        public static CommonResponse<TPartitionData> Deserialize(ReusableMemoryStream body, object extra)
         {
             return new CommonResponse<TPartitionData>
             {
                 TopicsResponse =
-                    Basics.DeserializeArray<TopicData<TPartitionData>>(body)
+                    Basics.DeserializeArrayExtra<TopicData<TPartitionData>>(body, extra)
             };
         }
     }

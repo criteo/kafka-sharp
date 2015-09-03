@@ -11,6 +11,9 @@ using Snappy;
 
 namespace Kafka.Protocol
 {
+    using Deserializers = Tuple<IDeserializer, IDeserializer>;
+    using Serializers = Tuple<ISerializer, ISerializer>;
+
     struct ResponseMessage
     {
         public long Offset;
@@ -41,18 +44,18 @@ namespace Kafka.Protocol
 
         #region Deserialization
 
-        public void Deserialize(ReusableMemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream, object extra)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
             HighWatermarkOffset = BigEndianConverter.ReadInt64(stream);
-            Messages = DeserializeMessageSet(stream);
+            Messages = DeserializeMessageSet(stream, extra as Deserializers);
         }
 
-        internal static List<ResponseMessage> DeserializeMessageSet(ReusableMemoryStream stream)
+        internal static List<ResponseMessage> DeserializeMessageSet(ReusableMemoryStream stream, Deserializers deserializers)
         {
             var list = ResponseMessageListPool.Reserve();
-            list.AddRange(LazyDeserializeMessageSet(stream, BigEndianConverter.ReadInt32(stream)));
+            list.AddRange(LazyDeserializeMessageSet(stream, BigEndianConverter.ReadInt32(stream), deserializers));
             return list;
         }
 
@@ -61,7 +64,7 @@ namespace Kafka.Protocol
         // and compressed message sets (the method recursively calls itself in this case and
         // flatten the result). The returned enumeration must be enumerated for deserialization
         // effectiveley occuring.
-        private static IEnumerable<ResponseMessage> LazyDeserializeMessageSet(ReusableMemoryStream stream, int messageSetSize)
+        private static IEnumerable<ResponseMessage> LazyDeserializeMessageSet(ReusableMemoryStream stream, int messageSetSize, Deserializers deserializers)
         {
             var remainingMessageSetBytes = messageSetSize;
 
@@ -72,6 +75,7 @@ namespace Kafka.Protocol
                 if (remainingMessageSetBytes < offsetSize + msgsizeSize)
                 {
                     // This is a partial message => skip to the end of the message set.
+                    // TODO: unit test this
                     stream.Position += remainingMessageSetBytes;
                     yield break;
                 }
@@ -89,40 +93,43 @@ namespace Kafka.Protocol
 
                 // Message body
                 var crc = BigEndianConverter.ReadInt32(stream);
-                var crcPos = stream.Position; // crc is computed from this position
+                var crcStartPos = stream.Position; // crc is computed from this position
                 var magic = stream.ReadByte(); // This is ignored, should be zero but who knows? TODO: check it is zero?
                 var attributes = stream.ReadByte();
-                var msg = new ResponseMessage
-                {
-                    Offset = offset,
-                    Message = new Message
-                    {
-                        Key = Basics.DeserializeByteArray(stream),
-                        Value = Basics.DeserializeByteArray(stream) // TODO: in case of compressed stream, avoid byte[] creation/copy
-                    }
-                };
-                var pos = stream.Position;
-                var computedCrc = (int)Crc32.Compute(stream, crcPos, pos - crcPos);
-                if (computedCrc != crc)
-                {
-                    throw new CrcException(
-                        string.Format("Corrupt message: CRC32 does not match. Calculated {0} but got {1}", computedCrc,
-                                      crc));
-                }
 
                 // Check for compression
                 var codec = (CompressionCodec)(attributes & 3); // Lowest 2 bits
                 if (codec == CompressionCodec.None)
                 {
+                    var msg = new ResponseMessage
+                    {
+                        Offset = offset,
+                        Message = new Message
+                        {
+                            Key = Basics.DeserializeByteArray(stream, deserializers.Item1),
+                            Value = Basics.DeserializeByteArray(stream, deserializers.Item2)
+                        }
+                    };
+                    CheckCrc(crc, stream, crcStartPos);
                     yield return msg;
                 }
                 else
                 {
+                    // Key is null, read/check/skip
+                    if (BigEndianConverter.ReadInt32(stream) != -1)
+                    {
+                        throw new InvalidDataException("Compressed messages key should be null");
+                    }
+
                     // Uncompress
-                    using (var uncompressedStream = Uncompress(msg.Message.Value, codec))
+                    var compressedLength = BigEndianConverter.ReadInt32(stream);
+                    var dataPos = stream.Position;
+                    stream.Position += compressedLength;
+                    CheckCrc(crc, stream, crcStartPos);
+                    using (var uncompressedStream = Uncompress(stream.GetBuffer(), (int) dataPos, compressedLength, codec))
                     {
                         // Deserialize recursively
-                        foreach (var m in LazyDeserializeMessageSet(uncompressedStream, (int) uncompressedStream.Length))
+                        foreach (var m in LazyDeserializeMessageSet(uncompressedStream, (int) uncompressedStream.Length, deserializers))
                         {
                             // Flatten
                             yield return m;
@@ -134,22 +141,33 @@ namespace Kafka.Protocol
             }
         }
 
+        static void CheckCrc(int crc, ReusableMemoryStream stream, long crcStartPos)
+        {
+            var computedCrc = (int)Crc32.Compute(stream, crcStartPos, stream.Position - crcStartPos);
+            if (computedCrc != crc)
+            {
+                throw new CrcException(
+                    string.Format("Corrupt message: CRC32 does not match. Calculated {0} but got {1}", computedCrc,
+                                  crc));
+            }
+        }
+
         #region Compression handling
 
-        private static ReusableMemoryStream Uncompress(byte[] body, CompressionCodec codec)
+        private static ReusableMemoryStream Uncompress(byte[] body, int offset, int length, CompressionCodec codec)
         {
             try
             {
                 ReusableMemoryStream uncompressed;
                 if (codec == CompressionCodec.Snappy)
                 {
-                    uncompressed = ReusableMemoryStream.Reserve(SnappyCodec.GetUncompressedLength(body));
-                    SnappyCodec.Uncompress(body, 0, body.Length, uncompressed.GetBuffer(), 0);
+                    uncompressed = ReusableMemoryStream.Reserve(SnappyCodec.GetUncompressedLength(body, offset, length));
+                    SnappyCodec.Uncompress(body, offset, length, uncompressed.GetBuffer(), 0);
                 }
                 else // compression == CompressionCodec.Gzip
                 {
                     uncompressed = ReusableMemoryStream.Reserve();
-                    using (var compressed = new MemoryStream(body))
+                    using (var compressed = new MemoryStream(body, offset, length, false))
                     {
                         using (var gzip = new GZipStream(compressed, CompressionMode.Decompress))
                         {
@@ -168,8 +186,8 @@ namespace Kafka.Protocol
 
         #endregion
 
-        // Used only in tests
-        public void Serialize(ReusableMemoryStream stream)
+        // Used only in tests, and we only support byte array data
+        public void Serialize(ReusableMemoryStream stream, object extra)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, (short) ErrorCode);
@@ -179,7 +197,7 @@ namespace Kafka.Protocol
                 foreach (var m in l)
                 {
                     BigEndianConverter.Write(s, m.Offset);
-                    Basics.WriteSizeInBytes(s, m.Message, (st, msg) => msg.Serialize(st, CompressionCodec.None));
+                    Basics.WriteSizeInBytes(s, m.Message, (st, msg) => msg.Serialize(st, CompressionCodec.None, extra as Serializers));
                 }
             });
         }
@@ -208,6 +226,4 @@ namespace Kafka.Protocol
             Codec = codec;
         }
     }
-
-
 }

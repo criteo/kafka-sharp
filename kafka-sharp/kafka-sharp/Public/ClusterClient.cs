@@ -18,11 +18,11 @@ namespace Kafka.Public
     public interface IClusterClient : IDisposable
     {
         /// <summary>
-        /// Send an array of bytes to a Kafka cluster.
+        /// Send some data to a Kafka Cluster, with no key.
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
         /// <param name="data">Message value</param>
-        void Produce(string topic, byte[] data);
+        void Produce(string topic, object data);
 
         /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
@@ -30,7 +30,7 @@ namespace Kafka.Public
         /// <param name="topic">Kafka message topic</param>
         /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
-        void Produce(string topic, byte[] key, byte[] data);
+        void Produce(string topic, object key, object data);
 
         /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
@@ -41,7 +41,7 @@ namespace Kafka.Public
         /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
         /// <param name="partition">Target partition</param>
-        void Produce(string topic, byte[] key, byte[] data, int partition);
+        void Produce(string topic, object key, object data, int partition);
 
         /// <summary>
         /// Consume messages from the given topic, from all partitions, and starting from
@@ -51,7 +51,7 @@ namespace Kafka.Public
         void ConsumeFromEarliest(string topic);
 
         /// <summary>
-        /// Consume messages form the given topic, from all partitions, starting from new messages.
+        /// Consume messages from the given topic, from all partitions, starting from new messages.
         /// </summary>
         /// <param name="topic"></param>
         void ConsumeFromLatest(string topic);
@@ -105,34 +105,34 @@ namespace Kafka.Public
         /// <summary>
         /// Messages received from the brokers.
         /// </summary>
-        event Action<KafkaRecord> MessageReceived;
+        event Action<RawKafkaRecord> MessageReceived;
 
         /// <summary>
         /// The stream of received messages. Use this if you prefer using Reactive Extensions
         /// to manipulate streams of messages.
         /// </summary>
-        IObservable<KafkaRecord> Messages { get; }
+        IObservable<RawKafkaRecord> Messages { get; }
 
         /// <summary>
         /// This is raised when a produce message has expired.
         /// </summary>
-        event Action<KafkaRecord> MessageExpired;
+        event Action<RawKafkaRecord> MessageExpired;
 
         /// <summary>
         /// Rx observable version of the MessageExpired event.
         /// </summary>
-        IObservable<KafkaRecord> ExpiredMessages { get; }
+        IObservable<RawKafkaRecord> ExpiredMessages { get; }
 
         /// <summary>
         /// This is raised when a produce message is discarded due
         /// to a network error or some other Kafka unrecoverable error.
         /// </summary>
-        event Action<KafkaRecord> MessageDiscarded;
+        event Action<RawKafkaRecord> MessageDiscarded;
 
         /// <summary>
         /// Rx observable version of the MessageDiscarded event.
         /// </summary>
-        IObservable<KafkaRecord> DiscardedMessages { get; }
+        IObservable<RawKafkaRecord> DiscardedMessages { get; }
 
         /// <summary>
         /// Current statistics if the cluster.
@@ -147,9 +147,8 @@ namespace Kafka.Public
 
     /// <summary>
     /// The public Kafka cluster representation. All operations goes through this class.
-    ///
     /// </summary>
-    public class ClusterClient : IClusterClient
+    public sealed class ClusterClient : IClusterClient
     {
         private readonly Cluster.Cluster _cluster;
         private readonly Configuration _configuration;
@@ -185,26 +184,26 @@ namespace Kafka.Public
         /// This event is raised when a message is consumed. This happen in the context of the
         /// underlying fetch loop, so you can take advantage of that to throttle the whole system.
         /// </summary>
-        public event Action<KafkaRecord> MessageReceived = _ => { };
+        public event Action<RawKafkaRecord> MessageReceived = _ => { };
 
         /// <summary>
         /// The stream of consumed messages as an Rx stream. By default it is observed in the context
         /// of the underlying fetch loop, so you can take advantage of that to throttle the whole system
         /// or you can oberve it on its own scheduler.
         /// </summary>
-        public IObservable<KafkaRecord> Messages { get; private set; }
+        public IObservable<RawKafkaRecord> Messages { get; private set; }
 
         /// <summary>
         /// This is raised when a produce message has expired.
         /// The message partition will be set to None and the offset to 0.
         /// </summary>
-        public event Action<KafkaRecord> MessageExpired = _ => { };
+        public event Action<RawKafkaRecord> MessageExpired = _ => { };
 
         /// <summary>
         /// Rx observable version of the MessageExpired event.
         /// The message partition will be set to None and the offset to 0.
         /// </summary>
-        public IObservable<KafkaRecord> ExpiredMessages { get; private set; }
+        public IObservable<RawKafkaRecord> ExpiredMessages { get; private set; }
 
         /// <summary>
         /// This is raised when a produce message is discarded due
@@ -215,36 +214,74 @@ namespace Kafka.Public
         /// retry produce on most errors until expiration date comes).
         /// The message partition will be set to None and the offset to 0.
         /// </summary>
-        public event Action<KafkaRecord> MessageDiscarded = _ => { };
+        public event Action<RawKafkaRecord> MessageDiscarded = _ => { };
 
         /// <summary>
         /// Rx observable version of the MessageDiscarded event.
         /// The message partition will be set to None and the offset to 0.
         /// </summary>
-        public IObservable<KafkaRecord> DiscardedMessages { get; private set; }
+        public IObservable<RawKafkaRecord> DiscardedMessages { get; private set; }
 
         /// <summary>
         /// Initialize a client to a Kafka cluster.
         /// </summary>
-        /// <param name="configuration"></param>
+        /// <param name="configuration">Kafka configuration.</param>
         /// <param name="logger"></param>
-        /// <param name="statistics"></param>
-        public ClusterClient(Configuration configuration, ILogger logger, IStatistics statistics = null)
-            : this(CloneConfig(configuration), logger, null, statistics)
+        public ClusterClient(Configuration configuration, ILogger logger)
+            : this(configuration, logger, null, null, null)
         {
         }
 
-        internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster, IStatistics statistics = null)
+        /// <summary>
+        /// Initialize a client to a Kafka cluster.
+        /// </summary>
+        /// <param name="configuration">Kafka configuration.</param>
+        /// <param name="logger"></param>
+        /// <param name="serializationConfig">Serialization configuration if you want to provide custom serializers/deserializers.</param>
+        public ClusterClient(Configuration configuration, ILogger logger, SerializationConfig serializationConfig)
+            : this(configuration, logger, null, serializationConfig, null)
+        {
+        }
+
+        /// <summary>
+        /// Initialize a client to a Kafka cluster.
+        /// </summary>
+        /// <param name="configuration">Kafka configuration.</param>
+        /// <param name="logger"></param>
+        /// <param name="serializationConfig">Serialization configuration if you want to provide custom serializers/deserializers.</param>
+        /// <param name="statistics">Provide this if you want to inject custom statistics management.</param>
+        public ClusterClient(Configuration configuration, ILogger logger, SerializationConfig serializationConfig, IStatistics statistics)
+            : this(CloneConfig(configuration), logger, null, serializationConfig, statistics)
+        {
+        }
+
+        /// <summary>
+        /// Initialize a client to a Kafka cluster.
+        /// </summary>
+        /// <param name="configuration">Kafka configuration.</param>
+        /// <param name="logger"></param>
+        /// <param name="statistics">Provide this if you want to inject custom statistics management.</param>
+        public ClusterClient(Configuration configuration, ILogger logger, IStatistics statistics)
+            : this(CloneConfig(configuration), logger, null, null, statistics)
+        {
+        }
+
+        internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster)
+            : this(configuration, logger, cluster, null, null)
+        {
+        }
+
+        internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster, SerializationConfig serializationConfig, IStatistics statistics)
         {
             _configuration = configuration;
             _logger = logger;
-            _cluster = cluster ?? new Cluster.Cluster(configuration, logger, statistics);
+            _cluster = cluster ?? new Cluster.Cluster(configuration, logger, statistics, serializationConfig);
             _cluster.InternalError += e => _logger.LogError("Cluster internal error: " + e);
             _cluster.ConsumeRouter.MessageReceived += kr => MessageReceived(kr);
-            Messages = Observable.FromEvent<KafkaRecord>(a => MessageReceived += a, a => MessageReceived -= a);
+            Messages = Observable.FromEvent<RawKafkaRecord>(a => MessageReceived += a, a => MessageReceived -= a);
             _cluster.ProduceRouter.MessageExpired +=
                 (t, m) =>
-                    MessageExpired(new KafkaRecord
+                    MessageExpired(new RawKafkaRecord
                     {
                         Key = m.Key,
                         Value = m.Value,
@@ -252,10 +289,10 @@ namespace Kafka.Public
                         Partition = Partitions.None,
                         Offset = 0
                     });
-            ExpiredMessages = Observable.FromEvent<KafkaRecord>(a => MessageExpired += a, a => MessageExpired -= a);
+            ExpiredMessages = Observable.FromEvent<RawKafkaRecord>(a => MessageExpired += a, a => MessageExpired -= a);
             _cluster.ProduceRouter.MessageDiscarded +=
                 (t, m) =>
-                    MessageDiscarded(new KafkaRecord
+                    MessageDiscarded(new RawKafkaRecord
                     {
                         Key = m.Key,
                         Value = m.Value,
@@ -263,7 +300,7 @@ namespace Kafka.Public
                         Partition = Partitions.None,
                         Offset = 0
                     });
-            DiscardedMessages = Observable.FromEvent<KafkaRecord>(a => MessageDiscarded += a, a => MessageDiscarded -= a);
+            DiscardedMessages = Observable.FromEvent<RawKafkaRecord>(a => MessageDiscarded += a, a => MessageDiscarded -= a);
             _cluster.Start();
         }
 
@@ -326,41 +363,19 @@ namespace Kafka.Public
             _cluster.ConsumeRouter.StopConsume(topic, partition, offset);
         }
 
-        /// <summary>
-        /// Send a string as Kafka message. The string will be UTF8 encoded.
-        /// This is useful for playing or testing.
-        /// </summary>
-        /// <param name="topic">Kafka message topic</param>
-        /// <param name="data">Message value</param>
-        public void Produce(string topic, string data)
+        private long _sent;
+
+        public void Produce(string topic, object data)
         {
             Produce(topic, null, data);
         }
 
-        /// <summary>
-        /// Send a string as Kafka message with the given key. The string and key will be UTF8 encoded.
-        /// </summary>
-        /// <param name="topic">Kafka message topic</param>
-        /// <param name="key">Message key</param>
-        /// <param name="data">Message value</param>
-        public void Produce(string topic, string key, string data)
-        {
-            Produce(topic, key == null ? null : Encoding.UTF8.GetBytes(key), Encoding.UTF8.GetBytes(data));
-        }
-
-        public void Produce(string topic, byte[] data)
-        {
-            Produce(topic, null, data);
-        }
-
-        public void Produce(string topic, byte[] key, byte[] data)
+        public void Produce(string topic, object key, object data)
         {
             Produce(topic, key, data, Partitions.Any);
         }
 
-        private long _sent;
-
-        public void Produce(string topic, byte[] key, byte[] data, int partition)
+        public void Produce(string topic, object key, object data, int partition)
         {
             if (_configuration.MaxBufferedMessages > 0)
             {

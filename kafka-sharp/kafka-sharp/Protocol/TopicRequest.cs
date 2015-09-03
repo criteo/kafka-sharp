@@ -11,12 +11,12 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId)
+        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId, object noextra)
         {
-            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.MetadataRequest);
+            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.MetadataRequest, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream)
+        public void SerializeBody(ReusableMemoryStream stream, object noextra)
         {
             if (Topics == null || Topics.Length == 0)
             {

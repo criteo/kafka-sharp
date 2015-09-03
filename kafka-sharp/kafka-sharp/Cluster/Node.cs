@@ -151,7 +151,7 @@ namespace Kafka.Cluster
         /// too much complexity.
         /// Anyway, remember it's for testing without having to code broker side ser/deser.
         /// </summary>
-        internal interface ISerializer
+        internal interface ISerialization
         {
             ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch);
             ReusableMemoryStream SerializeMetadataAllRequest(int correlationId);
@@ -164,9 +164,9 @@ namespace Kafka.Cluster
         }
 
         /// <summary>
-        /// The serializer for the real Kafka protocol.
+        /// The Serialization for the real Kafka protocol.
         /// </summary>
-        internal class Serializer : ISerializer
+        internal class Serialization : ISerialization
         {
             private readonly byte[] _clientId;
             private readonly short _requiredAcks;
@@ -174,8 +174,9 @@ namespace Kafka.Cluster
             private readonly int _minBytes;
             private readonly int _maxWait;
             private readonly CompressionCodec _compressionCodec;
+            private readonly SerializationConfig _serializationConfig;
 
-            public Serializer(byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait)
+            public Serialization(SerializationConfig serializationConfig, byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait)
             {
                 _clientId = clientId;
                 _requiredAcks = (short) requiredAcks;
@@ -183,11 +184,12 @@ namespace Kafka.Cluster
                 _minBytes = minBytes;
                 _maxWait = maxWait;
                 _compressionCodec = compressionCodec;
+                _serializationConfig = serializationConfig ?? new SerializationConfig();
             }
 
             public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
             {
-                return new TopicRequest().Serialize(correlationId, _clientId);
+                return new TopicRequest().Serialize(correlationId, _clientId, null);
             }
 
             public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
@@ -207,7 +209,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return produceRequest.Serialize(correlationId, _clientId);
+                return produceRequest.Serialize(correlationId, _clientId, _serializationConfig);
             }
 
             public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
@@ -227,7 +229,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return fetchRequest.Serialize(correlationId, _clientId);
+                return fetchRequest.Serialize(correlationId, _clientId, null);
             }
 
             public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
@@ -245,18 +247,18 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return offsetRequest.Serialize(correlationId, _clientId);
+                return offsetRequest.Serialize(correlationId, _clientId, null);
             }
 
             public MetadataResponse DeserializeMetadataResponse(int notUsed, ReusableMemoryStream data)
             {
-                return MetadataResponse.Deserialize(data);
+                return MetadataResponse.Deserialize(data, null);
             }
 
             public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
                 ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
             {
-                return CommonResponse<TPartitionResponse>.Deserialize(data);
+                return CommonResponse<TPartitionResponse>.Deserialize(data, _serializationConfig);
             }
         }
 
@@ -370,7 +372,7 @@ namespace Kafka.Cluster
         private readonly ConcurrentQueue<Request> _nonMetadata = new ConcurrentQueue<Request>(); // queue for all other batched requests
         private readonly ActionBlock<Ping> _requestQueue; // incoming request actor
         private readonly ActionBlock<Response> _responseQueue; // incoming response actor
-        private readonly ISerializer _serializer;
+        private readonly ISerialization _serialization;
         private readonly Configuration _configuration;
 
         struct Pending
@@ -446,7 +448,7 @@ namespace Kafka.Cluster
 
         public string Name { get; internal set; }
 
-        public Node(string name, ConnectionFactory connectionFactory, ISerializer serializer, Configuration configuration, double resolution = 1000.0)
+        public Node(string name, ConnectionFactory connectionFactory, ISerialization serialization, Configuration configuration, double resolution = 1000.0)
         {
             Name = name ?? "[Unknown]";
             _connectionFactory = connectionFactory;
@@ -461,7 +463,7 @@ namespace Kafka.Cluster
             _produceMessages = InitProduceSubject(configuration.BatchSize, configuration.BufferingTime);
             _fetchMessages = InitFetchSubject();
             _offsetMessages = InitOffsetSubject();
-            _serializer = serializer;
+            _serialization = serialization;
             _configuration = configuration;
         }
 
@@ -580,18 +582,18 @@ namespace Kafka.Cluster
             switch (request.RequestType)
             {
                 case RequestType.Metadata:
-                    return _serializer.SerializeMetadataAllRequest(correlationId);
+                    return _serialization.SerializeMetadataAllRequest(correlationId);
 
                 case RequestType.Produce:
-                    return _serializer.SerializeProduceBatch(correlationId,
+                    return _serialization.SerializeProduceBatch(correlationId,
                         request.RequestValue.ProduceBatchRequest.Batch);
 
                 case RequestType.Fetch:
-                    return _serializer.SerializeFetchBatch(correlationId,
+                    return _serialization.SerializeFetchBatch(correlationId,
                         request.RequestValue.FetchBatchRequest.Batch);
 
                 case RequestType.Offset:
-                    return _serializer.SerializeOffsetBatch(correlationId,
+                    return _serialization.SerializeOffsetBatch(correlationId,
                         request.RequestValue.OffsetBatchRequest.Batch);
 
                 default: // Compiler requires a default case, even if all possible cases are already handled
@@ -827,7 +829,7 @@ namespace Kafka.Cluster
             var response = new CommonAcknowledgement<FetchPartitionResponse> {ReceivedDate = DateTime.UtcNow};
             try
             {
-                response.Response = _serializer.DeserializeCommonResponse<FetchPartitionResponse>(correlationId,
+                response.Response = _serialization.DeserializeCommonResponse<FetchPartitionResponse>(correlationId,
                     responseData);
             }
             catch (Exception ex)
@@ -856,7 +858,7 @@ namespace Kafka.Cluster
             var response = new CommonAcknowledgement<OffsetPartitionResponse> {ReceivedDate = DateTime.UtcNow};
             try
             {
-                response.Response = _serializer.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId, responseData);
+                response.Response = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId, responseData);
             }
             catch (Exception ex)
             {
@@ -881,7 +883,7 @@ namespace Kafka.Cluster
             };
             try
             {
-                acknowledgement.ProduceResponse = _serializer.DeserializeCommonResponse<ProducePartitionResponse>(correlationId, responseData);
+                acknowledgement.ProduceResponse = _serialization.DeserializeCommonResponse<ProducePartitionResponse>(correlationId, responseData);
             }
             catch (Exception ex)
             {
@@ -899,7 +901,7 @@ namespace Kafka.Cluster
         {
             try
             {
-                var metadataResponse = _serializer.DeserializeMetadataResponse(correlationId, responseData);
+                var metadataResponse = _serialization.DeserializeMetadataResponse(correlationId, responseData);
                 originalRequest.Promise.SetResult(metadataResponse);
             }
             catch (Exception ex)

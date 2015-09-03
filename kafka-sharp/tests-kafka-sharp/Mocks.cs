@@ -103,7 +103,7 @@ namespace tests_kafka_sharp
         public static void Reset()
         {
             EchoConnectionMock.Reset();
-            ScenarioSerializerMock.Reset();
+            ScenarioSerializationMock.Reset();
         }
     }
 
@@ -269,7 +269,7 @@ namespace tests_kafka_sharp
     }
 
     /// <summary>
-    /// This has to be used with a custom ISerializer that won't
+    /// This has to be used with a custom ISerialization that won't
     /// actually use the returned buffer but takes advantage of the
     /// correlation id to "deserialize" proper responses.
     /// </summary>
@@ -379,7 +379,7 @@ namespace tests_kafka_sharp
         public event Action<RoutingTable> OnChangeRouting = _ => { };
     }
 
-    class DummySerializer : Node.ISerializer
+    class DummySerialization : Node.ISerialization
     {
         public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
         {
@@ -412,11 +412,11 @@ namespace tests_kafka_sharp
         }
     }
 
-    class MetadataSerializer : Node.ISerializer
+    class MetadataSerialization : Node.ISerialization
     {
         private readonly MetadataResponse _metadataResponse;
 
-        public MetadataSerializer(MetadataResponse returned)
+        public MetadataSerialization(MetadataResponse returned)
         {
             _metadataResponse = returned;
         }
@@ -453,11 +453,11 @@ namespace tests_kafka_sharp
         }
     }
 
-    class ProduceSerializer : Node.ISerializer
+    class ProduceSerialization : Node.ISerialization
     {
         private readonly CommonResponse<ProducePartitionResponse> _produceResponse;
 
-        public ProduceSerializer(CommonResponse<ProducePartitionResponse> returned)
+        public ProduceSerialization(CommonResponse<ProducePartitionResponse> returned)
         {
             _produceResponse = returned;
         }
@@ -511,7 +511,7 @@ namespace tests_kafka_sharp
         }
     }
 
-    class ScenarioSerializerMock : Node.ISerializer
+    class ScenarioSerializationMock : Node.ISerialization
     {
         readonly ConcurrentDictionary<int, object> _produceResponses = new ConcurrentDictionary<int, object>();
         private readonly MetadataResponse _metadataResponse;
@@ -523,7 +523,7 @@ namespace tests_kafka_sharp
             _count = 1;
         }
 
-        public ScenarioSerializerMock(MetadataResponse returned, bool forceErrors = false)
+        public ScenarioSerializationMock(MetadataResponse returned, bool forceErrors = false)
         {
             _metadataResponse = returned;
             _forceErrors = forceErrors;

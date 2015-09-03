@@ -14,10 +14,63 @@ namespace Kafka.Public
     }
 
     /// <summary>
+    /// A typed Kafka record. This is a struct because it just encapsulates
+    /// a RawKafkaRecord.
+    /// </summary>
+    /// <typeparam name="TKey">Key type, this must be a reference type</typeparam>
+    /// <typeparam name="TValue">Value type, this must be a reference type</typeparam>
+    public struct KafkaRecord<TKey, TValue> where TKey : class where TValue : class
+    {
+        internal RawKafkaRecord Record { get; set; }
+
+        /// <summary>
+        /// The topic of the record.
+        /// </summary>
+        public string Topic
+        {
+            get { return Record.Topic; }
+        }
+
+        /// <summary>
+        /// The key part of the message. Will be null if there is
+        /// no key (which is often the case).
+        /// </summary>
+        public TKey Key
+        {
+            get { return Record.Key as TKey; }
+        }
+
+        /// <summary>
+        /// The value part of the message.
+        /// </summary>
+        public TValue Value
+        {
+            get { return Record.Value as TValue; }
+        }
+
+        /// <summary>
+        /// The offset of the message in its partition. You may use this
+        /// to save the state of what you have read.
+        /// </summary>
+        public long Offset
+        {
+            get { return Record.Offset; }
+        }
+
+        /// <summary>
+        /// The partition the message belongs to inside its topic.
+        /// </summary>
+        public int Partition
+        {
+            get { return Record.Partition; }
+        }
+    }
+
+    /// <summary>
     /// A Kafka record, as got from consuming a topic. This is
     /// what is returned by the consumer.
     /// </summary>
-    public class KafkaRecord
+    public class RawKafkaRecord
     {
         /// <summary>
         /// The topic of the record.
@@ -28,12 +81,12 @@ namespace Kafka.Public
         /// The key part of the message. Will be null if there is
         /// no key (which is often the case).
         /// </summary>
-        public byte[] Key { get; internal set; }
+        public object Key { get; internal set; }
 
         /// <summary>
         /// The value part of the message.
         /// </summary>
-        public byte[] Value { get; internal set; }
+        public object Value { get; internal set; }
 
         /// <summary>
         /// The offset of the message in its partition. You may use this

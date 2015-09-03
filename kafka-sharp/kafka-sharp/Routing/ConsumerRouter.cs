@@ -65,7 +65,7 @@ namespace Kafka.Routing
         /// <summary>
         /// Emit a received kafka message.
         /// </summary>
-        event Action<KafkaRecord> MessageReceived;
+        event Action<RawKafkaRecord> MessageReceived;
     }
 
     // Magic values for Offset APIs. Some from Kafka protocol, some special to us
@@ -192,7 +192,7 @@ namespace Kafka.Routing
         // Used in test mode to scale the waiting times when fetch metadata fails
         private int _resolution = 1000;
 
-        public event Action<KafkaRecord> MessageReceived = r => { };
+        public event Action<RawKafkaRecord> MessageReceived = r => { };
 
         /// <summary>
         /// Raised in case of unexpected internal error.
@@ -608,7 +608,7 @@ namespace Kafka.Routing
                             (state.StopAt < 0 || message.Offset <= state.StopAt)))
             {
                 state.LastOffsetSeen = message.Offset;
-                MessageReceived(new KafkaRecord
+                MessageReceived(new RawKafkaRecord
                     {
                         Topic = topic,
                         Key = message.Message.Key,

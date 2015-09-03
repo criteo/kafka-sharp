@@ -1,10 +1,9 @@
 ﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
-// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System.Collections.Generic;
 using Kafka.Common;
+using Kafka.Public;
 
 namespace Kafka.Protocol
 {
@@ -15,21 +14,33 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream, object extra)
         {
             Basics.SerializeString(stream, TopicName);
-            Basics.WriteArray(stream, PartitionsData);
+            object pdExtra = null;
+            if (extra != null)
+            {
+                var config = extra as SerializationConfig;
+                pdExtra = config.GetSerializersForTopic(TopicName);
+            }
+            Basics.WriteArray(stream, PartitionsData, pdExtra);
         }
 
-        public void Deserialize(ReusableMemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream, object extra)
         {
             TopicName = Basics.DeserializeString(stream);
             var count = BigEndianConverter.ReadInt32(stream);
             var array = new TPartitionData[count];
+            object pdExtra = null;
+            if (extra != null)
+            {
+                var config = extra as SerializationConfig;
+                pdExtra = config.GetDeserializersForTopic(TopicName);
+            }
             for (int i = 0; i < count; ++i)
             {
                 array[i] = new TPartitionData();
-                array[i].Deserialize(stream);
+                array[i].Deserialize(stream, pdExtra);
             }
             PartitionsData = array;
         }

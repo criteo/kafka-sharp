@@ -10,7 +10,7 @@ namespace Kafka.Protocol
         public BrokerMeta[] BrokersMeta;
         public TopicMeta[] TopicsMeta;
 
-        public static MetadataResponse Deserialize(ReusableMemoryStream stream)
+        public static MetadataResponse Deserialize(ReusableMemoryStream stream, object noextra)
         {
             return new MetadataResponse
             {
@@ -20,10 +20,10 @@ namespace Kafka.Protocol
         }
 
         // Used only in tests
-        public void Serialize(ReusableMemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream, object noextra)
         {
-            Basics.WriteArray(stream, BrokersMeta);
-            Basics.WriteArray(stream, TopicsMeta);
+            Basics.WriteArray(stream, BrokersMeta, noextra);
+            Basics.WriteArray(stream, TopicsMeta, noextra);
         }
     }
 }

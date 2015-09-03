@@ -364,7 +364,7 @@ namespace tests_kafka_sharp
         public void TestConsumerMessageReceived()
         {
             _cluster.Start();
-            _consumeMock.Raise(r => r.MessageReceived += null, It.IsAny<KafkaRecord>());
+            _consumeMock.Raise(r => r.MessageReceived += null, It.IsAny<RawKafkaRecord>());
 
             Assert.AreEqual(0, _internalErrors);
             AssertStatistics(_cluster.Statistics, received: 1);

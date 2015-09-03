@@ -10,6 +10,8 @@ using Snappy;
 
 namespace Kafka.Protocol
 {
+    using Serializers = Tuple<ISerializer, ISerializer>;
+
     class ProduceRequest : ISerializableRequest
     {
         public IEnumerable<TopicData<PartitionData>> TopicsData;
@@ -18,16 +20,16 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId)
+        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId, object extra)
         {
-            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.ProduceRequest);
+            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.ProduceRequest, extra);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream)
+        public void SerializeBody(ReusableMemoryStream stream, object extra)
         {
             BigEndianConverter.Write(stream, RequiredAcks);
             BigEndianConverter.Write(stream, Timeout);
-            Basics.WriteArray(stream, TopicsData);
+            Basics.WriteArray(stream, TopicsData, extra);
         }
 
         #endregion
@@ -41,41 +43,51 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream)
+        struct SerializationInfo
         {
-            BigEndianConverter.Write(stream, Partition);
-            Basics.WriteSizeInBytes(stream, Messages, CompressionCodec, SerializeMessages);
+            public Serializers Serializers;
+            public CompressionCodec CompressionCodec;
         }
 
-        private static void SerializeMessagesUncompressed(ReusableMemoryStream stream, IEnumerable<Message> messages)
+        public void Serialize(ReusableMemoryStream stream, object extra)
+        {
+            BigEndianConverter.Write(stream, Partition);
+            Basics.WriteSizeInBytes(stream, Messages,
+                new SerializationInfo {Serializers = extra as Serializers, CompressionCodec = CompressionCodec},
+                SerializeMessages);
+        }
+
+        private static void SerializeMessagesUncompressed(ReusableMemoryStream stream, IEnumerable<Message> messages, Serializers serializers)
         {
             foreach (var message in messages)
             {
-                stream.Write(Basics.Zero64, 0, 8); // producer does fake offset
-                Basics.WriteSizeInBytes(stream, message, CompressionCodec.None, SerializeMessageWithCodec);
+                stream.Write(Basics.Zero64, 0, 8); // producer puts a fake offset
+                Basics.WriteSizeInBytes(stream, message,
+                    new SerializationInfo {CompressionCodec = CompressionCodec.None, Serializers = serializers},
+                    SerializeMessageWithCodec);
             }
         }
 
         // Dumb trick to minimize closure allocations
-        private static readonly Action<ReusableMemoryStream, IEnumerable<Message>, CompressionCodec> SerializeMessages =
+        private static readonly Action<ReusableMemoryStream, IEnumerable<Message>, SerializationInfo> SerializeMessages =
             _SerializeMessages;
 
         // Dumb trick to minimize closure allocations
-        private static readonly Action<ReusableMemoryStream, Message, CompressionCodec> SerializeMessageWithCodec =
+        private static readonly Action<ReusableMemoryStream, Message, SerializationInfo> SerializeMessageWithCodec =
             _SerializeMessageWithCodec;
 
-        private static void _SerializeMessages(ReusableMemoryStream stream, IEnumerable<Message> messages, CompressionCodec compressionCodec)
+        private static void _SerializeMessages(ReusableMemoryStream stream, IEnumerable<Message> messages, SerializationInfo info)
         {
-            if (compressionCodec != CompressionCodec.None)
+            if (info.CompressionCodec != CompressionCodec.None)
             {
                 stream.Write(Basics.Zero64, 0, 8);
                 using (var msgsetStream = ReusableMemoryStream.Reserve())
                 {
-                    SerializeMessagesUncompressed(msgsetStream, messages);
+                    SerializeMessagesUncompressed(msgsetStream, messages, info.Serializers);
 
                     using (var compressed = ReusableMemoryStream.Reserve())
                     {
-                        if (compressionCodec == CompressionCodec.Gzip)
+                        if (info.CompressionCodec == CompressionCodec.Gzip)
                         {
                             using (var gzip = new GZipStream(compressed, CompressionMode.Compress, true))
                             {
@@ -97,22 +109,27 @@ namespace Kafka.Protocol
                             Value = compressed.GetBuffer(),
                             ValueSize = (int) compressed.Length
                         };
-                        Basics.WriteSizeInBytes(stream, m, compressionCodec, SerializeMessageWithCodec);
+                        Basics.WriteSizeInBytes(stream, m,
+                            new SerializationInfo
+                            {
+                                Serializers = SerializationConfig.DefaultSerializers,
+                                CompressionCodec = info.CompressionCodec
+                            }, SerializeMessageWithCodec);
                     }
                 }
             }
             else
             {
-                SerializeMessagesUncompressed(stream, messages);
+                SerializeMessagesUncompressed(stream, messages, info.Serializers);
             }
         }
 
-        private static void _SerializeMessageWithCodec(ReusableMemoryStream stream, Message message, CompressionCodec codec)
+        private static void _SerializeMessageWithCodec(ReusableMemoryStream stream, Message message, SerializationInfo info)
         {
-            message.Serialize(stream, codec);
+            message.Serialize(stream, info.CompressionCodec, info.Serializers);
         }
 
-        public void Deserialize(ReusableMemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream, object noextra)
         {
             throw new NotImplementedException();
         }

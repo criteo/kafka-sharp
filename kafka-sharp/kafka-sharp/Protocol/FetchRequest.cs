@@ -14,17 +14,17 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId)
+        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId, object extra)
         {
-            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.FetchRequest);
+            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.FetchRequest, extra);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream)
+        public void SerializeBody(ReusableMemoryStream stream, object extra)
         {
             stream.Write(Basics.MinusOne32, 0, 4); // ReplicaId, non clients that are not a broker must use -1
             BigEndianConverter.Write(stream, MaxWaitTime);
             BigEndianConverter.Write(stream, MinBytes);
-            Basics.WriteArray(stream, TopicsData);
+            Basics.WriteArray(stream, TopicsData, extra);
         }
 
         #endregion
@@ -38,7 +38,7 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream, object noextra)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, FetchOffset);
@@ -46,7 +46,7 @@ namespace Kafka.Protocol
         }
 
         // Used only in tests
-        public void Deserialize(ReusableMemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream, object noextra)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             FetchOffset = BigEndianConverter.ReadInt64(stream);

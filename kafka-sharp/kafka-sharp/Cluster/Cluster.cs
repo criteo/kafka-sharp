@@ -125,12 +125,12 @@ namespace Kafka.Cluster
         {
         }
 
-        public Cluster(Configuration configuration, ILogger logger, IStatistics statistics = null)
-            : this(configuration, logger, null, null, null, statistics)
+        public Cluster(Configuration configuration, ILogger logger, IStatistics statistics = null, SerializationConfig serializationConfig = null)
+            : this(configuration, logger, null, null, null, statistics, serializationConfig)
         {
         }
 
-        public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, ProducerFactory producerFactory, ConsumerFactory consumerFactory, IStatistics statistics = null)
+        public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, ProducerFactory producerFactory, ConsumerFactory consumerFactory, IStatistics statistics = null, SerializationConfig serializationConfig = null)
         {
             _seeds = configuration.Seeds;
             Logger = logger;
@@ -167,7 +167,7 @@ namespace Kafka.Cluster
 
             // Node factory
             var clientId = Encoding.UTF8.GetBytes(configuration.ClientId);
-            var serializer = new Node.Serializer(clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
+            var serializer = new Node.Serialization(serializationConfig, clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
                                                  configuration.CompressionCodec, configuration.FetchMinBytes, configuration.FetchMaxWaitTime);
             _nodeFactory = nodeFactory ??
                            ((h, p) =>

@@ -16,7 +16,7 @@ namespace Kafka.Protocol
             return string.Format("[Id:{0} Host:{1} Port:{2}]", Id, Host, Port);
         }
 
-        public void Deserialize(ReusableMemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream, object noextra = null)
         {
             Id = BigEndianConverter.ReadInt32(stream);
             Host = Basics.DeserializeString(stream);
@@ -24,7 +24,7 @@ namespace Kafka.Protocol
         }
 
         // Used only in tests
-        public void Serialize(ReusableMemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream, object noextra = null)
         {
             BigEndianConverter.Write(stream, Id);
             Basics.SerializeString(stream, Host);
@@ -38,7 +38,7 @@ namespace Kafka.Protocol
         public string TopicName;
         public PartitionMeta[] Partitions;
 
-        public void Deserialize(ReusableMemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream, object noextra = null)
         {
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
             TopicName = Basics.DeserializeString(stream);
@@ -46,7 +46,7 @@ namespace Kafka.Protocol
         }
 
         // Used only in tests
-        public void Serialize(ReusableMemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream, object noextra = null)
         {
             BigEndianConverter.Write(stream, (short) ErrorCode);
             Basics.SerializeString(stream, TopicName);
@@ -62,7 +62,7 @@ namespace Kafka.Protocol
         public int[] Replicas;
         public int[] Isr;
 
-        public void Deserialize(ReusableMemoryStream stream)
+        public void Deserialize(ReusableMemoryStream stream, object noextra = null)
         {
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
             Id = BigEndianConverter.ReadInt32(stream);
@@ -72,7 +72,7 @@ namespace Kafka.Protocol
         }
 
         // Used only in tests
-        public void Serialize(ReusableMemoryStream stream)
+        public void Serialize(ReusableMemoryStream stream, object noextra = null)
         {
             BigEndianConverter.Write(stream, (short) ErrorCode);
             BigEndianConverter.Write(stream, Id);

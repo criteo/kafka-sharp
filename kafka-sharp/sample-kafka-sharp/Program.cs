@@ -244,8 +244,17 @@ dagfhefdghafdahfh",
                 Environment.Exit(-1);
             }
 
+            var serializer = new StringSerializer();
+            var deserializer = new StringDeserializer();
+            var serializationConfig = new SerializationConfig();
+            foreach (var topic in _topics)
+            {
+                serializationConfig.SetSerializersForTopic(topic, serializer, serializer);
+                serializationConfig.SetDeserializersForTopic(topic, deserializer, deserializer);
+            }
+
             var cluster =
-                new ClusterClient(configuration, new ConsoleLogger());
+                new ClusterClient(configuration, new ConsoleLogger(), serializationConfig);
 
             if (_partitions == null)
             {
@@ -263,7 +272,7 @@ dagfhefdghafdahfh",
                     var capturedTopic = topic;
                     cluster.Messages.Where(kr => kr.Topic == capturedTopic).Sample(TimeSpan.FromMilliseconds(15))
                     .Subscribe(kr => Console.WriteLine("{0}/{1} {2}: {3}", kr.Topic, kr.Partition, kr.Offset,
-                        Encoding.UTF8.GetString(kr.Value)));
+                        Encoding.UTF8.GetString(kr.Value as byte[])));
                     foreach (var p in _partitions[i])
                     {
                         cluster.Consume(topic, p, _consumeFrom);
@@ -328,7 +337,7 @@ dagfhefdghafdahfh",
                 switch (mode)
                 {
                     case Mode.Profile:
-                        if (i%3 == 0)
+                        if (i%10 == 0)
                             await Task.Delay(15);
                         break;
 
