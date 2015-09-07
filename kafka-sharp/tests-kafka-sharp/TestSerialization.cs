@@ -801,5 +801,80 @@ namespace tests_kafka_sharp
             d = config2.GetDeserializersForTopic("topicnotfound");
             Assert.That(d, Is.EqualTo(Tuple.Create(deser, ByteArraySerialization.DefaultDeserializer)));
         }
+
+
+        [Test]
+        public void TestUnsupportedMagicByte()
+        {
+            using (var serialized = ReusableMemoryStream.Reserve())
+            {
+                var set = new PartitionData
+                {
+                    Partition = 42,
+                    CompressionCodec = CompressionCodec.None,
+                    Messages = new[]
+                    {
+                        new Message {Key = Key, Value = Value}
+                    }
+                };
+                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+                serialized[24] = 8; // set non supported magic byte
+                serialized.Position = 4;
+
+                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.DefaultDeserializers), Throws.InstanceOf<UnsupportedMagicByteVersion>());
+            }
+        }
+
+        [Test]
+        public void TestBadCrc()
+        {
+            using (var serialized = ReusableMemoryStream.Reserve())
+            {
+                var set = new PartitionData
+                {
+                    Partition = 42,
+                    CompressionCodec = CompressionCodec.None,
+                    Messages = new[]
+                    {
+                        new Message {Key = Key, Value = Value}
+                    }
+                };
+                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+                serialized[20] = 8; // change crc
+                serialized.Position = 4;
+
+                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.DefaultDeserializers), Throws.InstanceOf<CrcException>());
+            }
+        }
+
+        [Test]
+        public void TestBadCompression()
+        {
+            using (var serialized = ReusableMemoryStream.Reserve())
+            {
+                var set = new PartitionData
+                {
+                    Partition = 42,
+                    CompressionCodec = CompressionCodec.Gzip,
+                    Messages = new[]
+                    {
+                        new Message {Key = Key, Value = Value}
+                    }
+                };
+                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+
+                // corrupt compressed data
+                serialized[37] = 8;
+
+                // recompute crc
+                var crc = (int) Crc32.Compute(serialized, 24, serialized.Length - 24);
+                serialized.Position = 20;
+                BigEndianConverter.Write(serialized, crc);
+
+                // go
+                serialized.Position = 4;
+                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.DefaultDeserializers), Throws.InstanceOf<UncompressException>());
+            }
+        }
     }
 }

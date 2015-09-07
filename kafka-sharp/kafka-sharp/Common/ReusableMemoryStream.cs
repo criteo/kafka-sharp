@@ -44,9 +44,10 @@ namespace Kafka.Common
             _pool.Release(stream);
         }
 
-        public byte this[int index]
+        internal byte this[int index]
         {
             get { return GetBuffer()[index]; }
+            set { GetBuffer()[index] = value; }
         }
 
         public new void Dispose()

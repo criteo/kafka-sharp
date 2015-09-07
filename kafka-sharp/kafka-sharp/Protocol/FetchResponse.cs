@@ -94,7 +94,11 @@ namespace Kafka.Protocol
                 // Message body
                 var crc = BigEndianConverter.ReadInt32(stream);
                 var crcStartPos = stream.Position; // crc is computed from this position
-                var magic = stream.ReadByte(); // This is ignored, should be zero but who knows? TODO: check it is zero?
+                var magic = stream.ReadByte();
+                if (magic != 0)
+                {
+                    throw new UnsupportedMagicByteVersion((byte) magic);
+                }
                 var attributes = stream.ReadByte();
 
                 // Check for compression
@@ -203,27 +207,5 @@ namespace Kafka.Protocol
         }
 
         #endregion
-    }
-
-    /// <summary>
-    /// TODO: inherit from KafkaException (to define)
-    /// </summary>
-    class CrcException : Exception
-    {
-        public CrcException(string message)
-            : base(message)
-        {
-        }
-    }
-
-    class UncompressException : Exception
-    {
-        public CompressionCodec Codec { get; internal set; }
-
-        public UncompressException(string message, CompressionCodec codec, Exception ex)
-            : base(message, ex)
-        {
-            Codec = codec;
-        }
     }
 }

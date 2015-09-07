@@ -82,6 +82,7 @@
     <Compile Include="Protocol\DefaultSerialization.cs" />
     <Compile Include="Protocol\FetchRequest.cs" />
     <Compile Include="Protocol\FetchResponse.cs" />
+    <Compile Include="Protocol\ProtocolException.cs" />
     <Compile Include="Protocol\Metadata.cs" />
     <Compile Include="Cluster\Node.cs" />
     <Compile Include="Common\BigEndianConverter.cs" />
