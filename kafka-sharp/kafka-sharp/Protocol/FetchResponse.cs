@@ -2,11 +2,9 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using Kafka.Common;
 using Kafka.Public;
 using Snappy;
@@ -21,22 +19,16 @@ namespace Kafka.Protocol
 
     static class ResponseMessageListPool
     {
-        private static readonly ConcurrentQueue<List<ResponseMessage>> _pool = new ConcurrentQueue<List<ResponseMessage>>();
+        private static readonly Pool<List<ResponseMessage>> _pool = new Pool<List<ResponseMessage>>(() => new List<ResponseMessage>(), l => l.Clear());
 
         public static List<ResponseMessage> Reserve()
         {
-            List<ResponseMessage> list;
-            if (!_pool.TryDequeue(out list))
-            {
-                list = new List<ResponseMessage>();
-            }
-            return list;
+            return _pool.Reserve();
         }
 
         public static void Release(List<ResponseMessage> list)
         {
-            list.Clear();
-            _pool.Enqueue(list);
+            _pool.Release(list);
         }
     }
 

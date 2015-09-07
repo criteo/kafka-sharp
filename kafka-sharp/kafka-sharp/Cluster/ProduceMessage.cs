@@ -1,9 +1,8 @@
-﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
-using System.Collections.Concurrent;
-using System.Threading;
+using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
 
@@ -23,33 +22,26 @@ namespace Kafka.Cluster
 
         private ProduceMessage() { }
 
-        public static long Allocated { get { return _allocated; } }
-        public static long Released { get { return _released; } }
-
-        private static long _allocated;
-        private static long _released;
-
         public static ProduceMessage New(string topic, int partition, Message message, DateTime expirationDate)
         {
-            ProduceMessage reserved;
-            if (!_produceMessagePool.TryDequeue(out reserved))
-            {
-                reserved = new ProduceMessage();
-            }
+            var reserved = _produceMessagePool.Reserve();
             reserved.Topic = topic;
             reserved.Partition = reserved.RequiredPartition = partition;
             reserved.Message = message;
             reserved.ExpirationDate = expirationDate;
-            Interlocked.Increment(ref _allocated);
             return reserved;
         }
 
         public static void Release(ProduceMessage message)
         {
-            _produceMessagePool.Enqueue(message);
-            Interlocked.Increment(ref _released);
+            _produceMessagePool.Release(message);
         }
 
-        static readonly ConcurrentQueue<ProduceMessage> _produceMessagePool = new ConcurrentQueue<ProduceMessage>();
+        static readonly Pool<ProduceMessage> _produceMessagePool = new Pool<ProduceMessage>(() => new ProduceMessage(),
+            pm =>
+            {
+                pm.Message = new Message();
+                pm.Topic = null;
+            });
     }
 }

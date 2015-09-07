@@ -2,7 +2,6 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 
@@ -18,8 +17,9 @@ namespace Kafka.Common
     /// </summary>
     class ReusableMemoryStream : MemoryStream, IDisposable
     {
-        private static readonly ConcurrentQueue<ReusableMemoryStream> _pool =
-            new ConcurrentQueue<ReusableMemoryStream>();
+        //private static readonly ConcurrentQueue<ReusableMemoryStream> _pool =
+        //    new ConcurrentQueue<ReusableMemoryStream>();
+        private static readonly Pool<ReusableMemoryStream> _pool = new Pool<ReusableMemoryStream>(() =>  new ReusableMemoryStream(), s => s.SetLength(0));
 
         private static int _nextId;
         private readonly int _id; // Useful to track leaks while debugging
@@ -31,12 +31,7 @@ namespace Kafka.Common
 
         public static ReusableMemoryStream Reserve()
         {
-            ReusableMemoryStream stream;
-            if (!_pool.TryDequeue(out stream))
-            {
-                stream = new ReusableMemoryStream();
-            }
-            return stream;
+            return _pool.Reserve();
         }
 
         public static ReusableMemoryStream Reserve(int capacity)
@@ -46,11 +41,7 @@ namespace Kafka.Common
 
         private static void Release(ReusableMemoryStream stream)
         {
-            if (stream != null)
-            {
-                stream.SetLength(0); // reset the stream content
-                _pool.Enqueue(stream);
-            }
+            _pool.Release(stream);
         }
 
         public byte this[int index]
