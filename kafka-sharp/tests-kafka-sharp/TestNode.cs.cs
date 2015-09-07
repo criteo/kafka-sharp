@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -395,6 +394,45 @@ namespace tests_kafka_sharp
 
             count.Wait();
             Assert.IsTrue(batch);
+        }
+
+        [Test]
+        public void TestProduceRequiredAcks()
+        {
+            var connection = new Mock<IConnection>();
+            var count = new CountdownEvent(1);
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns(Success)
+                .Callback(() => count.Signal());
+            var node = new Node("Node", () => connection.Object,
+                new ProduceSerializer(new CommonResponse<ProducePartitionResponse>()),
+                new Configuration {BufferingTime = TimeSpan.FromMilliseconds(1), RequiredAcks = RequiredAcks.None}, 1);
+
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+            count.Wait();
+
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), false), Times.Once());
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), true), Times.Never());
+
+            node = new Node("Node", () => connection.Object,
+                new ProduceSerializer(new CommonResponse<ProducePartitionResponse>()),
+                new Configuration {BufferingTime = TimeSpan.FromMilliseconds(1), RequiredAcks = RequiredAcks.Leader}, 1);
+            count.Reset();
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+            count.Wait();
+
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), true), Times.Once());
+
+            node = new Node("Node", () => connection.Object,
+                new ProduceSerializer(new CommonResponse<ProducePartitionResponse>()),
+                new Configuration { BufferingTime = TimeSpan.FromMilliseconds(1), RequiredAcks = RequiredAcks.AllInSyncReplicas }, 1);
+            count.Reset();
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+            count.Wait();
+
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), true), Times.Exactly(2));
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), false), Times.Once());
         }
 
         [Test]

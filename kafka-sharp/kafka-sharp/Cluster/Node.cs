@@ -371,6 +371,7 @@ namespace Kafka.Cluster
         private readonly ActionBlock<Ping> _requestQueue; // incoming request actor
         private readonly ActionBlock<Response> _responseQueue; // incoming response actor
         private readonly ISerializer _serializer;
+        private readonly Configuration _configuration;
 
         struct Pending
         {
@@ -461,6 +462,7 @@ namespace Kafka.Cluster
             _fetchMessages = InitFetchSubject();
             _offsetMessages = InitOffsetSubject();
             _serializer = serializer;
+            _configuration = configuration;
         }
 
         public bool Produce(ProduceMessage message)
@@ -597,6 +599,11 @@ namespace Kafka.Cluster
             }
         }
 
+        private bool CheckAckRequired(Request request)
+        {
+            return _configuration.RequiredAcks != RequiredAcks.None || request.RequestType != RequestType.Produce;
+        }
+
         /// <summary>
         /// Process messages received on the request actor. Metadata
         /// requests are prioritized. We connect to the underlying connection
@@ -641,8 +648,12 @@ namespace Kafka.Cluster
                 // Serialize & send
                 using (var data = Serialize(correlationId, request))
                 {
-                    pendingsQueue.Enqueue(new Pending {CorrelationId = correlationId, Request = request});
-                    await connection.SendAsync(correlationId, data, true);
+                    var acked = CheckAckRequired(request);
+                    if (acked)
+                    {
+                        pendingsQueue.Enqueue(new Pending {CorrelationId = correlationId, Request = request});
+                    }
+                    await connection.SendAsync(correlationId, data, acked);
                     Interlocked.Exchange(ref _successiveErrors, 0);
                     OnRequestSent();
                     if (request.RequestType == RequestType.Produce)
@@ -664,7 +675,12 @@ namespace Kafka.Cluster
             catch (Exception ex)
             {
                 HandleConnectionError(connection, ex);
-                if (connection == null)
+
+                // HandleConnectionError will only clean the pending queue,
+                // we must drain any request that never had a chance to being put in
+                // the pending queue because nothing was really sent over the wire
+                // (so even produce requests with no ack required are fair game for a retry).
+                if (connection == null || !CheckAckRequired(request))
                 {
                     Drain(request, false);
                 }
