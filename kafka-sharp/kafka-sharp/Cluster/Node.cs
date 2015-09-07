@@ -383,7 +383,7 @@ namespace Kafka.Cluster
         private long _successiveErrors; // used to decide when a node is dead
 
         private const long MaxSuccessiveErrors = 5;
-        private double _resolution = 1000.0;
+        private readonly double _resolution;
 
         // Transform a stream to a batched stream
         private Subject<TData> InitBatchedSubject<TData>(
@@ -445,7 +445,7 @@ namespace Kafka.Cluster
 
         public string Name { get; internal set; }
 
-        public Node(string name, ConnectionFactory connectionFactory, ISerializer serializer, Configuration configuration)
+        public Node(string name, ConnectionFactory connectionFactory, ISerializer serializer, Configuration configuration, double resolution = 1000.0)
         {
             Name = name ?? "[Unknown]";
             _connectionFactory = connectionFactory;
@@ -456,21 +456,11 @@ namespace Kafka.Cluster
                 };
             _requestQueue = new ActionBlock<Ping>(r => ProcessRequest(r), options);
             _responseQueue = new ActionBlock<Response>(r => ProcessResponse(r), options);
+            _resolution = resolution;
             _produceMessages = InitProduceSubject(configuration.BatchSize, configuration.BufferingTime);
             _fetchMessages = InitFetchSubject();
             _offsetMessages = InitOffsetSubject();
             _serializer = serializer;
-        }
-
-        /// <summary>
-        /// Scaling applied to the number of successive errors when waiting
-        /// before reconnecting. Default is 1000s per successive error.
-        /// </summary>
-        /// <param name="resolution"></param>
-        public Node SetResolution(double resolution)
-        {
-            _resolution = resolution;
-            return this;
         }
 
         public bool Produce(ProduceMessage message)

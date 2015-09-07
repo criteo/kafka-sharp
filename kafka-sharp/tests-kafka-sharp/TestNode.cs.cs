@@ -32,7 +32,7 @@ namespace tests_kafka_sharp
             var serializer = new Mock<Node.ISerializer>();
             var node =
                 new Node("Node", () => connection.Object, serializer.Object,
-                    new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()}).SetResolution(1);
+                    new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()}, 1);
             var message = new FetchMessage {Topic = "balbuzzard", Offset = 42, Partition = 1, MaxBytes = 1242};
             node.Fetch(message);
             ev.WaitOne();
@@ -52,7 +52,7 @@ namespace tests_kafka_sharp
             var serializer = new Mock<Node.ISerializer>();
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object, serializer.Object,
-                new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()}).SetResolution(1);
+                new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()}, 1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
@@ -140,7 +140,7 @@ namespace tests_kafka_sharp
             var serializer = new Mock<Node.ISerializer>();
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object, serializer.Object,
-                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }, 1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
@@ -202,7 +202,7 @@ namespace tests_kafka_sharp
             var serializer = new Mock<Node.ISerializer>();
             var node =
                 new Node("Node", () => connection.Object, serializer.Object,
-                    new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
+                    new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }, 1);
             var message = new OffsetMessage {Topic = "balbuzzard", Partition = 1, MaxNumberOfOffsets = 1, Time = 12341};
             node.Offset(message);
             ev.WaitOne();
@@ -222,7 +222,7 @@ namespace tests_kafka_sharp
             var serializer = new Mock<Node.ISerializer>();
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object, serializer.Object,
-                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }, 1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
@@ -296,7 +296,7 @@ namespace tests_kafka_sharp
             var serializer = new Mock<Node.ISerializer>();
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object, serializer.Object,
-                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }).SetResolution(1);
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }, 1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
@@ -349,7 +349,7 @@ namespace tests_kafka_sharp
         public async Task TestFetchMetadata()
         {
             var node = new Node("Node", () => new EchoConnectionMock(), new MetadataSerializer(new MetadataResponse()),
-                                new Configuration()).SetResolution(1);
+                                new Configuration(), 1);
             var response = await node.FetchMetadata();
             Assert.IsNotNull(response);
         }
@@ -374,7 +374,7 @@ namespace tests_kafka_sharp
         public void TestProduceWithNoErrors()
         {
             var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerializer(new CommonResponse<ProducePartitionResponse>()),
-                                new Configuration {BufferingTime = TimeSpan.FromMilliseconds(15)}).SetResolution(1);
+                                new Configuration {BufferingTime = TimeSpan.FromMilliseconds(15)}, 1);
             var count = new CountdownEvent(2);
             node.ResponseReceived += n =>
                 {
@@ -406,7 +406,7 @@ namespace tests_kafka_sharp
                                     {
                                         ErrorStrategy = ErrorStrategy.Discard,
                                         BufferingTime = TimeSpan.FromMilliseconds(15)
-                                    }).SetResolution(1);
+                                    }, 1);
             Exception ex = null;
             var ev = new ManualResetEvent(false);
             int rec = 0;
@@ -438,7 +438,7 @@ namespace tests_kafka_sharp
         {
             var config = new Configuration {BatchSize = 1, BufferingTime = TimeSpan.FromMilliseconds(15)};
             var node =
-                new Node("[Failing node]", () => new ConnectFailingConnectionMock(), new DummySerializer(), config).SetResolution(1);
+                new Node("[Failing node]", () => new ConnectFailingConnectionMock(), new DummySerializer(), config, 1);
             bool dead = false;
             node.Dead += _ =>
             {
@@ -462,7 +462,7 @@ namespace tests_kafka_sharp
         {
             var config = new Configuration { BatchSize = 1, BufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
-                new Node("[Failing node]", () => new SendFailingConnectionMock(), new DummySerializer(), config).SetResolution(1);
+                new Node("[Failing node]", () => new SendFailingConnectionMock(), new DummySerializer(), config, 1);
             try
             {
                 var m = await node.FetchMetadata();
@@ -479,7 +479,7 @@ namespace tests_kafka_sharp
         {
             var config = new Configuration { BatchSize = 1, BufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
-                new Node("[Failing node]", () => new ReceiveFailingConnectionMock(), new DummySerializer(), config).SetResolution(1);
+                new Node("[Failing node]", () => new ReceiveFailingConnectionMock(), new DummySerializer(), config, 1);
             try
             {
                 var m = await node.FetchMetadata();
@@ -498,7 +498,7 @@ namespace tests_kafka_sharp
             var ev = new ManualResetEvent(false);
             var config = new Configuration { BatchSize = 1, BufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
-                new Node("[Failing node]", () => new ConnectFailingConnectionMock(), new DummySerializer(), config).SetResolution(1);
+                new Node("[Failing node]", () => new ConnectFailingConnectionMock(), new DummySerializer(), config, 1);
             bool dead = false;
             node.Dead += _ =>
             {

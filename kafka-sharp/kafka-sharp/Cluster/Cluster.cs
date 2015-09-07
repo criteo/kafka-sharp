@@ -175,7 +175,8 @@ namespace Kafka.Cluster
                                      () =>
                                      new Connection(h, p, ep => new RealSocket(ep), configuration.SendBufferSize, configuration.ReceiveBufferSize),
                                      serializer,
-                                     configuration).SetResolution(_resolution));
+                                     configuration,
+                                     _resolution));
             _nodeFactory = DecorateFactory(_nodeFactory);
 
             // Inner actor

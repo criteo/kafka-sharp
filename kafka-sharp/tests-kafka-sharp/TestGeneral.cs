@@ -20,7 +20,7 @@ namespace tests_kafka_sharp
                 logger,
                 (h, p) =>
                     new Node(string.Format("[{0}:{1}]", h, p), () => new EchoConnectionMock(forceConnectionErrors),
-                        new ScenarioSerializerMock(metadata, forceErrors), configuration).SetResolution(1),
+                        new ScenarioSerializerMock(metadata, forceErrors), configuration, 1),
                 null, null);
             return new ClusterClient(configuration, logger, cluster);
         }
