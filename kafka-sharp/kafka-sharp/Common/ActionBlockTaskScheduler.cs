@@ -1,4 +1,7 @@
-﻿using System;
+﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -7,6 +10,11 @@ using System.Threading.Tasks.Dataflow;
 
 namespace Kafka.Common
 {
+    /// <summary>
+    /// A TaskScheduler that use an ActionBlock to dispatch tasks. This is a simple way
+    /// to quickly set up a TaskScheduler with limited concurrency while still using
+    /// .NET Threadpool threads.
+    /// </summary>
     class ActionBlockTaskScheduler : TaskScheduler
     {
         private readonly int _dop;
