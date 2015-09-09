@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Kafka.Batching;
 using Kafka.Cluster;
 using Kafka.Common;
 using Kafka.Network;
@@ -127,7 +128,7 @@ namespace tests_kafka_sharp
             MessageReceived(message.Topic);
             var ack = new ProduceAcknowledgement
                 {
-                    OriginalBatch = new[] {new BatchMock {Key = message.Topic, Messages = new[] {message}}},
+                    OriginalBatch = new TestBatchByTopicByPartition(new[] {message}),
                     ProduceResponse =
                         new CommonResponse<ProducePartitionResponse>()
                             {
@@ -381,7 +382,7 @@ namespace tests_kafka_sharp
 
     class DummySerialization : Node.ISerialization
     {
-        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
         {
             return ReusableMemoryStream.Reserve();
         }
@@ -421,7 +422,7 @@ namespace tests_kafka_sharp
             _metadataResponse = returned;
         }
 
-        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
         {
             throw new NotImplementedException();
         }
@@ -462,7 +463,7 @@ namespace tests_kafka_sharp
             _produceResponse = returned;
         }
 
-        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
         {
             return ReusableMemoryStream.Reserve();
         }
@@ -511,6 +512,56 @@ namespace tests_kafka_sharp
         }
     }
 
+    class TestBatchByTopicByPartition : IBatchByTopicByPartition<ProduceMessage>
+    {
+        private readonly BatchByTopicByPartition<ProduceMessage> _underlying;
+
+        public TestBatchByTopicByPartition(IEnumerable<ProduceMessage> messages)
+        {
+            _underlying = BatchByTopicByPartition<ProduceMessage>.New();
+            foreach (var m in messages)
+            {
+                _underlying.Add(m.Topic, m.Partition, m);
+            }
+        }
+
+        #region IBatchByTopicByPartition<ProduceMessage> Members
+
+        public int Count
+        {
+            get { return _underlying.Count; }
+        }
+
+        #endregion
+
+        #region IEnumerable<IGrouping<string,IGrouping<int,ProduceMessage>>> Members
+
+        public IEnumerator<IGrouping<string, IGrouping<int, ProduceMessage>>> GetEnumerator()
+        {
+            return _underlying.GetEnumerator();
+        }
+
+        #endregion
+
+        #region IEnumerable Members
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+        {
+            return _underlying.GetEnumerator();
+        }
+
+        #endregion
+
+        #region IDisposable Members
+
+        public void Dispose()
+        {
+            _underlying.Dispose();
+        }
+
+        #endregion
+    }
+
     class ScenarioSerializationMock : Node.ISerialization
     {
         readonly ConcurrentDictionary<int, object> _produceResponses = new ConcurrentDictionary<int, object>();
@@ -529,14 +580,14 @@ namespace tests_kafka_sharp
             _forceErrors = forceErrors;
         }
 
-        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+        public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
         {
             var r = new CommonResponse<ProducePartitionResponse>
             {
                 TopicsResponse = batch.Select(g => new TopicData<ProducePartitionResponse>
                 {
                     TopicName = g.Key,
-                    PartitionsData = g.GroupBy(m => m.Partition).Select(pg => new ProducePartitionResponse
+                    PartitionsData = g.Select(pg => new ProducePartitionResponse
                     {
                         ErrorCode = _forceErrors && Interlocked.Increment(ref _count)%2 == 0
                             ? ErrorCode.LeaderNotAvailable

@@ -7,6 +7,7 @@ using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
 using Kafka.Routing;
+using Moq;
 using NUnit.Framework;
 
 namespace tests_kafka_sharp
@@ -98,7 +99,7 @@ namespace tests_kafka_sharp
             _cluster = new ClusterMock(_routes);
 
             MessagesEnqueued = MessagesExpired = MessagesReEnqueued = MessagesRouted = MessagesPostponed = RoutingTableRequired = 0;
-            InitRouter(new ProduceRouter(_cluster, new Configuration()));
+            InitRouter(new ProduceRouter(_cluster, new Configuration{TaskScheduler = new CurrentThreadTaskScheduler()}));
             _finished = null;
         }
 
@@ -147,36 +148,28 @@ namespace tests_kafka_sharp
                 ProduceResponse = new CommonResponse<ProducePartitionResponse>()
                 {
                     TopicsResponse = new[]
+                    {
+                        new TopicData<ProducePartitionResponse>
+                        {
+                            TopicName = "test",
+                            PartitionsData = new[]
+                            {
+                                new ProducePartitionResponse
                                 {
-                                    new TopicData<ProducePartitionResponse>
-                                        {
-                                            TopicName = "test",
-                                            PartitionsData = new[]
-                                                {
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.NoError,
-                                                            Offset = 0,
-                                                            Partition = 0
-                                                        }
-                                                }
-                                        }
+                                    ErrorCode = ErrorCode.NoError,
+                                    Offset = 0,
+                                    Partition = 0
                                 }
+                            }
+                        }
+                    }
                 },
                 OriginalBatch =
-                    new[]
-                            {
-                                new BatchMock
-                                    {
-                                        Key = "test",
-                                        Messages =
-                                            new[]
-                                                {
-                                                    ProduceMessage.New("test", 0, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1))
-                                                }
-                                    }
-                            }
+                    new TestBatchByTopicByPartition(new[]
+                    {
+                        ProduceMessage.New("test", 0, new Message(),
+                            DateTime.UtcNow.AddDays(1))
+                    })
 
             };
 
@@ -191,36 +184,28 @@ namespace tests_kafka_sharp
                 ProduceResponse = new CommonResponse<ProducePartitionResponse>
                 {
                     TopicsResponse = new[]
+                    {
+                        new TopicData<ProducePartitionResponse>
+                        {
+                            TopicName = "test",
+                            PartitionsData = new[]
+                            {
+                                new ProducePartitionResponse
                                 {
-                                    new TopicData<ProducePartitionResponse>
-                                        {
-                                            TopicName = "test",
-                                            PartitionsData = new[]
-                                                {
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.ReplicaNotAvailable,
-                                                            Offset = 0,
-                                                            Partition = 0
-                                                        }
-                                                }
-                                        }
+                                    ErrorCode = ErrorCode.ReplicaNotAvailable,
+                                    Offset = 0,
+                                    Partition = 0
                                 }
+                            }
+                        }
+                    }
                 },
                 OriginalBatch =
-                    new[]
-                            {
-                                new BatchMock
-                                    {
-                                        Key = "test",
-                                        Messages =
-                                            new[]
-                                                {
-                                                    ProduceMessage.New("test", 0, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1))
-                                                }
-                                    }
-                            }
+                    new TestBatchByTopicByPartition(new[]
+                    {
+                        ProduceMessage.New("test", 0, new Message(),
+                            DateTime.UtcNow.AddDays(1))
+                    })
 
             };
 
@@ -231,70 +216,54 @@ namespace tests_kafka_sharp
         public void TestAcknowledgementMultipleNoError()
         {
             var acknowledgement = new ProduceAcknowledgement
+            {
+                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
                 {
-                    ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<ProducePartitionResponse>
                         {
-                            TopicsResponse = new[]
-                                {
-                                    new TopicData<ProducePartitionResponse>
-                                        {
-                                            TopicName = "test",
-                                            PartitionsData = new[]
-                                                {
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.NoError,
-                                                            Offset = 0,
-                                                            Partition = 0
-                                                        },
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.NoError,
-                                                            Offset = 0,
-                                                            Partition = 1
-                                                        },
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.NoError,
-                                                            Offset = 0,
-                                                            Partition = 2
-                                                        }
-                                                }
-                                        }
-                                }
-                        },
-                    OriginalBatch =
-                        new[]
+                            TopicName = "test",
+                            PartitionsData = new[]
                             {
-                                new BatchMock
-                                    {
-                                        Key = "test",
-                                        Messages =
-                                            new[]
-                                                {
-                                                    ProduceMessage.New("test", 0, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1)),
-                                                    ProduceMessage.New("test", 1, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1)),
-                                                    ProduceMessage.New("test", 2, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1))
-                                                }
-                                    },
-                                new BatchMock
-                                    {
-                                        Key = "test2",
-                                        Messages =
-                                            new[]
-                                                {
-                                                    ProduceMessage.New("test", 0, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1)),
-                                                    ProduceMessage.New("test", 1, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1))
-                                                }
-                                    }
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Offset = 0,
+                                    Partition = 0
+                                },
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Offset = 0,
+                                    Partition = 1
+                                },
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Offset = 0,
+                                    Partition = 2
+                                }
                             }
+                        }
+                    }
+                },
+                OriginalBatch =
+                    new TestBatchByTopicByPartition(new[]
+                    {
+                        ProduceMessage.New("test", 0, new Message(),
+                            DateTime.UtcNow.AddDays(1)),
+                        ProduceMessage.New("test", 1, new Message(),
+                            DateTime.UtcNow.AddDays(1)),
+                        ProduceMessage.New("test", 2, new Message(),
+                            DateTime.UtcNow.AddDays(1)),
+                        ProduceMessage.New("test2", 0, new Message(),
+                            DateTime.UtcNow.AddDays(1)),
+                        ProduceMessage.New("test2", 1, new Message(),
+                            DateTime.UtcNow.AddDays(1))
+                    })
 
-                };
+            };
 
             _TestAcknowledgementNoError(acknowledgement, 5);
         }
@@ -335,18 +304,11 @@ namespace tests_kafka_sharp
         {
             _finished = new AsyncCountdownEvent(3);
             var acknowledgement = new ProduceAcknowledgement
-                {
-                    OriginalBatch =
-                        new[]
-                            {
-                                new BatchMock
-                                    {
-                                        Key = "test1p",
-                                        Messages =
-                                            new[] {ProduceMessage.New("test1p", 0, new Message(), DateTime.UtcNow.AddDays(1))}
-                                    }
-                            }
-                };
+            {
+                OriginalBatch =
+                    new TestBatchByTopicByPartition(new[]
+                    {ProduceMessage.New("test1p", 0, new Message(), DateTime.UtcNow.AddDays(1))})
+            };
             _produceRouter.Acknowledge(acknowledgement);
             await _finished.WaitAsync();
             CheckCounters(expectedMessagesReEnqueued: 1, expectedMessagesRouted: 1, expectedRoutingTableRequired: 1);
@@ -363,23 +325,14 @@ namespace tests_kafka_sharp
                     _finished.Signal();
                 };
             var acknowledgement = new ProduceAcknowledgement
+            {
+                OriginalBatch = new TestBatchByTopicByPartition(new[]
                 {
-                    OriginalBatch =
-                        new[]
-                            {
-                                new BatchMock
-                                    {
-                                        Key = "test1p",
-                                        Messages =
-                                            new[]
-                                                {
-                                                    ProduceMessage.New("test1p", 0, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1))
-                                                }
-                                    }
-                            },
-                    ReceiveDate = DateTime.UtcNow
-                };
+                    ProduceMessage.New("test1p", 0, new Message(),
+                        DateTime.UtcNow.AddDays(1))
+                }),
+                ReceiveDate = DateTime.UtcNow
+            };
             _produceRouter.Acknowledge(acknowledgement);
             await _finished.WaitAsync();
             Assert.AreEqual(1, discarded);
@@ -392,20 +345,11 @@ namespace tests_kafka_sharp
             _finished = new AsyncCountdownEvent(3);
             var acknowledgement = new ProduceAcknowledgement
             {
-                OriginalBatch =
-                    new[]
-                            {
-                                new BatchMock
-                                    {
-                                        Key = "test1p",
-                                        Messages =
-                                            new[]
-                                                {
-                                                    ProduceMessage.New("test1p", 0, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1))
-                                                }
-                                    }
-                            },
+                OriginalBatch = new TestBatchByTopicByPartition(new[]
+                {
+                    ProduceMessage.New("test1p", 0, new Message(),
+                        DateTime.UtcNow.AddDays(1))
+                }),
                 ReceiveDate = DateTime.UtcNow
             };
             _produceRouter.Acknowledge(acknowledgement);
@@ -417,50 +361,41 @@ namespace tests_kafka_sharp
         public void TestNonRecoverableErrorsAreDiscarded()
         {
             var acknowledgement = new ProduceAcknowledgement
+            {
+                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
                 {
-                    ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<ProducePartitionResponse>
                         {
-                            TopicsResponse = new[]
-                                {
-                                    new TopicData<ProducePartitionResponse>
-                                        {
-                                            TopicName = "test",
-                                            PartitionsData = new[]
-                                                {
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.NoError,
-                                                            Offset = 0,
-                                                            Partition = 0
-                                                        },
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.MessageSizeTooLarge,
-                                                            Offset = 0,
-                                                            Partition = 1
-                                                        }
-                                                }
-                                        }
-                                }
-                        },
-                    OriginalBatch =
-                        new[]
+                            TopicName = "test",
+                            PartitionsData = new[]
                             {
-                                new BatchMock
-                                    {
-                                        Key = "test",
-                                        Messages =
-                                            new[]
-
-                                                {
-                                                    ProduceMessage.New("test", 0, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1)),
-                                                    ProduceMessage.New("test", 1, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1))
-                                                }
-                                    }
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Offset = 0,
+                                    Partition = 0
+                                },
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.MessageSizeTooLarge,
+                                    Offset = 0,
+                                    Partition = 1
+                                }
                             }
-                };
+                        }
+                    }
+                },
+                OriginalBatch = new TestBatchByTopicByPartition(new[]
+
+                {
+                    ProduceMessage.New("test", 0, new Message(),
+                        DateTime.UtcNow.AddDays(1)),
+                    ProduceMessage.New("test", 1, new Message(),
+                        DateTime.UtcNow.AddDays(1))
+                })
+            };
 
             var ev = new ManualResetEvent(false);
             int rec = 0;
@@ -495,73 +430,64 @@ namespace tests_kafka_sharp
         public void TestProduceRecoverableErrorsAreRerouted()
         {
             var acknowledgement = new ProduceAcknowledgement
+            {
+                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
                 {
-                    ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<ProducePartitionResponse>
                         {
-                            TopicsResponse = new[]
-                                {
-                                    new TopicData<ProducePartitionResponse>
-                                        {
-                                            TopicName = "test",
-                                            PartitionsData = new[]
-                                                {
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.NoError,
-                                                            Offset = 0,
-                                                            Partition = 0
-                                                        },
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.NotLeaderForPartition,
-                                                            Offset = 0,
-                                                            Partition = 1
-                                                        },
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.LeaderNotAvailable,
-                                                            Offset = 0,
-                                                            Partition = 2
-                                                        },
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.RequestTimedOut,
-                                                            Offset = 0,
-                                                            Partition = 3
-                                                        },
-                                                    new ProducePartitionResponse
-                                                        {
-                                                            ErrorCode = ErrorCode.UnknownTopicOrPartition,
-                                                            Offset = 0,
-                                                            Partition = 4
-                                                        }
-                                                }
-                                        }
-                                }
-                        },
-                    OriginalBatch =
-                        new[]
+                            TopicName = "test",
+                            PartitionsData = new[]
                             {
-                                new BatchMock
-                                    {
-                                        Key = "test",
-                                        Messages =
-                                            new[]
-                                                {
-                                                    ProduceMessage.New("test", 0, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1)),
-                                                    ProduceMessage.New("test", 1, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1)),
-                                                    ProduceMessage.New("test", 2, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1)),
-                                                    ProduceMessage.New("test", 3, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1)),
-                                                    ProduceMessage.New("test", 4, new Message(),
-                                                                       DateTime.UtcNow.AddDays(1))
-                                                }
-                                    }
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Offset = 0,
+                                    Partition = 0
+                                },
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NotLeaderForPartition,
+                                    Offset = 0,
+                                    Partition = 1
+                                },
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.LeaderNotAvailable,
+                                    Offset = 0,
+                                    Partition = 2
+                                },
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.RequestTimedOut,
+                                    Offset = 0,
+                                    Partition = 3
+                                },
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.UnknownTopicOrPartition,
+                                    Offset = 0,
+                                    Partition = 4
+                                }
                             }
-                };
+                        }
+                    }
+                },
+                OriginalBatch = new TestBatchByTopicByPartition(new[]
+                {
+                    ProduceMessage.New("test", 0, new Message(),
+                        DateTime.UtcNow.AddDays(1)),
+                    ProduceMessage.New("test", 1, new Message(),
+                        DateTime.UtcNow.AddDays(1)),
+                    ProduceMessage.New("test", 2, new Message(),
+                        DateTime.UtcNow.AddDays(1)),
+                    ProduceMessage.New("test", 3, new Message(),
+                        DateTime.UtcNow.AddDays(1)),
+                    ProduceMessage.New("test", 4, new Message(),
+                        DateTime.UtcNow.AddDays(1))
+                })
+            };
 
             const int exp = 5;
             var ev = new ManualResetEvent(false);
@@ -707,6 +633,66 @@ namespace tests_kafka_sharp
 
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
             CheckCounters(expectedMessagesEnqueued: 2, expectedMessagesReEnqueued: 1, expectedMessagesRouted: 1, expectedMessagesExpired: 1, expectedMessagesPostponed: 2, expectedRoutingTableRequired: 1);
+        }
+
+        [Test]
+        public void TestDisposableMessagesAreDisposed()
+        {
+            var key = new Mock<IDisposable>();
+            var value = new Mock<IDisposable>();
+            var acknowledgement = new ProduceAcknowledgement
+            {
+                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<ProducePartitionResponse>
+                        {
+                            TopicName = "test",
+                            PartitionsData = new[]
+                            {
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Offset = 0,
+                                    Partition = 0
+                                }
+                            }
+                        }
+                    }
+                },
+                OriginalBatch =
+                    new TestBatchByTopicByPartition(new[]
+                    {
+                        ProduceMessage.New("test", 0, new Message {Key = key.Object, Value = value.Object},
+                            DateTime.UtcNow.AddDays(1))
+                    })
+            };
+
+            _produceRouter.Acknowledge(acknowledgement);
+
+            key.Verify(k => k.Dispose(), Times.Once());
+            value.Verify(v => v.Dispose(), Times.Once());
+        }
+
+        [Test]
+        public void TestDisposableMessagesDiscardedAreNotDisposed()
+        {
+            var key = new Mock<IDisposable>();
+            var value = new Mock<IDisposable>();
+            var acknowledgement = new ProduceAcknowledgement
+            {
+                OriginalBatch = new TestBatchByTopicByPartition(new[]
+                {
+                    ProduceMessage.New("test1p", 0, new Message {Key = key.Object, Value = value.Object},
+                        DateTime.UtcNow.AddDays(1))
+                }),
+                ReceiveDate = DateTime.UtcNow
+            };
+            _produceRouter.Acknowledge(acknowledgement);
+
+            key.Verify(k => k.Dispose(), Times.Never());
+            value.Verify(v => v.Dispose(), Times.Never());
         }
     }
 }

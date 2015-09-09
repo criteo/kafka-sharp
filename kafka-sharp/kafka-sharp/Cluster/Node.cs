@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
+using Kafka.Batching;
 using Kafka.Common;
 using Kafka.Network;
 using Kafka.Protocol;
@@ -153,7 +154,7 @@ namespace Kafka.Cluster
         /// </summary>
         internal interface ISerialization
         {
-            ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch);
+            ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch);
             ReusableMemoryStream SerializeMetadataAllRequest(int correlationId);
             ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch);
             ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch);
@@ -192,7 +193,7 @@ namespace Kafka.Cluster
                 return new TopicRequest().Serialize(correlationId, _clientId, null);
             }
 
-            public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, ProduceMessage>> batch)
+            public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
             {
                 var produceRequest = new ProduceRequest
                 {
@@ -201,7 +202,7 @@ namespace Kafka.Cluster
                     TopicsData = batch.Select(gt => new TopicData<PartitionData>
                     {
                         TopicName = gt.Key,
-                        PartitionsData = gt.GroupBy(m => m.Partition).Select(gp => new PartitionData
+                        PartitionsData = gt.Select(gp => new PartitionData
                         {
                             Partition = gp.Key,
                             Messages = gp.Select(pm => pm.Message),
@@ -266,31 +267,23 @@ namespace Kafka.Cluster
 
         #region Requests
 
-        internal struct BatchRequest<TBatched>
-        {
-            public IEnumerable<IGrouping<string, TBatched>> Batch;
-            private object _dummyAlignementPadding;
-            public int Count;
-        }
-
         internal struct MetadataRequest
         {
             public string Topic;
             public TaskCompletionSource<MetadataResponse> Promise;
-            private int _dummyAlignmentPadding;
         }
 
         [StructLayout(LayoutKind.Explicit)]
         internal struct RequestValue
         {
             [FieldOffset(0)]
-            public BatchRequest<FetchMessage> FetchBatchRequest;
+            public IBatchByTopic<FetchMessage> FetchBatchRequest;
 
             [FieldOffset(0)]
-            public BatchRequest<OffsetMessage> OffsetBatchRequest;
+            public IBatchByTopic<OffsetMessage> OffsetBatchRequest;
 
             [FieldOffset(0)]
-            public BatchRequest<ProduceMessage> ProduceBatchRequest;
+            public IBatchByTopicByPartition<ProduceMessage> ProduceBatchRequest;
 
             [FieldOffset(0)]
             public MetadataRequest MetadataRequest;
@@ -365,9 +358,9 @@ namespace Kafka.Cluster
         private static int _correlationId;
 
         private readonly ConnectionFactory _connectionFactory;
-        private readonly Subject<ProduceMessage> _produceMessages; // incoming stream of produce messages
-        private readonly Subject<FetchMessage> _fetchMessages; // incoming stream of fetch requests
-        private readonly Subject<OffsetMessage> _offsetMessages; // incoming stream of offset requests
+        private readonly Accumulator<ProduceMessage> _produceMessages; // incoming stream of produce messages
+        private readonly Accumulator<FetchMessage> _fetchMessages; // incoming stream of fetch requests
+        private readonly Accumulator<OffsetMessage> _offsetMessages; // incoming stream of offset requests
         private readonly ConcurrentQueue<Request> _metadata = new ConcurrentQueue<Request>(); // queue for metadata requests
         private readonly ConcurrentQueue<Request> _nonMetadata = new ConcurrentQueue<Request>(); // queue for all other batched requests
         private readonly ActionBlock<Ping> _requestQueue; // incoming request actor
@@ -407,62 +400,50 @@ namespace Kafka.Cluster
             }
         }
 
-        // Transform a stream to a batched stream
-        private Subject<TData> InitBatchedSubject<TData>(
-            int bufferingCount,
-            TimeSpan bufferingTime,
-            Func<TData, string> grouper,
-            Func<BatchRequest<TData>, Request> rbuilder)
+        private Accumulator<ProduceMessage> InitProduceSubject(int bufferingCount, TimeSpan bufferingTime)      
         {
-            var subject = new Subject<TData>();
-            subject
-                .Buffer(bufferingTime, bufferingCount)
-                .Where(batch => batch.Count > 0)
-                .Select(batch => new BatchRequest<TData> {Batch = batch.GroupBy(grouper), Count = batch.Count})
-                .Subscribe(batch => Post(rbuilder(batch)));
-            return subject;
-        }
-
-        private Subject<ProduceMessage> InitProduceSubject(int bufferingCount, TimeSpan bufferingTime)
-        {
-            return InitBatchedSubject<ProduceMessage>(bufferingCount, bufferingTime, m => m.Topic,
-                batch => new Request
+            var accumulator = new AccumulatorByTopicByPartition<ProduceMessage>(pm => pm.Topic, pm => pm.Partition, bufferingCount, bufferingTime);
+            accumulator.NewBatch += batch => Post(new Request
+            {
+                RequestType = RequestType.Produce,
+                RequestValue = new RequestValue
                 {
-                    RequestType = RequestType.Produce,
-                    RequestValue = new RequestValue
-                    {
-                        ProduceBatchRequest = batch
-                    }
-                });
+                    ProduceBatchRequest = batch
+                }
+            });
+            return accumulator;
         }
 
-        private Subject<FetchMessage> InitFetchSubject()
+        private Accumulator<FetchMessage> InitFetchSubject()
         {
             // TODO: make those values configurable
-            return InitBatchedSubject<FetchMessage>(10, TimeSpan.FromMilliseconds(1000.0*_resolution/1000), f => f.Topic,
-                batch => new Request
+            var accumulator = new AccumulatorByTopic<FetchMessage>(fm => fm.Topic, 10,
+                TimeSpan.FromMilliseconds(1000.0*_resolution/1000));
+            accumulator.NewBatch += batch => Post(new Request
+            {
+                RequestType = RequestType.Fetch,
+                RequestValue = new RequestValue
                 {
-                    RequestType = RequestType.Fetch,
-                    RequestValue = new RequestValue
-                    {
-                        FetchBatchRequest = batch
-                    }
-                });
+                    FetchBatchRequest = batch
+                }
+            });
+            return accumulator;
         }
 
-        private Subject<OffsetMessage> InitOffsetSubject()
+        private Accumulator<OffsetMessage> InitOffsetSubject()
         {
             // TODO: make those values configurable
-            return InitBatchedSubject<OffsetMessage>(10, TimeSpan.FromMilliseconds(1000.0*_resolution/1000),
-                f => f.Topic,
-                batch => new Request
+            var accumulator = new AccumulatorByTopic<OffsetMessage>(om => om.Topic, 10,
+                TimeSpan.FromMilliseconds(1000.0*_resolution/1000));
+            accumulator.NewBatch += batch => Post(new Request
+            {
+                RequestType = RequestType.Offset,
+                RequestValue = new RequestValue
                 {
-                    RequestType = RequestType.Offset,
-                    RequestValue = new RequestValue
-                    {
-                        OffsetBatchRequest = batch
-                    }
-                });
+                    OffsetBatchRequest = batch
+                }
+            });
+            return accumulator;
         }
 
         public string Name { get; internal set; }
@@ -488,35 +469,17 @@ namespace Kafka.Cluster
 
         public bool Produce(ProduceMessage message)
         {
-            if (IsDead())
-            {
-                return false;
-            }
-
-            _produceMessages.OnNext(message);
-            return true;
+            return !IsDead() && _produceMessages.Add(message);
         }
 
         public bool Fetch(FetchMessage message)
         {
-            if (IsDead())
-            {
-                return false;
-            }
-
-            _fetchMessages.OnNext(message);
-            return true;
+            return !IsDead() && _fetchMessages.Add(message);
         }
 
         public bool Offset(OffsetMessage message)
         {
-            if (IsDead())
-            {
-                return false;
-            }
-
-            _offsetMessages.OnNext(message);
-            return true;
+            return !IsDead() && _offsetMessages.Add(message);
         }
 
         public Task<MetadataResponse> FetchMetadata()
@@ -542,6 +505,9 @@ namespace Kafka.Cluster
         public async Task Stop()
         {
             if (Interlocked.Increment(ref _stopped) > 1) return; // already stopped
+            _produceMessages.Dispose();
+            _fetchMessages.Dispose();
+            _offsetMessages.Dispose();
             _requestQueue.Complete();
             await _requestQueue.Completion;
             lock (_pendings)
@@ -562,9 +528,6 @@ namespace Kafka.Cluster
                 ClearConnection(_connection);
                 _connection = null;
             }
-            _produceMessages.Dispose();
-            _fetchMessages.Dispose();
-            _offsetMessages.Dispose();
         }
 
         // We consider ourself dead if we see too much successive errors
@@ -633,15 +596,15 @@ namespace Kafka.Cluster
 
                 case RequestType.Produce:
                     return _serialization.SerializeProduceBatch(correlationId,
-                        request.RequestValue.ProduceBatchRequest.Batch);
+                        request.RequestValue.ProduceBatchRequest);
 
                 case RequestType.Fetch:
                     return _serialization.SerializeFetchBatch(correlationId,
-                        request.RequestValue.FetchBatchRequest.Batch);
+                        request.RequestValue.FetchBatchRequest);
 
                 case RequestType.Offset:
                     return _serialization.SerializeOffsetBatch(correlationId,
-                        request.RequestValue.OffsetBatchRequest.Batch);
+                        request.RequestValue.OffsetBatchRequest);
 
                 default: // Compiler requires a default case, even if all possible cases are already handled
                     return ReusableMemoryStream.Reserve();
@@ -831,11 +794,11 @@ namespace Kafka.Cluster
 
         // Build an empty response from a given Fetch request with error set to LocalError.
         private static CommonResponse<FetchPartitionResponse> BuildEmptyFetchResponseFromOriginal(
-            BatchRequest<FetchMessage> originalRequest)
+            IBatchByTopic<FetchMessage> originalRequest)
         {
             return new CommonResponse<FetchPartitionResponse>
             {
-                TopicsResponse = originalRequest.Batch.Select(b => new TopicData<FetchPartitionResponse>
+                TopicsResponse = originalRequest.Select(b => new TopicData<FetchPartitionResponse>
                 {
                     TopicName = b.Key,
                     PartitionsData = b.Select(fm => new FetchPartitionResponse
@@ -844,18 +807,18 @@ namespace Kafka.Cluster
                         HighWatermarkOffset = -1,
                         Partition = fm.Partition,
                         Messages = ResponseMessageListPool.EmptyList
-                    })
+                    }).ToArray()
                 }).ToArray()
             };
         }
 
         // Build an empty response from a given Offset request with error set to LocalError.
         private static CommonResponse<OffsetPartitionResponse> BuildEmptyOffsetResponseFromOriginal(
-            BatchRequest<OffsetMessage> originalRequest)
+            IBatchByTopic<OffsetMessage> originalRequest)
         {
             return new CommonResponse<OffsetPartitionResponse>
             {
-                TopicsResponse = originalRequest.Batch.Select(b => new TopicData<OffsetPartitionResponse>
+                TopicsResponse = originalRequest.Select(b => new TopicData<OffsetPartitionResponse>
                 {
                     TopicName = b.Key,
                     PartitionsData = b.Select(om => new OffsetPartitionResponse
@@ -863,7 +826,7 @@ namespace Kafka.Cluster
                         ErrorCode = ErrorCode.LocalError,
                         Partition = om.Partition,
                         Offsets = NoOffset
-                    })
+                    }).ToArray()
                 }).ToArray()
             };
         }
@@ -876,7 +839,7 @@ namespace Kafka.Cluster
         /// are perfectly valid.
         /// </summary>
         private void ProcessFetchResponse(int correlationId, ReusableMemoryStream responseData,
-            BatchRequest<FetchMessage> originalRequest)
+            IBatchByTopic<FetchMessage> originalRequest)
         {
             var response = new CommonAcknowledgement<FetchPartitionResponse> {ReceivedDate = DateTime.UtcNow};
             try
@@ -889,6 +852,7 @@ namespace Kafka.Cluster
                 OnDecodeError(ex);
                 response.Response = BuildEmptyFetchResponseFromOriginal(originalRequest);
             }
+            originalRequest.Dispose();
 
             var tr = response.Response.TopicsResponse;
             OnFetchResponseReceived(
@@ -905,7 +869,7 @@ namespace Kafka.Cluster
         /// are perfectly valid (leader change).
         /// </summary>
         private void ProcessOffsetResponse(int correlationId, ReusableMemoryStream responseData,
-            BatchRequest<OffsetMessage> originalRequest)
+            IBatchByTopic<OffsetMessage> originalRequest)
         {
             var response = new CommonAcknowledgement<OffsetPartitionResponse> {ReceivedDate = DateTime.UtcNow};
             try
@@ -917,6 +881,7 @@ namespace Kafka.Cluster
                 OnDecodeError(ex);
                 response.Response = BuildEmptyOffsetResponseFromOriginal(originalRequest);
             }
+            originalRequest.Dispose();
 
             OnOffsetsReceived(response);
         }
@@ -926,11 +891,11 @@ namespace Kafka.Cluster
         /// request because in case of error the producer may try to resend the messages.
         /// </summary>
         private void ProcessProduceResponse(int correlationId, ReusableMemoryStream responseData,
-            BatchRequest<ProduceMessage> originalRequest)
+            IBatchByTopicByPartition<ProduceMessage> originalRequest)
         {
             var acknowledgement = new ProduceAcknowledgement
             {
-                OriginalBatch = originalRequest.Batch,
+                OriginalBatch = originalRequest,
                 ReceiveDate = DateTime.UtcNow
             };
             try
@@ -1020,7 +985,7 @@ namespace Kafka.Cluster
                 case RequestType.Produce:
                     var ack = new ProduceAcknowledgement
                         {
-                            OriginalBatch = request.RequestValue.ProduceBatchRequest.Batch,
+                            OriginalBatch = request.RequestValue.ProduceBatchRequest,
                             ReceiveDate = wasSent ? DateTime.UtcNow : default(DateTime)
                         };
                     OnProduceAcknowledgement(ack);

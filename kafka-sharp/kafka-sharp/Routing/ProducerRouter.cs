@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
+using Kafka.Batching;
 using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
@@ -33,7 +34,7 @@ namespace Kafka.Routing
         /// <summary>
         /// The batch of messages that were tried to be sent.
         /// </summary>
-        public IEnumerable<IGrouping<string, ProduceMessage>> OriginalBatch;
+        public IBatchByTopicByPartition<ProduceMessage> OriginalBatch;
 
         /// <summary>
         /// The date time the acknowledgement was "received" by the node
@@ -358,6 +359,7 @@ namespace Kafka.Routing
                             {
                                 HandleProduceAcknowledgementNone(response);
                             }
+                            response.OriginalBatch.Dispose();
                         }
                         else
                         {
@@ -456,7 +458,7 @@ namespace Kafka.Routing
         /// <param name="acknowledgement"></param>
         private void HandleProduceAcknowledgementNone(ProduceAcknowledgement acknowledgement)
         {
-            foreach (var message in acknowledgement.OriginalBatch.SelectMany(g => g))
+            foreach (var message in acknowledgement.OriginalBatch.SelectMany(gt => gt.SelectMany(gp => gp)))
             {
                 if (_configuration.ErrorStrategy == ErrorStrategy.Retry ||
                     acknowledgement.ReceiveDate == default(DateTime))
@@ -541,7 +543,7 @@ namespace Kafka.Routing
                     recPartitions = NullHash;
                 }
 
-                foreach (var pm in grouping)
+                foreach (var pm in grouping.SelectMany(g => g))
                 {
                     if (recPartitions.Contains(pm.Partition))
                     {
@@ -556,6 +558,16 @@ namespace Kafka.Routing
                         else
                         {
                             ++sent;
+                            var key = pm.Message.Key as IDisposable;
+                            if (key != null)
+                            {
+                                key.Dispose();
+                            }
+                            var value = pm.Message.Value as IDisposable;
+                            if (value != null)
+                            {
+                                value.Dispose();
+                            }
                             ProduceMessage.Release(pm);
                         }
                     }
