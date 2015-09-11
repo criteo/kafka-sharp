@@ -316,10 +316,7 @@ namespace Kafka.Cluster
             await ProduceRouter.Stop();
             _agent.Complete();
             await _agent.Completion;
-            foreach (var node in _nodes.Keys)
-            {
-                await node.Stop();
-            }
+            await Task.WhenAll(_nodes.Keys.Select(n => n.Stop()));
             _started = false;
         }
 
@@ -367,6 +364,7 @@ namespace Kafka.Cluster
             }
             Logger.LogError(string.Format("Kafka node {0} is dead, refreshing metadata.", GetNodeName(deadNode)));
             _nodes.Remove(deadNode);
+            deadNode.Stop();
             _nodesByHostPort.Remove(BuildKey(m.Host, m.Port));
             _nodesById.Remove(m.Id);
             CheckNoMoreNodes();
@@ -493,6 +491,7 @@ namespace Kafka.Cluster
                 var node = _nodesByHostPort[host];
                 _nodesByHostPort.Remove(host);
                 _nodes.Remove(node);
+                node.Stop();
             }
 
             _tmpNewNodes.Clear();

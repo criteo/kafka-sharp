@@ -381,12 +381,31 @@ namespace Kafka.Cluster
             public Request Request;
         }
         private readonly ConcurrentDictionary<IConnection, ConcurrentQueue<Pending>> _pendings = new ConcurrentDictionary<IConnection, ConcurrentQueue<Pending>>();
+        private int _pendingsCount;
+        private TaskCompletionSource<bool> _noMorePending;
 
         private IConnection _connection; // underlying connection to the broker
         private long _successiveErrors; // used to decide when a node is dead
 
         private const long MaxSuccessiveErrors = 5;
         private readonly double _resolution;
+
+        private void IncrementPendings()
+        {
+            Interlocked.Increment(ref _pendingsCount);
+        }
+
+        private void DecrementPendings()
+        {
+            if (Interlocked.Decrement(ref _pendingsCount) != 0) return;
+            lock (_pendings)
+            {
+                if (_noMorePending != null)
+                {
+                    _noMorePending.TrySetResult(true);
+                }
+            }
+        }
 
         // Transform a stream to a batched stream
         private Subject<TData> InitBatchedSubject<TData>(
@@ -518,16 +537,34 @@ namespace Kafka.Cluster
             return promise.Task;
         }
 
+        private int _stopped;
+
         public async Task Stop()
         {
-            _produceMessages.Dispose();
+            if (Interlocked.Increment(ref _stopped) > 1) return; // already stopped
             _requestQueue.Complete();
+            await _requestQueue.Completion;
+            lock (_pendings)
+            {
+                if (_pendingsCount != 0)
+                {
+                    _noMorePending = new TaskCompletionSource<bool>();
+                }
+            }
+            if (_noMorePending != null)
+            {
+                await Task.WhenAny(_noMorePending.Task, Task.Delay(5000));
+            }
             _responseQueue.Complete();
-            await Task.WhenAll(_requestQueue.Completion, _responseQueue.Completion);
+            await _responseQueue.Completion;
             if (_connection != null)
             {
-                _connection.Dispose();
+                ClearConnection(_connection);
+                _connection = null;
             }
+            _produceMessages.Dispose();
+            _fetchMessages.Dispose();
+            _offsetMessages.Dispose();
         }
 
         // We consider ourself dead if we see too much successive errors
@@ -535,6 +572,24 @@ namespace Kafka.Cluster
         private bool IsDead()
         {
             return Interlocked.Read(ref _successiveErrors) > MaxSuccessiveErrors;
+        }
+
+        private void ForwardResponse(IConnection connection, int correlationId, ReusableMemoryStream data)
+        {
+            _responseQueue.Post(new Response
+            {
+                ResponseType = ResponseType.Data,
+                Connection = connection,
+                ResponseValue =
+                    new ResponseValue {ResponseData = new ResponseData {CorrelationId = correlationId, Data = data}}
+            });
+        }
+
+        private void ClearConnection(IConnection connection)
+        {
+            connection.ReceiveError -= HandleConnectionError;
+            connection.Response -= ForwardResponse;
+            connection.Dispose();
         }
 
         // Initialize a new underlying connection:
@@ -546,15 +601,7 @@ namespace Kafka.Cluster
             await Task.Delay(TimeSpan.FromMilliseconds(_resolution * _successiveErrors));
             var connection = _connectionFactory();
             connection.ReceiveError += HandleConnectionError;
-            connection.Response +=
-                (c, i, d) =>
-                _responseQueue.Post(new Response
-                    {
-                        ResponseType = ResponseType.Data,
-                        Connection = c,
-                        ResponseValue =
-                            new ResponseValue {ResponseData = new ResponseData {CorrelationId = i, Data = d}}
-                    });
+            connection.Response += ForwardResponse;
             await connection.ConnectAsync();
             OnConnected();
             _connection = connection;
@@ -563,7 +610,7 @@ namespace Kafka.Cluster
         }
 
         // Post a message to the underlying request actor
-        private void Post(Request request)
+        private bool Post(Request request)
         {
             if (request.RequestType == RequestType.Metadata)
             {
@@ -573,7 +620,7 @@ namespace Kafka.Cluster
             {
                 _nonMetadata.Enqueue(request);
             }
-            _requestQueue.Post(new Ping());
+            return _requestQueue.Post(new Ping());
         }
 
         // Serialize a request
@@ -654,6 +701,7 @@ namespace Kafka.Cluster
                     if (acked)
                     {
                         pendingsQueue.Enqueue(new Pending {CorrelationId = correlationId, Request = request});
+                        IncrementPendings();
                     }
                     await connection.SendAsync(correlationId, data, acked);
                     Interlocked.Exchange(ref _successiveErrors, 0);
@@ -670,7 +718,10 @@ namespace Kafka.Cluster
                 // the request, which will retry to connect eventually.
                 if (ex.Error == TransportError.ConnectError)
                 {
-                    Post(request);
+                    if (!Post(request))
+                    {
+                        Drain(request, false);
+                    }
                 }
                 HandleConnectionError(connection, ex);
             }
@@ -719,6 +770,8 @@ namespace Kafka.Cluster
                         // we already took care of that.
                         return;
                     }
+
+                    DecrementPendings();
 
                     using (var data = response.ResponseValue.ResponseData.Data)
                     {
@@ -769,7 +822,7 @@ namespace Kafka.Cluster
         // Clean up the mess
         private void ProcessConnectionError(IConnection connection)
         {
-            connection.Dispose();
+            ClearConnection(connection);
             ClearCorrelationIds(connection);
         }
 
@@ -920,6 +973,7 @@ namespace Kafka.Cluster
                 foreach (var pending in pendings)
                 {
                     Drain(pending.Request, true);
+                    DecrementPendings();
                 }
             }
         }

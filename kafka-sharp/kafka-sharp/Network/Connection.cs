@@ -524,6 +524,8 @@ namespace Kafka.Network
         public void Dispose()
         {
             _socket.Close();
+            _sendArgs.Completed -= OnSendCompleted;
+            _receiveArgs.Completed -= OnReceiveCompleted;
         }
     }
 }
