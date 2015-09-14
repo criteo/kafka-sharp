@@ -36,6 +36,24 @@
     <Reference Include="nunit.framework">
       <HintPath>$(SolutionDir)\packages\NUnit.2.6.4\lib\nunit.framework.dll</HintPath>
     </Reference>
+    <Reference Include="nunit-console">
+      <HintPath>$(SolutionDir)\packages\NUnit.Runners.2.6.2\tools\nunit-console.exe</HintPath>
+    </Reference>
+    <Reference Include="nunit-console-runner">
+      <HintPath>$(SolutionDir)\packages\NUnit.Runners.2.6.2\tools\lib\nunit-console-runner.dll</HintPath>
+    </Reference>
+    <Reference Include="nunit.core">
+      <HintPath>$(SolutionDir)\packages\NUnit.Runners.2.6.2\tools\lib\nunit.core.dll</HintPath>
+    </Reference>
+    <Reference Include="nunit.core.interfaces.dll">
+      <HintPath>$(SolutionDir)\packages\NUnit.Runners.2.6.2\tools\lib\nunit.core.interfaces.dll</HintPath>
+    </Reference>
+    <Reference Include="nunit.util">
+      <HintPath>$(SolutionDir)\packages\NUnit.Runners.2.6.2\tools\lib\nunit.util.dll</HintPath>
+    </Reference>
+    <Reference Include="nunit-agent.exe">
+      <HintPath>$(SolutionDir)\packages\NUnit.Runners.2.6.2\tools\nunit-agent.exe</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Reactive.Core">
