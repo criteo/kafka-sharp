@@ -176,14 +176,20 @@ namespace Kafka.Public
         {
             if (_disposed) return;
 
-            _discardedSub.Dispose();
+            if (_discardedSub != null ) _discardedSub.Dispose();
             _discarded.OnCompleted();
-            _expiredSub.Dispose();
+            if ( _expiredSub != null ) _expiredSub.Dispose();
             _expired.OnCompleted();
-            _clusterClient.MessageDiscarded -= OnClusterMessageDiscarded;
-            _clusterClient.MessageExpired -= OnClusterMessageExpired;
-            KafkaProducer<TKey, TValue> dummy;
-            Producers.TryRemove(_topic, out dummy);
+            if (_clusterClient != null)
+            {
+                _clusterClient.MessageDiscarded -= OnClusterMessageDiscarded;
+                _clusterClient.MessageExpired -= OnClusterMessageExpired;
+            }
+            if (_topic != null)
+            {
+                KafkaProducer<TKey, TValue> dummy;
+                Producers.TryRemove(_topic, out dummy);
+            }
             _disposed = true;
             GC.SuppressFinalize(this);
         }

@@ -206,12 +206,18 @@ namespace Kafka.Public
         {
             if (_disposed) return;
 
-            _clusterClient.StopConsume(_topic);
-            _messagesSub.Dispose();
+            if (_clusterClient != null)
+            {
+                _clusterClient.StopConsume(_topic);
+                _clusterClient.MessageReceived -= OnClusterMessage;
+            }
+            if (_messagesSub != null ) _messagesSub.Dispose();
             _messages.OnCompleted();
-            _clusterClient.MessageReceived -= OnClusterMessage;
-            KafkaConsumer<TKey, TValue> dummy;
-            Consumers.TryRemove(_topic, out dummy);
+            if (_topic != null)
+            {
+                KafkaConsumer<TKey, TValue> dummy;
+                Consumers.TryRemove(_topic, out dummy);
+            }
             _disposed = true;
             GC.SuppressFinalize(this);
         }
