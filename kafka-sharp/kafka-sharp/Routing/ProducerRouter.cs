@@ -67,12 +67,6 @@ namespace Kafka.Routing
         void Route(string topic, Message message, int partition, DateTime expirationDate);
 
         /// <summary>
-        /// Route an already created ProduceMessage.
-        /// </summary>
-        /// <param name="produceMessage"></param>
-        void Route(ProduceMessage produceMessage);
-
-        /// <summary>
         /// Acknowledge a response from a Kafka broker.
         /// </summary>
         /// <param name="acknowledgement"></param>
@@ -251,11 +245,15 @@ namespace Kafka.Routing
         /// the MessageEnqueued event will be raised.
         /// </summary>
         /// <param name="message"></param>
-        public void Route(ProduceMessage message)
+        private void Route(ProduceMessage message)
         {
             if (Post(message))
             {
                 MessageEnqueued(message.Topic);
+            }
+            else
+            {
+                OnMessageDiscarded(message);
             }
         }
 
@@ -264,7 +262,7 @@ namespace Kafka.Routing
         /// Raise the MessageReEnqueued if message effectively reenqueued.
         /// </summary>
         /// <param name="message"></param>
-        private void ReEnqueue(ProduceMessage message)
+        internal void ReEnqueue(ProduceMessage message)
         {
             if (message.ExpirationDate < DateTime.UtcNow)
             {
@@ -276,6 +274,10 @@ namespace Kafka.Routing
             if (Post(message))
             {
                 MessageReEnqueued(message.Topic);
+            }
+            else
+            {
+                OnMessageDiscarded(message);
             }
         }
 
@@ -289,10 +291,14 @@ namespace Kafka.Routing
         {
             if (_messages.Completion.IsCompleted)
             {
-                ProduceMessage.Release(produceMessage);
                 return false;
             }
             _produceMessages.Enqueue(produceMessage);
+            // There is a race here, since Stop can happen in between the
+            // previous and next lines. However this only happen when Stop
+            // is required which means we can safely let a few messages in
+            // the queue, they will be signaled as discarded to the outer
+            // world (Stop is permanent).
             return _messages.Post(RouterMessageType.ProduceEvent);
         }
 

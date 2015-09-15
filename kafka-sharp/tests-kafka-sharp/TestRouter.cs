@@ -619,14 +619,19 @@ namespace tests_kafka_sharp
         [Test]
         public async Task TestNoMessageIsSentAfterStop()
         {
+            int discarded = 0;
+            _produceRouter.MessageDiscarded += (t, m) => discarded += 1;
+
             _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
             await _produceRouter.Stop();
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
 
             _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.ReEnqueue(ProduceMessage.New("test1p", Partitions.Any, new Message(), DateTime.UtcNow.AddMinutes(5)));
             await Task.Delay(TimeSpan.FromMilliseconds(100));
 
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
+            Assert.AreEqual(2, discarded);
             CheckCounters(expectedMessagesEnqueued: 1, expectedMessagesRouted: 1, expectedRoutingTableRequired: 1);
         }
 
