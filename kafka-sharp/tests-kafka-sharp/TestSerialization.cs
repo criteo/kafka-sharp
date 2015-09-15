@@ -121,6 +121,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        [Category("failsOnMono")] //because Snappy uses native code
         [TestCase(CompressionCodec.Gzip, 1)]
         [TestCase(CompressionCodec.Snappy, 2)]
         public void TestSerializeMessageSetCompressed(CompressionCodec codec, byte attr)
@@ -157,6 +158,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        [Category("failsOnMono")] //because Snappy uses native code
         [TestCase(CompressionCodec.None)]
         [TestCase(CompressionCodec.Gzip)]
         [TestCase(CompressionCodec.Snappy)]
