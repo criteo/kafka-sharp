@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Net;
 using Kafka.Common;
 using Kafka.Public;
 using Snappy;
@@ -31,8 +32,13 @@ namespace Kafka.Protocol
 
         public static void Release(List<ResponseMessage> list)
         {
-            _pool.Release(list);
+            if (list != EmptyList)
+            {
+                _pool.Release(list);
+            }
         }
+
+        public static readonly List<ResponseMessage> EmptyList = new List<ResponseMessage>();
     }
 
     struct FetchPartitionResponse : IMemoryStreamSerializable

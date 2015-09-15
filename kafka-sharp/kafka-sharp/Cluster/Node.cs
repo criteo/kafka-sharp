@@ -827,7 +827,6 @@ namespace Kafka.Cluster
         }
 
         // Preallocated responses
-        private static readonly List<ResponseMessage> EmptyMessages = new List<ResponseMessage>();
         private static readonly long[] NoOffset = new long[0];
 
         // Build an empty response from a given Fetch request with error set to LocalError.
@@ -844,7 +843,7 @@ namespace Kafka.Cluster
                         ErrorCode = ErrorCode.LocalError,
                         HighWatermarkOffset = -1,
                         Partition = fm.Partition,
-                        Messages = EmptyMessages
+                        Messages = ResponseMessageListPool.EmptyList
                     })
                 }).ToArray()
             };
