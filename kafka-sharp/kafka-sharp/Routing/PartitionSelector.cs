@@ -7,9 +7,16 @@ using Kafka.Public;
 namespace Kafka.Routing
 {
     // Select a partition from an array of Partition.
-    class PartitionSelector
+    internal class PartitionSelector
     {
         private ulong _next;
+        private ulong _index = 1;
+        private readonly ulong _delay;
+
+        public PartitionSelector(int delay = 1)
+        {
+            _delay = delay <= 0 ? 1UL : (ulong) delay;
+        }
 
         public Partition GetPartition(int partition, Partition[] partitions)
         {
@@ -20,7 +27,9 @@ namespace Kafka.Routing
 
                 case Partitions.Any:
                 case Partitions.All:
-                    return partitions.Length == 0 ? Partition.None : partitions[(int) (_next++)%partitions.Length];
+                    return partitions.Length == 0
+                        ? Partition.None
+                        : partitions[(int) (_index++%_delay == 0 ? _next++ : _next)%partitions.Length];
 
                 default:
                     int found = Array.BinarySearch(partitions, new Partition {Id = partition});

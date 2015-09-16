@@ -79,6 +79,15 @@ namespace Kafka.Public
         public int BatchSize = 200;
 
         /// <summary>
+        /// If you don't provide a partition when producing a message, the parttion selector will
+        /// round robin between all available partitions. Use this variable to delay switching between
+        /// partitions until a set number of messages have been sent (on a given topic).
+        /// This is useful if you have a large number of partitions per topic and want to fully take
+        /// advantage of compression because message set are compressed per topic/per partition.
+        /// </summary>
+        public int NumberOfMessagesBeforeRoundRobin = 1;
+
+        /// <summary>
         /// Socket buffer size for send.
         /// </summary>
         public int SendBufferSize = 100 * 1024;

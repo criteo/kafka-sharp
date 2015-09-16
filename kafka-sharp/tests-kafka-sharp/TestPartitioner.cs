@@ -1,5 +1,4 @@
-﻿using Kafka.Protocol;
-using Kafka.Public;
+﻿using Kafka.Public;
 using Kafka.Routing;
 using NUnit.Framework;
 
@@ -9,7 +8,12 @@ namespace tests_kafka_sharp
     class TestPartitioner
     {
         [Test]
-        public void TestRoundRobinPartitionAssign()
+        [TestCase(1)]
+        [TestCase(2)]
+        [TestCase(0)]
+        [TestCase(-1)]
+        [TestCase(42)]
+        public void TestRoundRobinPartitionAssign(int delay)
         {
             var nodeMock = new NodeMock();
             var partitions = new[]
@@ -20,13 +24,15 @@ namespace tests_kafka_sharp
                     new Partition {Id = 3, Leader = nodeMock},
                     new Partition {Id = 4, Leader = nodeMock},
                 };
-            var partitioner = new PartitionSelector();
-            Assert.AreEqual(partitions[0], partitioner.GetPartition(Partitions.Any, partitions));
-            Assert.AreEqual(partitions[1], partitioner.GetPartition(Partitions.Any, partitions));
-            Assert.AreEqual(partitions[2], partitioner.GetPartition(Partitions.Any, partitions));
-            Assert.AreEqual(partitions[3], partitioner.GetPartition(Partitions.Any, partitions));
-            Assert.AreEqual(partitions[4], partitioner.GetPartition(Partitions.Any, partitions));
-            Assert.AreEqual(partitions[0], partitioner.GetPartition(Partitions.Any, partitions));
+            var partitioner = new PartitionSelector(delay);
+            delay = delay <= 0 ? 1 : delay;
+            foreach (var partition in partitions)
+            {
+                for (var j = 0; j < delay; ++j)
+                {
+                    Assert.AreEqual(partition.Id, partitioner.GetPartition(Partitions.Any, partitions).Id);
+                }
+            }
         }
 
 

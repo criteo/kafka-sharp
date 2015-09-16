@@ -409,7 +409,7 @@ namespace Kafka.Routing
             PartitionSelector selector;
             if (!_partitioners.TryGetValue(topic, out selector))
             {
-                selector = new PartitionSelector();
+                selector = new PartitionSelector(_configuration.NumberOfMessagesBeforeRoundRobin);
                 _partitioners[topic] = selector;
             }
 
