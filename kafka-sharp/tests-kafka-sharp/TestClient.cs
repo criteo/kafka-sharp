@@ -18,18 +18,19 @@ namespace tests_kafka_sharp
         private ClusterClient _client;
         private Mock<IProduceRouter> _producer;
         private Mock<IConsumeRouter> _consumer;
+        private Mock<INode> _node;
 
         [SetUp]
         public void SetUp()
         {
-            var node = new Mock<INode>();
-            node.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(new MetadataResponse()));
+            _node = new Mock<INode>();
+            _node.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(new MetadataResponse()));
             _producer = new Mock<IProduceRouter>();
             _consumer = new Mock<IConsumeRouter>();
             var configuration = new Configuration {Seeds = "localhost:1", TaskScheduler = new CurrentThreadTaskScheduler()};
             var logger = new Mock<ILogger>();
             _client = new ClusterClient(configuration, logger.Object,
-                new Cluster(configuration, logger.Object, (h, p) => node.Object, () => _producer.Object,
+                new Cluster(configuration, logger.Object, (h, p) => _node.Object, () => _producer.Object,
                     () => _consumer.Object));
         }
 
@@ -538,6 +539,13 @@ namespace tests_kafka_sharp
 
             // Dispose: can dispose the same consumer multiple times with no effect
             Assert.That(() => consumer2.Dispose(), Throws.Nothing);
+        }
+
+        [Test]
+        public void TestGetAllPartitionsForTopic()
+        {
+            _client.GetPartitionforTopicAsync("toto");
+            _node.Verify(n => n.FetchMetadata("toto"));
         }
     }
 }

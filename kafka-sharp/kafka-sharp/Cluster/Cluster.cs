@@ -371,83 +371,81 @@ namespace Kafka.Cluster
             RefreshMetadata();
         }
 
-        // TODO: split this function
         private async Task ProcessMessage(ClusterMessage message)
         {
-            // Event occured on a node
-            if (message.MessageType == MessageType.NodeEvent)
+            switch (message.MessageType)
             {
-                message.MessageValue.NodeEventProcessing();
-                return;
-            }
+                // Event occured on a node
+                case MessageType.NodeEvent:
+                    message.MessageValue.NodeEventProcessing();
+                    break;
 
-            // Single topic metadata, this is for the consumer
-            if (message.MessageType == MessageType.TopicMetadata)
+                // Single topic metadata, this is generally for the consumer
+                case MessageType.TopicMetadata:
+                    await ProcessTopicMetadata(message.MessageValue.TopicPromise);
+                    break;
+
+                // Full metadata required
+                case MessageType.Metadata:
+                    await ProcessFullMetadata(message.MessageValue.Promise);
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException("message", "Invalid message type");
+            }
+        }
+
+        private async Task ProcessTopicMetadata(Tuple<TaskCompletionSource<int[]>, string> topicPromise)
+        {
+            var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
+            try
             {
-                var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
-                try
-                {
-                    var promise = message.MessageValue.TopicPromise.Item1;
-                    var topic = message.MessageValue.TopicPromise.Item2;
-                    var response = await node.FetchMetadata(topic);
-                    promise.SetResult(
-                        response.TopicsMeta.First(t => t.TopicName == topic).Partitions.Select(p => p.Id).ToArray());
-                }
-                catch (OperationCanceledException ex)
-                {
-                    if (message.MessageValue.TopicPromise != null)
-                    {
-                        message.MessageValue.TopicPromise.Item1.SetException(ex);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (message.MessageValue.TopicPromise != null)
-                    {
-                        message.MessageValue.TopicPromise.Item1.SetCanceled();
-                    }
-                    InternalError(ex);
-                }
-                return;
+                var promise = topicPromise.Item1;
+                var topic = topicPromise.Item2;
+                var response = await node.FetchMetadata(topic);
+                promise.SetResult(response.TopicsMeta.First(t => t.TopicName == topic).Partitions.Select(p => p.Id).ToArray());
             }
+            catch (OperationCanceledException ex)
+            {
+                topicPromise.Item1.SetException(ex);
+            }
+            catch (Exception ex)
+            {
+                topicPromise.Item1.SetCanceled();
+                InternalError(ex);
+            }
+        }
 
-            // Full metadata required
+        private async Task ProcessFullMetadata(TaskCompletionSource<RoutingTable> promise)
+        {
             try
             {
                 Logger.LogInformation("Fetching metadata...");
                 var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
                 var response = await node.FetchMetadata();
                 Logger.LogInformation("[Metadata][Brokers] " + string.Join("/", response.BrokersMeta.Select(bm => bm.ToString())));
-                Logger.LogInformation("[Metadata][Topics] " +
-                                      string.Join(" | ",
-                                                  response.TopicsMeta.Select(
-                                                      tm =>
-                                                      tm.Partitions.Aggregate(tm.TopicName + ":" + tm.ErrorCode,
-                                                                              (s, pm) =>
-                                                                              s + " " +
-                                                                              string.Join(":", pm.Id, pm.Leader,
-                                                                                          pm.ErrorCode)))));
+                Logger.LogInformation("[Metadata][Topics] " + string.Join(" | ", response.TopicsMeta.Select(tm => tm.Partitions.Aggregate(tm.TopicName + ":" + tm.ErrorCode, (s, pm) => s + " " + string.Join(":", pm.Id, pm.Leader, pm.ErrorCode)))));
                 ResponseToTopology(response);
                 ResponseToRoutingTable(response);
-                if (message.MessageValue.Promise != null)
+                if (promise != null)
                 {
-                    message.MessageValue.Promise.SetResult(_routingTable);
+                    promise.SetResult(_routingTable);
                 }
                 RoutingTableChange(_routingTable);
                 CheckNoMoreNodes();
             }
             catch (OperationCanceledException ex)
             {
-                if (message.MessageValue.Promise != null)
+                if (promise != null)
                 {
-                    message.MessageValue.Promise.SetException(ex);
+                    promise.SetException(ex);
                 }
             }
             catch (Exception ex)
             {
-                if (message.MessageValue.Promise != null)
+                if (promise != null)
                 {
-                    message.MessageValue.Promise.SetCanceled();
+                    promise.SetCanceled();
                 }
                 InternalError(ex);
             }
@@ -503,15 +501,9 @@ namespace Kafka.Cluster
             var routes = new Dictionary<string, Partition[]>();
             foreach (var tm in response.TopicsMeta.Where(_ => Error.IsPartitionOkForClients(_.ErrorCode)))
             {
-                routes[tm.TopicName] =
-                    tm.Partitions
-                        .Where(_ => Error.IsPartitionOkForClients(_.ErrorCode) && _.Leader >= 0)
-                        .Select(_ => new Partition {Id = _.Id, Leader = _nodesById[_.Leader]})
-                        .OrderBy(p => p)
-                        .ToArray();
+                routes[tm.TopicName] = tm.Partitions.Where(_ => Error.IsPartitionOkForClients(_.ErrorCode) && _.Leader >= 0).Select(_ => new Partition {Id = _.Id, Leader = _nodesById[_.Leader]}).OrderBy(p => p).ToArray();
             }
             _routingTable = new RoutingTable(routes);
         }
     }
-
 }

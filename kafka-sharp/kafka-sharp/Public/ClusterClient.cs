@@ -135,6 +135,14 @@ namespace Kafka.Public
         IObservable<RawKafkaRecord> DiscardedMessages { get; }
 
         /// <summary>
+        /// Returns all the partitions ids for a given topic. This is useful
+        /// if you intend to do custom assignation to partitions.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <returns></returns>
+        Task<int[]> GetPartitionforTopicAsync(string topic);
+
+        /// <summary>
         /// Current statistics if the cluster.
         /// </summary>
         IStatistics Statistics { get; }
@@ -386,6 +394,11 @@ namespace Kafka.Public
                 Interlocked.Increment(ref _sent);
             }
             _cluster.ProduceRouter.Route(topic, new Message {Key = key, Value = data}, partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
+        }
+
+        public Task<int[]> GetPartitionforTopicAsync(string topic)
+        {
+            return _cluster.RequireAllPartitionsForTopic(topic);
         }
 
         public Task Shutdown()
