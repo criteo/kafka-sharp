@@ -137,6 +137,50 @@ namespace Kafka.Routing
             CheckPostponedFollowingRoutingTableChange
         }
 
+        #region Batching
+
+        class ByNodeBatchingStrategy : IBatchStrategy<ProduceMessage>
+        {
+            public bool Send(INode node, ProduceMessage message)
+            {
+                return node.Produce(message);
+            }
+
+            public void Dispose()
+            {
+            }
+        }
+
+        class GlobalBatchingStrategy : IBatchStrategy<ProduceMessage>
+        {
+            private readonly AccumulatorByNodeByTopicByPartition<ProduceMessage> _accumulator;
+            private Action<INode, IBatchByTopicByPartition<ProduceMessage>> _batch;
+
+            public GlobalBatchingStrategy(Configuration configuration, Action<INode, IBatchByTopicByPartition<ProduceMessage>> batch)
+            {
+                _accumulator = new AccumulatorByNodeByTopicByPartition<ProduceMessage>(
+                    pm => pm.Topic,
+                    pm => pm.Partition,
+                    configuration.ProduceBatchSize,
+                    configuration.ProduceBufferingTime);
+                _accumulator.NewBatch += batch;
+            }
+
+            public bool Send(INode node, ProduceMessage message)
+            {
+                return _accumulator.Add(Tuple.Create(node, message));
+            }
+
+            public void Dispose()
+            {
+                _accumulator.Dispose();
+                _accumulator.NewBatch -= _batch;
+                _batch = null;
+            }
+        }
+
+        #endregion
+
         private readonly ICluster _cluster;
         private readonly Configuration _configuration;
 
@@ -158,6 +202,9 @@ namespace Kafka.Routing
         // Active when there are some postponed messages, it checks regurlarly
         // if they can be sent again
         private Timer _checkPostponedMessages;
+
+        // Accumulator when in global batching mode
+        private readonly IBatchStrategy<ProduceMessage> _batchStrategy;
 
         #region events from IProducerRouter
 
@@ -201,9 +248,26 @@ namespace Kafka.Routing
             _messages = new ActionBlock<RouterMessageType>(m => ProcessMessage(m),
                                                            new ExecutionDataflowBlockOptions
                                                                {
-                                                                   MaxMessagesPerTask = configuration.BatchSize,
+                                                                   MaxMessagesPerTask = configuration.ProduceBatchSize,
                                                                    TaskScheduler = configuration.TaskScheduler
                                                                });
+            if (configuration.BatchStrategy == BatchStrategy.Global)
+            {
+                _batchStrategy = new GlobalBatchingStrategy(
+                    configuration,
+                    (n, b) =>
+                    {
+                        if (n.Post(b)) return;
+                        foreach (var pm in b.SelectMany(g => g).SelectMany(g => g))
+                        {
+                            Route(pm);
+                        }
+                    });
+            }
+            else
+            {
+                _batchStrategy = new ByNodeBatchingStrategy();
+            }
         }
 
         /// <summary>
@@ -213,6 +277,7 @@ namespace Kafka.Routing
         {
             _messages.Complete();
             await _messages.Completion;
+            _batchStrategy.Dispose();
         }
 
         /// <summary>
@@ -439,7 +504,7 @@ namespace Kafka.Routing
             }
 
             produceMessage.Partition = partition.Id;
-            if (partition.Leader.Produce(produceMessage))
+            if (_batchStrategy.Send(partition.Leader, produceMessage))
             {
                 MessageRouted(topic);
             }

@@ -70,6 +70,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Batching\Accumulator.cs" />
+    <Compile Include="Batching\BatchStrategy.cs" />
     <Compile Include="Batching\Grouping.cs" />
     <Compile Include="Cluster\Cluster.cs" />
     <Compile Include="Cluster\ProduceMessage.cs" />

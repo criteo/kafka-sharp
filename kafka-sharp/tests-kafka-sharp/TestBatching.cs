@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Kafka.Batching;
+using Kafka.Cluster;
 using Moq;
 using NUnit.Framework;
 
@@ -148,6 +150,68 @@ namespace tests_kafka_sharp
                     batch.First(g => g.Key == "c").SelectMany(g => g).Select(t => t.Item3));
                 batch.Dispose();
             }
+        }
+
+        [Test]
+        [TestCase(5, 100000000)]
+        [TestCase(500000, 100)]
+        public void TestAccumulatorByNodeByTopic(int batchSize, int time)
+        {
+            INode n1 = new NodeMock();
+            INode n2 = new NodeMock();
+            var accumulator = new AccumulatorByNodeByTopic<Tuple<string, int>>(t => t.Item1, batchSize, TimeSpan.FromMilliseconds(time));
+
+            var count = new CountdownEvent(2);
+            var d = new Dictionary<INode, IBatchByTopic<Tuple<string, int>>>();
+            accumulator.NewBatch += (n, b) =>
+            {
+                d[n] = b;
+                count.Signal();
+            };
+
+            accumulator.Add(Tuple.Create(n1, Tuple.Create("1", 1)));
+            accumulator.Add(Tuple.Create(n1, Tuple.Create("1", 2)));
+            accumulator.Add(Tuple.Create(n2, Tuple.Create("2", 1)));
+            accumulator.Add(Tuple.Create(n2, Tuple.Create("2", 2)));
+            accumulator.Add(Tuple.Create(n2, Tuple.Create("2", 3)));
+
+            count.Wait();
+
+            Assert.AreEqual(2, d[n1].Count);
+            Assert.AreEqual(3, d[n2].Count);
+            d[n1].Dispose();
+            d[n2].Dispose();
+        }
+
+        [Test]
+        [TestCase(5, 100000000)]
+        [TestCase(500000, 100)]
+        public void TestAccumulatorByNodeByTopicByPartition(int batchSize, int time)
+        {
+            INode n1 = new NodeMock();
+            INode n2 = new NodeMock();
+            var accumulator = new AccumulatorByNodeByTopicByPartition<Tuple<string, int, int>>(t => t.Item1, t => t.Item2, batchSize, TimeSpan.FromMilliseconds(time));
+
+            var count = new CountdownEvent(2);
+            var d = new Dictionary<INode, IBatchByTopicByPartition<Tuple<string, int, int>>>();
+            accumulator.NewBatch += (n, b) =>
+            {
+                d[n] = b;
+                count.Signal();
+            };
+
+            accumulator.Add(Tuple.Create(n1, Tuple.Create("1", 1, 1)));
+            accumulator.Add(Tuple.Create(n1, Tuple.Create("1", 1, 2)));
+            accumulator.Add(Tuple.Create(n2, Tuple.Create("2", 1, 1)));
+            accumulator.Add(Tuple.Create(n2, Tuple.Create("2", 2, 2)));
+            accumulator.Add(Tuple.Create(n2, Tuple.Create("2", 2, 3)));
+
+            count.Wait();
+
+            Assert.AreEqual(2, d[n1].Count);
+            Assert.AreEqual(3, d[n2].Count);
+            d[n1].Dispose();
+            d[n2].Dispose();
         }
 
         [Test]

@@ -43,6 +43,12 @@ namespace Kafka.Cluster
         bool Produce(ProduceMessage message);
 
         /// <summary>
+        /// Post a batch of messages to be produced.
+        /// </summary>
+        /// <param name="batch"></param>
+        bool Post(IBatchByTopicByPartition<ProduceMessage> batch);
+
+        /// <summary>
         /// Feed a fetch request to the node for batching.
         /// </summary>
         /// <param name="message">Fetch request to batch.</param>
@@ -50,11 +56,23 @@ namespace Kafka.Cluster
         bool Fetch(FetchMessage message);
 
         /// <summary>
+        /// Post a batch of fetch requests to the node.
+        /// </summary>
+        /// <param name="batch"></param>
+        bool Post(IBatchByTopic<FetchMessage> batch);
+
+        /// <summary>
         /// Feed an offset request to the node for batching.
         /// </summary>
         /// <param name="message">Offset request to batch.</param>
         /// <returns>False if the node is dead.</returns>
         bool Offset(OffsetMessage message);
+
+        /// <summary>
+        /// Post a batch of offset requests to the node.
+        /// </summary>
+        /// <param name="batch"></param>
+        bool Post(IBatchByTopic<OffsetMessage> batch);
 
         /// <summary>
         /// Send a fetch metadata request to the node.
@@ -304,6 +322,42 @@ namespace Kafka.Cluster
         {
             public RequestType RequestType;
             public RequestValue RequestValue;
+
+            public static Request Create(IBatchByTopic<FetchMessage> value)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.Fetch,
+                    RequestValue = new RequestValue {FetchBatchRequest = value}
+                };
+            }
+
+            public static Request Create(IBatchByTopic<OffsetMessage> value)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.Offset,
+                    RequestValue = new RequestValue {OffsetBatchRequest = value}
+                };
+            }
+
+            public static Request Create(IBatchByTopicByPartition<ProduceMessage> value)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.Produce,
+                    RequestValue = new RequestValue {ProduceBatchRequest = value}
+                };
+            }
+
+            public static Request Create(MetadataRequest value)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.Metadata,
+                    RequestValue = new RequestValue {MetadataRequest = value}
+                };
+            }
         }
 
         // Dummy class to signal request messages incoming.
@@ -400,49 +454,24 @@ namespace Kafka.Cluster
             }
         }
 
-        private Accumulator<ProduceMessage> InitProduceSubject(int bufferingCount, TimeSpan bufferingTime)      
+        private Accumulator<ProduceMessage> InitProduceSubject(int bufferingCount, TimeSpan bufferingTime)
         {
             var accumulator = new AccumulatorByTopicByPartition<ProduceMessage>(pm => pm.Topic, pm => pm.Partition, bufferingCount, bufferingTime);
-            accumulator.NewBatch += batch => Post(new Request
-            {
-                RequestType = RequestType.Produce,
-                RequestValue = new RequestValue
-                {
-                    ProduceBatchRequest = batch
-                }
-            });
+            accumulator.NewBatch += b => Post(b);
             return accumulator;
         }
 
-        private Accumulator<FetchMessage> InitFetchSubject()
+        private Accumulator<FetchMessage> InitFetchSubject(int bufferingCount, TimeSpan bufferingTime)
         {
-            // TODO: make those values configurable
-            var accumulator = new AccumulatorByTopic<FetchMessage>(fm => fm.Topic, 10,
-                TimeSpan.FromMilliseconds(1000.0*_resolution/1000));
-            accumulator.NewBatch += batch => Post(new Request
-            {
-                RequestType = RequestType.Fetch,
-                RequestValue = new RequestValue
-                {
-                    FetchBatchRequest = batch
-                }
-            });
+            var accumulator = new AccumulatorByTopic<FetchMessage>(fm => fm.Topic, bufferingCount, bufferingTime);
+            accumulator.NewBatch += b => Post(b);
             return accumulator;
         }
 
-        private Accumulator<OffsetMessage> InitOffsetSubject()
+        private Accumulator<OffsetMessage> InitOffsetSubject(int bufferingCount, TimeSpan bufferingTime)
         {
-            // TODO: make those values configurable
-            var accumulator = new AccumulatorByTopic<OffsetMessage>(om => om.Topic, 10,
-                TimeSpan.FromMilliseconds(1000.0*_resolution/1000));
-            accumulator.NewBatch += batch => Post(new Request
-            {
-                RequestType = RequestType.Offset,
-                RequestValue = new RequestValue
-                {
-                    OffsetBatchRequest = batch
-                }
-            });
+            var accumulator = new AccumulatorByTopic<OffsetMessage>(om => om.Topic, bufferingCount, bufferingTime);
+            accumulator.NewBatch += b => Post(b);
             return accumulator;
         }
 
@@ -460,9 +489,12 @@ namespace Kafka.Cluster
             _requestQueue = new ActionBlock<Ping>(r => ProcessRequest(r), options);
             _responseQueue = new ActionBlock<Response>(r => ProcessResponse(r), options);
             _resolution = resolution;
-            _produceMessages = InitProduceSubject(configuration.BatchSize, configuration.BufferingTime);
-            _fetchMessages = InitFetchSubject();
-            _offsetMessages = InitOffsetSubject();
+            if (configuration.BatchStrategy == BatchStrategy.ByNode)
+            {
+                _produceMessages = InitProduceSubject(configuration.ProduceBatchSize, configuration.ProduceBufferingTime);
+                _fetchMessages = InitFetchSubject(configuration.ConsumeBatchSize, configuration.ConsumeBufferingTime);
+                _offsetMessages = InitOffsetSubject(configuration.ConsumeBatchSize, configuration.ConsumeBufferingTime);
+            }
             _serialization = serialization;
             _configuration = configuration;
         }
@@ -491,11 +523,7 @@ namespace Kafka.Cluster
         {
             var promise = new TaskCompletionSource<MetadataResponse>();
 
-            Post(new Request
-                {
-                    RequestType = RequestType.Metadata,
-                    RequestValue = new RequestValue {MetadataRequest = new MetadataRequest {Topic = topic, Promise = promise}}
-                });
+            Post(Request.Create(new MetadataRequest {Topic = topic, Promise = promise}));
 
             return promise.Task;
         }
@@ -505,9 +533,12 @@ namespace Kafka.Cluster
         public async Task Stop()
         {
             if (Interlocked.Increment(ref _stopped) > 1) return; // already stopped
-            _produceMessages.Dispose();
-            _fetchMessages.Dispose();
-            _offsetMessages.Dispose();
+            if (_configuration.BatchStrategy == BatchStrategy.ByNode)
+            {
+                _produceMessages.Dispose();
+                _fetchMessages.Dispose();
+                _offsetMessages.Dispose();
+            }
             _requestQueue.Complete();
             await _requestQueue.Completion;
             lock (_pendings)
@@ -570,6 +601,21 @@ namespace Kafka.Cluster
             _connection = connection;
             _pendings.TryAdd(connection, new ConcurrentQueue<Pending>());
             return connection;
+        }
+
+        public bool Post(IBatchByTopicByPartition<ProduceMessage> batch)
+        {
+            return Post(Request.Create(batch));
+        }
+
+        public bool Post(IBatchByTopic<FetchMessage> batch)
+        {
+            return Post(Request.Create(batch));
+        }
+
+        public bool Post(IBatchByTopic<OffsetMessage> batch)
+        {
+            return Post(Request.Create(batch));
         }
 
         // Post a message to the underlying request actor

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Kafka.Batching;
 using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
@@ -127,6 +128,36 @@ namespace tests_kafka_sharp
             Assert.AreEqual(2, _messagesSentByTopic["testallp"]);
 
             CheckCounters(expectedMessagesEnqueued: 6, expectedMessagesReEnqueued: 0, expectedMessagesRouted: 6, expectedMessagesExpired: 0, expectedRoutingTableRequired: 1);
+        }
+
+        [Test]
+        public void TestMessageAreSent_GlobalBatching()
+        {
+            var node = new Mock<INode>();
+            node.Setup(n => n.Post(It.IsAny<IBatchByTopicByPartition<ProduceMessage>>())).Returns(true);
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    Task.FromResult(new RoutingTable(new Dictionary<string, Partition[]>
+                    {
+                        {"toto", new[] {new Partition {Id = 0, Leader = node.Object}}}
+                    })));
+            var producer = new ProduceRouter(cluster.Object,
+                new Configuration
+                {
+                    BatchStrategy = BatchStrategy.Global,
+                    ProduceBatchSize = 2,
+                    ProduceBufferingTime = TimeSpan.FromDays(2), // To make sure there's no race on batch tick
+                    TaskScheduler = new CurrentThreadTaskScheduler()
+                });
+
+            producer.Route("toto", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(42));
+            // The second Route will tick a batch. All of this is done on the test thread thanks
+            // to CurrentThreadScheduler and large ProduceBufferingTime.
+            producer.Route("toto", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(42));
+            producer.Route("toto", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(42));
+
+            node.Verify(n => n.Post(It.Is<IBatchByTopicByPartition<ProduceMessage>>(b => b.Count == 2)));
         }
 
         private void CheckCounters(int expectedMessagesEnqueued = 0, int expectedMessagesReEnqueued = 0, int expectedMessagesRouted = 0,

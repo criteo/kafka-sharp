@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
+using Kafka.Batching;
 using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
@@ -131,6 +132,90 @@ namespace Kafka.Routing
     /// </summary>
     class ConsumeRouter : IConsumeRouter
     {
+        #region Batching
+
+        class ByNodeFetchBatchingStrategy : IBatchStrategy<FetchMessage>
+        {
+            public bool Send(INode node, FetchMessage message)
+            {
+                return node.Fetch(message);
+            }
+
+            public void Dispose()
+            {
+            }
+        }
+
+        class GlobalFetchBatchingStrategy : IBatchStrategy<FetchMessage>
+        {
+            private readonly AccumulatorByNodeByTopic<FetchMessage> _accumulator;
+            private Action<INode, IBatchByTopic<FetchMessage>> _batch;
+
+            public GlobalFetchBatchingStrategy(Configuration configuration, Action<INode, IBatchByTopic<FetchMessage>> batch)
+            {
+                _accumulator = new AccumulatorByNodeByTopic<FetchMessage>(
+                    m => m.Topic,
+                    configuration.ConsumeBatchSize,
+                    configuration.ConsumeBufferingTime);
+                _accumulator.NewBatch += batch;
+            }
+
+            public bool Send(INode node, FetchMessage message)
+            {
+                return _accumulator.Add(Tuple.Create(node, message));
+            }
+
+            public void Dispose()
+            {
+                _accumulator.Dispose();
+                _accumulator.NewBatch -= _batch;
+                _batch = null;
+            }
+        }
+
+        class ByNodeOffsetBatchingStrategy : IBatchStrategy<OffsetMessage>
+        {
+            public bool Send(INode node, OffsetMessage message)
+            {
+                return node.Offset(message);
+            }
+
+            public void Dispose()
+            {
+            }
+        }
+
+        class GlobalOffsetBatchingStrategy : IBatchStrategy<OffsetMessage>
+        {
+            private readonly AccumulatorByNodeByTopic<OffsetMessage> _accumulator;
+            private Action<INode, IBatchByTopic<OffsetMessage>> _batch;
+
+            public GlobalOffsetBatchingStrategy(Configuration configuration, Action<INode, IBatchByTopic<OffsetMessage>> batch)
+            {
+                _accumulator = new AccumulatorByNodeByTopic<OffsetMessage>(
+                    m => m.Topic,
+                    configuration.ConsumeBatchSize,
+                    configuration.ConsumeBufferingTime);
+                _accumulator.NewBatch += batch;
+            }
+
+            public bool Send(INode node, OffsetMessage message)
+            {
+                return _accumulator.Add(Tuple.Create(node, message));
+            }
+
+            public void Dispose()
+            {
+                _accumulator.Dispose();
+                _accumulator.NewBatch -= _batch;
+                _batch = null;
+            }
+        }
+
+        #endregion
+
+        #region Messages
+
         private enum ConsumerMessageType
         {
             FetchResponse,
@@ -167,6 +252,8 @@ namespace Kafka.Routing
             public TopicOnOff Topic;
         }
 
+        #endregion
+
         private class PartitionState
         {
             public long LastOffsetSeen;
@@ -190,7 +277,11 @@ namespace Kafka.Routing
         private Timer _checkPostponedPartitions;
 
         // Used in test mode to scale the waiting times when fetch metadata fails
-        private int _resolution = 1000;
+        private readonly int _resolution;
+
+        // Batch strategies
+        private readonly IBatchStrategy<FetchMessage> _fetchBatchStrategy;
+        private readonly IBatchStrategy<OffsetMessage> _offsetBatchStrategy;
 
         public event Action<RawKafkaRecord> MessageReceived = r => { };
 
@@ -209,24 +300,31 @@ namespace Kafka.Routing
         /// </summary>
         public event Action RoutingTableRequired = () => { };
 
-        public ConsumeRouter(ICluster cluster, Configuration configuration)
+        public ConsumeRouter(ICluster cluster, Configuration configuration, int resolution = 1000)
         {
+            _resolution = resolution;
             _cluster = cluster;
             _configuration = configuration;
             _innerActor = new ActionBlock<ConsumerMessage>(m => ProcessMessage(m),
                 new ExecutionDataflowBlockOptions {TaskScheduler = configuration.TaskScheduler});
-        }
-
-        internal ConsumeRouter SetResolution(int resolution)
-        {
-            _resolution = resolution;
-            return this;
+            if (configuration.BatchStrategy == BatchStrategy.ByNode)
+            {
+                _fetchBatchStrategy = new ByNodeFetchBatchingStrategy();
+                _offsetBatchStrategy = new ByNodeOffsetBatchingStrategy();
+            }
+            else
+            {
+                _fetchBatchStrategy = new GlobalFetchBatchingStrategy(configuration, (n, b) => n.Post(b));
+                _offsetBatchStrategy = new GlobalOffsetBatchingStrategy(configuration, (n, b) => n.Post(b));
+            }
         }
 
         public async Task Stop()
         {
             _innerActor.Complete();
             await _innerActor.Completion;
+            _fetchBatchStrategy.Dispose();
+            _offsetBatchStrategy.Dispose();
         }
 
         /// <summary>
@@ -455,7 +553,9 @@ namespace Kafka.Routing
         private async Task Offset(string topic, int partition, long time)
         {
             await NodeFetch(topic, partition,
-                l => l.Offset(new OffsetMessage { Topic = topic, Partition = partition, MaxNumberOfOffsets = 1, Time = time}));
+                l =>
+                    _offsetBatchStrategy.Send(l,
+                        (new OffsetMessage {Topic = topic, Partition = partition, MaxNumberOfOffsets = 1, Time = time})));
         }
 
         /// <summary>
@@ -640,7 +740,7 @@ namespace Kafka.Routing
         {
             await NodeFetch(topic, partition,
                 l =>
-                    l.Fetch(new FetchMessage
+                    _fetchBatchStrategy.Send(l, new FetchMessage
                     {
                         Topic = topic,
                         Partition = partition,
@@ -699,7 +799,7 @@ namespace Kafka.Routing
                     }
                     if (kv2.Value.NextOffsetExpected >= 0)
                     {
-                        leader.Fetch(new FetchMessage
+                        _fetchBatchStrategy.Send(leader, new FetchMessage
                         {
                             Topic = kv.Key,
                             Partition = kv2.Key,
@@ -708,7 +808,7 @@ namespace Kafka.Routing
                     }
                     else
                     {
-                        leader.Offset(new OffsetMessage
+                        _offsetBatchStrategy.Send(leader, new OffsetMessage
                         {
                             Topic = kv.Key,
                             Partition = kv2.Key,

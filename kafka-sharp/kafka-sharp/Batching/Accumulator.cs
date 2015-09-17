@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Kafka.Cluster;
 using Kafka.Common;
 
 namespace Kafka.Batching
@@ -209,6 +210,40 @@ namespace Kafka.Batching
         }
     }
 
+    class AccumulatorByNodeByTopic<TData> : Accumulator<Tuple<INode, TData>>
+    {
+        private readonly Func<TData, string> _topicFromData;
+        private readonly Dictionary<INode, BatchByTopic<TData>> _currentBatches = new Dictionary<INode, BatchByTopic<TData>>();
+
+        public event Action<INode, IBatchByTopic<TData>> NewBatch = (n, b) => { };
+
+        public AccumulatorByNodeByTopic(Func<TData, string> topicFromData, int maxCount, TimeSpan timeWindow)
+            : base(maxCount, timeWindow)
+        {
+            _topicFromData = topicFromData;
+        }
+
+        protected override void OnNewBatch(int count)
+        {
+            foreach (var kv in _currentBatches)
+            {
+                NewBatch(kv.Key, kv.Value);
+            }
+            _currentBatches.Clear();
+        }
+
+        protected override void Accumulate(Tuple<INode, TData> data)
+        {
+            BatchByTopic<TData> batch;
+            if (!_currentBatches.TryGetValue(data.Item1, out batch))
+            {
+                batch = BatchByTopic<TData>.New();
+                _currentBatches[data.Item1] = batch;
+            }
+            batch.Add(_topicFromData(data.Item2), data.Item2);
+        }
+    }
+
     #endregion
 
     #region Accumulator by topic by partition
@@ -313,6 +348,45 @@ namespace Kafka.Batching
         protected override void Accumulate(TData data)
         {
             _currentBatch.Add(_topicFromData(data), _partitionFromData(data), data);
+        }
+    }
+
+    class AccumulatorByNodeByTopicByPartition<TData> : Accumulator<Tuple<INode, TData>>
+    {
+        private readonly Func<TData, string> _topicFromData;
+        private readonly Func<TData, int> _partitionFromData;
+
+        private readonly Dictionary<INode, BatchByTopicByPartition<TData>> _currentBatches =
+            new Dictionary<INode, BatchByTopicByPartition<TData>>();
+
+        public event Action<INode, IBatchByTopicByPartition<TData>> NewBatch = (n, b) => { };
+
+        public AccumulatorByNodeByTopicByPartition(Func<TData, string> topicFromData, Func<TData, int> partitionFromData,
+            int maxCount, TimeSpan timeWindow)
+            : base(maxCount, timeWindow)
+        {
+            _topicFromData = topicFromData;
+            _partitionFromData = partitionFromData;
+        }
+
+        protected override void OnNewBatch(int count)
+        {
+            foreach (var kv in _currentBatches)
+            {
+                NewBatch(kv.Key, kv.Value);
+            }
+            _currentBatches.Clear();
+        }
+
+        protected override void Accumulate(Tuple<INode, TData> data)
+        {
+            BatchByTopicByPartition<TData> batch;
+            if (!_currentBatches.TryGetValue(data.Item1, out batch))
+            {
+                batch = BatchByTopicByPartition<TData>.New();
+                _currentBatches[data.Item1] = batch;
+            }
+            batch.Add(_topicFromData(data.Item2), _partitionFromData(data.Item2), data.Item2);
         }
     }
 

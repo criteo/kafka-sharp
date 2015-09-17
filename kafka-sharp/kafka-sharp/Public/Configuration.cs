@@ -50,6 +50,26 @@ namespace Kafka.Public
         Retry
     }
 
+    /// <summary>
+    /// Batching strategy
+    /// </summary>
+    public enum BatchStrategy
+    {
+        /// <summary>
+        /// A global accumulator will be used before sending batches to nodes.
+        /// This means no node will receveive requests until the batch limit
+        /// had been reached (i.e. ProduceBatchSize is accross all nodes). This may
+        /// be more efficient if your cluster has a large number of nodes (several hundreds).
+        /// </summary>
+        Global,
+
+        /// <summary>
+        /// Each node will use its own accumulator (i.e. ProduceBatchSize is applied by node).
+        /// This is the default.
+        /// </summary>
+        ByNode
+    }
+
     public class Configuration
     {
         /// <summary>
@@ -66,17 +86,22 @@ namespace Kafka.Public
         /// Time slice for batching messages. We wait  that much time at most before processing
         /// a batch of messages.
         /// </summary>
-        public TimeSpan BufferingTime = TimeSpan.FromMilliseconds(5000);
+        public TimeSpan ProduceBufferingTime = TimeSpan.FromMilliseconds(5000);
+
+        /// <summary>
+        /// Maximum size of message batches.
+        /// </summary>
+        public int ProduceBatchSize = 200;
+
+        /// <summary>
+        /// Strategy for batching (per node, or global)
+        /// </summary>
+        public BatchStrategy BatchStrategy = BatchStrategy.ByNode;
 
         /// <summary>
         /// The compression codec used to compress messages to this cluster.
         /// </summary>
         public CompressionCodec CompressionCodec = CompressionCodec.None;
-
-        /// <summary>
-        /// Maximum size of message batches.
-        /// </summary>
-        public int BatchSize = 200;
 
         /// <summary>
         /// If you don't provide a partition when producing a message, the parttion selector will
@@ -163,5 +188,16 @@ namespace Kafka.Public
         /// it is possible for producers to send messages larger than the consumer can fetch.
         /// </summary>
         public int FetchMessageMaxBytes = 1024 * 1024;
+
+        /// <summary>
+        /// Time slice for batching messages used when consuming (Offset and Fetch).
+        /// We wait  that much time at most before processing a batch of messages.
+        /// </summary>
+        public TimeSpan ConsumeBufferingTime = TimeSpan.FromMilliseconds(1000);
+
+        /// <summary>
+        /// Maximum size of consume message batches (Offset and Fetch). Keep it small.
+        /// </summary>
+        public int ConsumeBatchSize = 10;
     }
 }

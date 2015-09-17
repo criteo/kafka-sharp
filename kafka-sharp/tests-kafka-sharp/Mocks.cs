@@ -194,6 +194,22 @@ namespace tests_kafka_sharp
         public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement;
         public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
         public event Action<string> MessageReceived = _ => { };
+
+
+        public bool Post(IBatchByTopicByPartition<ProduceMessage> batch)
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool Post(IBatchByTopic<FetchMessage> batch)
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool Post(IBatchByTopic<OffsetMessage> batch)
+        {
+            throw new NotImplementedException();
+        }
     }
 
     class ClusterMock : ICluster

@@ -158,8 +158,8 @@ namespace Kafka.Public
         {
             configuration = new Configuration
             {
-                BatchSize = configuration.BatchSize,
-                BufferingTime = configuration.BufferingTime,
+                ProduceBatchSize = configuration.ProduceBatchSize,
+                ProduceBufferingTime = configuration.ProduceBufferingTime,
                 ClientId = configuration.ClientId,
                 CompressionCodec = configuration.CompressionCodec,
                 ErrorStrategy = configuration.ErrorStrategy,

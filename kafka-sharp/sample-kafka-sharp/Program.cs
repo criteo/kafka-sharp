@@ -125,6 +125,10 @@ dagfhefdghafdahfh",
                     curOpt = args[i];
                     switch (args[i])
                     {
+                        case "--global":
+                            configuration.BatchStrategy = BatchStrategy.Global;
+                            break;
+
                         case "--mix":
                             mix = true;
                             break;
@@ -166,11 +170,11 @@ dagfhefdghafdahfh",
                             break;
 
                         case "--batch":
-                            configuration.BatchSize = int.Parse(args[++i]);
+                            configuration.ProduceBatchSize = int.Parse(args[++i]);
                             break;
 
                         case "--time":
-                            configuration.BufferingTime = TimeSpan.FromMilliseconds(int.Parse(args[++i]));
+                            configuration.ProduceBufferingTime = TimeSpan.FromMilliseconds(int.Parse(args[++i]));
                             break;
 
                         case "--max-messages":

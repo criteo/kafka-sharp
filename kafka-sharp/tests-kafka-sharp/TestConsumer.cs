@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
-using System.Xml;
+using Kafka.Batching;
 using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
@@ -46,7 +44,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, Partitions.All, offset);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(t => t == TOPIC)), Times.AtLeastOnce());
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(s => s != TOPIC)), Times.Never());
@@ -82,7 +80,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, Partitions.All, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(t => t == TOPIC)), Times.AtLeastOnce());
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(s => s != TOPIC)), Times.Never());
@@ -95,6 +93,45 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.Offset != OFFSET)), Times.Never());
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.MaxBytes != configuration.FetchMessageMaxBytes)),
                 Times.Never());
+        }
+
+        [Test]
+        public void TestStart_AllPartitions_KnownOffset_GlobalBatching()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
+                .Returns(Task.FromResult(new[] { 0, 1, 2 }));
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration
+            {
+                TaskScheduler = new CurrentThreadTaskScheduler(),
+                BatchStrategy = BatchStrategy.Global,
+                ConsumeBatchSize = 3,
+                ConsumeBufferingTime = TimeSpan.FromHours(28)
+            };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            consumer.StartConsume(TOPIC, Partitions.All, OFFSET);
+
+            cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(t => t == TOPIC)), Times.AtLeastOnce());
+            cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(s => s != TOPIC)), Times.Never());
+            cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Never());
+            node.Verify(n => n.Post(It.IsAny<IBatchByTopic<FetchMessage>>()));
         }
 
         [Test]
@@ -120,7 +157,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, offset);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -128,6 +165,44 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Offset(It.Is<OffsetMessage>(om => om.Partition != PARTITION)), Times.Never());
             node.Verify(n => n.Offset(It.Is<OffsetMessage>(om => om.Topic != TOPIC)), Times.Never());
             node.Verify(n => n.Offset(It.Is<OffsetMessage>(om => om.Time != offset)), Times.Never());
+        }
+
+        [Test]
+        public void TestStart_OnePartition_OffsetUnknown_GlobalBatching()
+        {
+            const long offset = Offsets.Latest;
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC)).Returns(Task.FromResult(new[] {0, 1, 2}));
+            var configuration = new Configuration
+            {
+                TaskScheduler = new CurrentThreadTaskScheduler(),
+                BatchStrategy = BatchStrategy.Global,
+                ConsumeBatchSize = 3,
+                ConsumeBufferingTime = TimeSpan.FromHours(28)
+            };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            consumer.StartConsume(TOPIC, Partitions.All, offset);
+
+            cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.AtLeastOnce());
+            cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
+            node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Never());
+            node.Verify(n => n.Post(It.IsAny<IBatchByTopic<OffsetMessage>>()));
         }
 
         [Test]
@@ -151,7 +226,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -185,7 +260,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Latest);
             consumer.StopConsume(TOPIC, PARTITION, offset);
 
@@ -242,7 +317,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             consumer.StopConsume(TOPIC, PARTITION, offset);
 
@@ -308,7 +383,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
             consumer.StartConsume(TOPIC, PARTITION + 1, Offsets.Earliest);
             consumer.StartConsume(TOPIC2, PARTITION, Offsets.Earliest);
@@ -387,7 +462,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
             consumer.StartConsume(TOPIC, PARTITION + 1, Offsets.Earliest);
             consumer.StartConsume(TOPIC2, PARTITION, Offsets.Earliest);
@@ -489,7 +564,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             consumer.StopConsume(TOPIC, PARTITION, OFFSET + 1);
             int messageReceivedRaised = 0;
@@ -551,7 +626,7 @@ namespace tests_kafka_sharp
                             }
                         })));
             var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration).SetResolution(1);
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             int postponedRaised = 0;
             consumer.FetchPostponed += (t, p) =>
             {

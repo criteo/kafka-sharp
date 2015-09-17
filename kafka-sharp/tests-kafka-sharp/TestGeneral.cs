@@ -31,8 +31,8 @@ namespace tests_kafka_sharp
             var logger = new TestLogger();
             var configuration = new Configuration
             {
-                BatchSize = 10,
-                BufferingTime = TimeSpan.FromMilliseconds(15),
+                ProduceBatchSize = 10,
+                ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                 ErrorStrategy = ErrorStrategy.Discard,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
@@ -97,10 +97,24 @@ namespace tests_kafka_sharp
         {
             var configuration = new Configuration
             {
-                BatchSize = 10,
-                BufferingTime = TimeSpan.FromMilliseconds(15),
+                ProduceBatchSize = 10,
+                ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                 ErrorStrategy = ErrorStrategy.Discard,
                 Seeds = "localhost:1,localhost:2,localhost:3"
+            };
+            TestMultipleProduce(configuration);
+        }
+
+        [Test]
+        public void TestMultipleProduceGlobalAccumulator()
+        {
+            var configuration = new Configuration
+            {
+                ProduceBatchSize = 10,
+                ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
+                ErrorStrategy = ErrorStrategy.Discard,
+                Seeds = "localhost:1,localhost:2,localhost:3",
+                BatchStrategy = BatchStrategy.Global
             };
             TestMultipleProduce(configuration);
         }
@@ -110,8 +124,8 @@ namespace tests_kafka_sharp
         {
             var configuration = new Configuration
             {
-                BatchSize = 10,
-                BufferingTime = TimeSpan.FromMilliseconds(15),
+                ProduceBatchSize = 10,
+                ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                 ErrorStrategy = ErrorStrategy.Discard,
                 Seeds = "localhost:1,localhost:2,localhost:3",
                 TaskScheduler = new ActionBlockTaskScheduler(1)
@@ -125,8 +139,8 @@ namespace tests_kafka_sharp
             var logger = new TestLogger();
             var configuration = new Configuration
             {
-                BatchSize = 10,
-                BufferingTime = TimeSpan.FromMilliseconds(15),
+                ProduceBatchSize = 10,
+                ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                 ErrorStrategy = ErrorStrategy.Discard,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
@@ -169,8 +183,8 @@ namespace tests_kafka_sharp
             var logger = new TestLogger();
             var configuration = new Configuration
             {
-                BatchSize = 10,
-                BufferingTime = TimeSpan.FromMilliseconds(15),
+                ProduceBatchSize = 10,
+                ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                 ErrorStrategy = ErrorStrategy.Retry,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
@@ -213,8 +227,8 @@ namespace tests_kafka_sharp
             var logger = new TestLogger();
             var configuration = new Configuration
             {
-                BatchSize = 10,
-                BufferingTime = TimeSpan.FromMilliseconds(15),
+                ProduceBatchSize = 10,
+                ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                 ErrorStrategy = ErrorStrategy.Retry,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
