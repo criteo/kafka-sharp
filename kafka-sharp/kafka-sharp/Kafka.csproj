@@ -7,8 +7,8 @@
     <ProjectGuid>{BB2EB756-2BBF-4895-A1F3-09D34375F64E}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>kafka_sharp</RootNamespace>
-    <AssemblyName>kafka-sharp</AssemblyName>
+    <RootNamespace>Kafka</RootNamespace>
+    <AssemblyName>Kafka</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\..\..\</SolutionDir>

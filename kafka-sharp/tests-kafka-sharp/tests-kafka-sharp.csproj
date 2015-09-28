@@ -8,7 +8,7 @@
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>tests_kafka_sharp</RootNamespace>
-    <AssemblyName>kafka-sharp.UTest</AssemblyName>
+    <AssemblyName>Kafka.UTest</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\..\..\</SolutionDir>
@@ -98,9 +98,9 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\kafka-sharp\kafka-sharp.csproj">
+    <ProjectReference Include="..\kafka-sharp\Kafka.csproj">
       <Project>{bb2eb756-2bbf-4895-a1f3-09d34375f64e}</Project>
-      <Name>kafka-sharp</Name>
+      <Name>Kafka</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(SolutionDir)\.cbs\moab.targets" Condition="Exists('$(SolutionDir)\.cbs\moab.targets')" />

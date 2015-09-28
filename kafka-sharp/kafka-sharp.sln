@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2013
 VisualStudioVersion = 12.0.31101.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "kafka-sharp", "kafka-sharp\kafka-sharp.csproj", "{BB2EB756-2BBF-4895-A1F3-09D34375F64E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "kafka", "kafka-sharp\kafka.csproj", "{BB2EB756-2BBF-4895-A1F3-09D34375F64E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "tests-kafka-sharp", "tests-kafka-sharp\tests-kafka-sharp.csproj", "{590EC259-ACC6-4AB4-931C-9498E6152689}"
 EndProject
