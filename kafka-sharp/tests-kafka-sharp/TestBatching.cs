@@ -128,7 +128,7 @@ namespace tests_kafka_sharp
             using (
                 var accumulator = new AccumulatorByTopicByPartition<Tuple<string, int, int>>(t => t.Item1, t => t.Item2,
                     5,
-                    TimeSpan.FromMilliseconds(15)))
+                    TimeSpan.FromMilliseconds(150)))
             {
                 IBatchByTopicByPartition<Tuple<string, int, int>> batch = null;
                 accumulator.NewBatch += b => batch = b;
