@@ -231,7 +231,7 @@ namespace Kafka.Network
             int sendBufferSize = DefaultBufferSize,
             int receiveBufferSize = DefaultBufferSize)
             : this(
-                new IPEndPoint(Dns.GetHostEntry(host).AddressList[0], port), socketFactory, sendBufferSize,
+                new IPEndPoint(Dns.GetHostAddresses(host)[0], port), socketFactory, sendBufferSize,
                 receiveBufferSize)
         {
         }
