@@ -52,6 +52,8 @@ namespace Kafka.Public
     {
         private readonly Dictionary<string, Serializers> _serializers;
         private readonly Dictionary<string, Deserializers> _deserializers;
+        private Serializers _defaultSerializers = ByteArraySerializers;
+        private Deserializers _defaultDeserializers = ByteArrayDeserializers;
 
         public SerializationConfig()
         {
@@ -63,6 +65,16 @@ namespace Kafka.Public
         {
             _serializers = new Dictionary<string, Serializers>(config._serializers);
             _deserializers = new Dictionary<string, Deserializers>(config._deserializers);
+        }
+
+        public void SetDefaultSerializers(ISerializer keySerializer, ISerializer valueSerializer)
+        {
+            _defaultSerializers = Tuple.Create(keySerializer, valueSerializer);
+        }
+
+        public void SetDefaultDeserializers(IDeserializer keyDeserializer, IDeserializer valueDeserializer)
+        {
+            _defaultDeserializers = Tuple.Create(keyDeserializer, valueDeserializer);
         }
 
         public void SetSerializersForTopic(string topic, ISerializer keySerializer, ISerializer valueSerializer)
@@ -80,7 +92,7 @@ namespace Kafka.Public
             Serializers output;
             if (!_serializers.TryGetValue(topic, out output))
             {
-                output = DefaultSerializers;
+                output = _defaultSerializers;
             }
             else
             {
@@ -97,7 +109,7 @@ namespace Kafka.Public
             Deserializers output;
             if (!_deserializers.TryGetValue(topic, out output))
             {
-                output = DefaultDeserializers;
+                output = _defaultDeserializers;
             }
             else
             {
@@ -109,9 +121,8 @@ namespace Kafka.Public
             return output;
         }
 
-        internal static readonly Serializers DefaultSerializers = Tuple.Create(ByteArraySerialization.DefaultSerializer, ByteArraySerialization.DefaultSerializer);
-        internal static readonly Deserializers DefaultDeserializers = Tuple.Create(ByteArraySerialization.DefaultDeserializer,
-            ByteArraySerialization.DefaultDeserializer);
+        internal static readonly Serializers ByteArraySerializers = Tuple.Create(ByteArraySerialization.DefaultSerializer, ByteArraySerialization.DefaultSerializer);
+        internal static readonly Deserializers ByteArrayDeserializers = Tuple.Create(ByteArraySerialization.DefaultDeserializer, ByteArraySerialization.DefaultDeserializer);
     }
 
     /// <summary>

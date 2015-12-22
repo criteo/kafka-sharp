@@ -112,7 +112,7 @@ namespace Kafka.Protocol
                         Basics.WriteSizeInBytes(stream, m,
                             new SerializationInfo
                             {
-                                Serializers = SerializationConfig.DefaultSerializers,
+                                Serializers = SerializationConfig.ByteArraySerializers,
                                 CompressionCodec = info.CompressionCodec
                             }, SerializeMessageWithCodec);
                     }

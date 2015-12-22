@@ -105,7 +105,7 @@ namespace tests_kafka_sharp
                         new Message {Key = Key, Value = Value}
                     }
                 };
-                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+                set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized.Position = 0;
 
                 Assert.AreEqual(42, BigEndianConverter.ReadInt32(serialized)); // Partition
@@ -138,7 +138,7 @@ namespace tests_kafka_sharp
                         new Message {Key = Key, Value = Value}
                     }
                 };
-                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+                set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized.Position = 0;
 
                 Assert.AreEqual(42, BigEndianConverter.ReadInt32(serialized)); // Partition
@@ -176,10 +176,10 @@ namespace tests_kafka_sharp
                         new Message {Key = Key, Value = Value}
                     }
                 };
-                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+                set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized.Position = 4;
 
-                var deserialized = FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.DefaultDeserializers);
+                var deserialized = FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.ByteArrayDeserializers);
                 Assert.AreEqual(2, deserialized.Count);
                 foreach (var msg in deserialized)
                 {
@@ -802,6 +802,32 @@ namespace tests_kafka_sharp
             Assert.That(d, Is.EqualTo(Tuple.Create(deser, ByteArraySerialization.DefaultDeserializer)));
         }
 
+        [Test]
+        public void TestChangeDefaultSerialization()
+        {
+            var config = new SerializationConfig();
+            ISerializer ser = new StringSerializer();
+            IDeserializer deser = new StringDeserializer();
+
+            var s = config.GetSerializersForTopic("topicnotfound");
+            Assert.That(s,
+                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultSerializer, ByteArraySerialization.DefaultSerializer)));
+
+            var d = config.GetDeserializersForTopic("topicnotfound");
+            Assert.That(d,
+                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultDeserializer, ByteArraySerialization.DefaultDeserializer)));
+
+            config.SetDefaultSerializers(ser, ser);
+            config.SetDefaultDeserializers(deser, deser);
+
+            s = config.GetSerializersForTopic("topicnotfound");
+            Assert.That(s,
+                Is.EqualTo(Tuple.Create(ser, ser)));
+
+            d = config.GetDeserializersForTopic("topicnotfound");
+            Assert.That(d,
+                Is.EqualTo(Tuple.Create(deser, deser)));
+        }
 
         [Test]
         public void TestUnsupportedMagicByte()
@@ -817,11 +843,11 @@ namespace tests_kafka_sharp
                         new Message {Key = Key, Value = Value}
                     }
                 };
-                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+                set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized[24] = 8; // set non supported magic byte
                 serialized.Position = 4;
 
-                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.DefaultDeserializers), Throws.InstanceOf<UnsupportedMagicByteVersion>());
+                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.ByteArrayDeserializers), Throws.InstanceOf<UnsupportedMagicByteVersion>());
             }
         }
 
@@ -839,11 +865,11 @@ namespace tests_kafka_sharp
                         new Message {Key = Key, Value = Value}
                     }
                 };
-                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+                set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized[20] = 8; // change crc
                 serialized.Position = 4;
 
-                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.DefaultDeserializers), Throws.InstanceOf<CrcException>());
+                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.ByteArrayDeserializers), Throws.InstanceOf<CrcException>());
             }
         }
 
@@ -861,7 +887,7 @@ namespace tests_kafka_sharp
                         new Message {Key = Key, Value = Value}
                     }
                 };
-                set.Serialize(serialized, SerializationConfig.DefaultSerializers);
+                set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
 
                 // corrupt compressed data
                 serialized[37] = 8;
@@ -873,7 +899,7 @@ namespace tests_kafka_sharp
 
                 // go
                 serialized.Position = 4;
-                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.DefaultDeserializers), Throws.InstanceOf<UncompressException>());
+                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.ByteArrayDeserializers), Throws.InstanceOf<UncompressException>());
             }
         }
     }
