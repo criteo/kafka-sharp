@@ -106,8 +106,7 @@ namespace Kafka.Protocol
 
                         var m = new Message
                         {
-                            Value = compressed.GetBuffer(),
-                            ValueSize = (int) compressed.Length
+                            Value = compressed
                         };
                         Basics.WriteSizeInBytes(stream, m,
                             new SerializationInfo

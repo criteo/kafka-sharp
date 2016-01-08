@@ -4,6 +4,7 @@
 using System;
 using System.IO;
 using System.Threading;
+using Kafka.Public;
 
 namespace Kafka.Common
 {
@@ -15,7 +16,7 @@ namespace Kafka.Common
     ///
     /// TODO: (for all pools) check that we do not keep too many objects in the pool
     /// </summary>
-    class ReusableMemoryStream : MemoryStream, IDisposable
+    class ReusableMemoryStream : MemoryStream, IMemorySerializable, IDisposable
     {
         //private static readonly ConcurrentQueue<ReusableMemoryStream> _pool =
         //    new ConcurrentQueue<ReusableMemoryStream>();
@@ -66,6 +67,13 @@ namespace Kafka.Common
             SetLength(capacity);
             Position = position;
             return this;
+        }
+
+        public void Serialize(MemoryStream toStream)
+        {
+            byte[] array = GetBuffer();
+            int length = (int)Length;
+            toStream.Write(array, 0, length);
         }
     }
 

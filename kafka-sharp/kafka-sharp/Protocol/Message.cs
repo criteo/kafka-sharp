@@ -2,7 +2,6 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
-using System.Collections.Generic;
 using Kafka.Common;
 using Kafka.Public;
 
@@ -12,9 +11,15 @@ namespace Kafka.Protocol
     {
         public object Key;
         public object Value;
+        public ReusableMemoryStream SerializedKeyValue;
 
-        // This is to handle zero-copy optimization
-        internal int ValueSize;
+        public void SerializeKeyValue(Tuple<ISerializer, ISerializer> serializers)
+        {
+            SerializedKeyValue = ReusableMemoryStream.Reserve();
+            SerializeKeyValue(SerializedKeyValue, serializers);
+            Key = null;
+            Value = null;
+        }
 
         public void Serialize(ReusableMemoryStream stream, CompressionCodec compressionCodec, Tuple<ISerializer, ISerializer> serializers)
         {
@@ -24,32 +29,14 @@ namespace Kafka.Protocol
 
             stream.WriteByte(0); // magic byte
             stream.WriteByte((byte) compressionCodec); // attributes
-            if (Key == null)
-            {
-                stream.Write(Basics.MinusOne32, 0, 4);
-            }
-            else
-            {
-                Basics.WriteSizeInBytes(stream, Key, serializers.Item1, SerializerWrite);
-            }
 
-            if (Value == null)
+            if (SerializedKeyValue != null)
             {
-                stream.Write(Basics.MinusOne32, 0, 4);
+                stream.Write(SerializedKeyValue.GetBuffer(), 0, (int)SerializedKeyValue.Length);
             }
             else
             {
-                var barray = Value as byte[];
-                if (barray != null)
-                {
-                    var length = ValueSize > 0 ? ValueSize : barray.Length;
-                    BigEndianConverter.Write(stream, length);
-                    stream.Write(barray, 0, length);
-                }
-                else
-                {
-                    Basics.WriteSizeInBytes(stream, Value, serializers.Item2, SerializerWrite);
-                }
+                SerializeKeyValue(stream, serializers);
             }
 
             // update crc
@@ -60,13 +47,54 @@ namespace Kafka.Protocol
             stream.Position = curPos;
         }
 
-        static void SerializerWrite(ReusableMemoryStream stream, object m, ISerializer ser)
+        private void SerializeKeyValue(ReusableMemoryStream stream, Tuple<ISerializer, ISerializer> serializers)
         {
-            if (ser == null)
+            if (Key == null)
             {
-                ser = ByteArraySerialization.DefaultSerializer;
+                stream.Write(Basics.MinusOne32, 0, 4);
             }
-            ser.Serialize(m, stream);
+            else
+            {
+                SerializeObject(stream, serializers.Item1, Key);
+            }
+
+            if (Value == null)
+            {
+                stream.Write(Basics.MinusOne32, 0, 4);
+            }
+            else
+            {
+                SerializeObject(stream, serializers.Item2, Value);
+            }
+        }
+
+        private static void SerializeObject(ReusableMemoryStream stream, ISerializer serializer, object theValue)
+        {
+            // byte[] are just copied
+            var bytes = theValue as byte[];
+            if (bytes != null)
+            {
+                byte[] array = bytes;
+                BigEndianConverter.Write(stream, array.Length);
+                stream.Write(array, 0, array.Length);
+            }
+            else
+            {
+                Basics.WriteSizeInBytes(stream, theValue, serializer, SerializerWrite);
+            }
+        }
+
+        private static void SerializerWrite(ReusableMemoryStream stream, object m, ISerializer ser)
+        {
+            var serializable = m as IMemorySerializable;
+            if (serializable != null)
+            {
+                serializable.Serialize(stream);
+            }
+            else
+            {
+                ser.Serialize(m, stream);
+            }
         }
     }
 }

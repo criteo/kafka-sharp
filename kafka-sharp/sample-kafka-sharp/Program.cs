@@ -256,9 +256,10 @@ dagfhefdghafdahfh",
                 serializationConfig.SetSerializersForTopic(topic, serializer, serializer);
                 serializationConfig.SetDeserializersForTopic(topic, deserializer, deserializer);
             }
+            configuration.SerializationConfig = serializationConfig;
 
             var cluster =
-                new ClusterClient(configuration, new ConsoleLogger(), serializationConfig);
+                new ClusterClient(configuration, new ConsoleLogger());
 
             if (_partitions == null)
             {

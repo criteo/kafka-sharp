@@ -68,6 +68,11 @@ namespace tests_kafka_sharp
         [SetUp]
         public void SetUp()
         {
+            SetUp(new Configuration{TaskScheduler = new CurrentThreadTaskScheduler()});
+        }
+
+        private void SetUp(Configuration config)
+        {
             _messagesSentByTopic = new Dictionary<string, int>
                 {
                     {"test", 0},
@@ -100,7 +105,7 @@ namespace tests_kafka_sharp
             _cluster = new ClusterMock(_routes);
 
             MessagesEnqueued = MessagesExpired = MessagesReEnqueued = MessagesRouted = MessagesPostponed = RoutingTableRequired = 0;
-            InitRouter(new ProduceRouter(_cluster, new Configuration{TaskScheduler = new CurrentThreadTaskScheduler()}));
+            InitRouter(new ProduceRouter(_cluster, config));
             _finished = null;
         }
 
@@ -113,6 +118,23 @@ namespace tests_kafka_sharp
 
         [Test]
         public async Task TestMessagesAreSent()
+        {
+            await TestMessagesAreSentCommon();
+        }
+
+        [Test]
+        public async Task TestSerializeOnProduceAreSent()
+        {
+            SetUp(new Configuration
+            {
+                TaskScheduler = new CurrentThreadTaskScheduler(),
+                SerializationConfig = new SerializationConfig { SerializeOnProduce = true }
+            });
+
+            await TestMessagesAreSentCommon();
+        }
+
+        private async Task TestMessagesAreSentCommon()
         {
             _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
             _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
@@ -128,6 +150,37 @@ namespace tests_kafka_sharp
             Assert.AreEqual(2, _messagesSentByTopic["testallp"]);
 
             CheckCounters(expectedMessagesEnqueued: 6, expectedMessagesReEnqueued: 0, expectedMessagesRouted: 6, expectedMessagesExpired: 0, expectedRoutingTableRequired: 1);
+        }
+
+        [Test]
+        public void TestSerializeOnProduce()
+        {
+            var node = new Mock<INode>();
+            node.Setup(n => n.Produce(It.IsAny<ProduceMessage>())).Returns(true);
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    Task.FromResult(new RoutingTable(new Dictionary<string, Partition[]>
+                    {
+                        {"toto", new[] {new Partition {Id = 0, Leader = node.Object}}}
+                    })));
+            var producer = new ProduceRouter(cluster.Object,
+                new Configuration
+                {
+                    TaskScheduler = new CurrentThreadTaskScheduler(),
+                    SerializationConfig = new SerializationConfig {SerializeOnProduce = true}
+                });
+
+            var key = new byte[] {65, 66}; // 'A', 'B'
+            var value = new byte[] {67, 68}; // 'C', 'D'
+            producer.Route("toto", new Message {Key = key, Value = value}, Partitions.Any,
+                DateTime.UtcNow.AddMinutes(42));
+            node.Verify(
+                n =>
+                    n.Produce(
+                        It.Is<ProduceMessage>(
+                            p =>
+                                p.Message.SerializedKeyValue != null && p.Message.Key == null && p.Message.Value == null)));
         }
 
         [Test]

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using Kafka.Batching;
 using Kafka.Cluster;
+using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
 using ICluster = Kafka.Cluster.ICluster;
@@ -300,9 +301,15 @@ namespace Kafka.Routing
         /// </summary>
         /// <param name="topic"></param>
         /// <param name="message"></param>
+        /// <param name="partition"></param>
         /// <param name="expirationDate"></param>
         public void Route(string topic, Message message, int partition, DateTime expirationDate)
         {
+            if (_configuration.SerializationConfig.SerializeOnProduce)
+            {
+                var serializers = _configuration.SerializationConfig.GetSerializersForTopic(topic);
+                message.SerializeKeyValue(serializers);
+            }
             Route(ProduceMessage.New(topic, partition, message, expirationDate));
         }
 
@@ -623,15 +630,22 @@ namespace Kafka.Routing
                         else
                         {
                             ++sent;
-                            var key = pm.Message.Key as IDisposable;
-                            if (key != null)
+                            if (_configuration.SerializationConfig.SerializeOnProduce)
                             {
-                                key.Dispose();
+                                pm.Message.SerializedKeyValue.Dispose();
                             }
-                            var value = pm.Message.Value as IDisposable;
-                            if (value != null)
+                            else
                             {
-                                value.Dispose();
+                                var key = pm.Message.Key as IDisposable;
+                                if (key != null)
+                                {
+                                    key.Dispose();
+                                }
+                                var value = pm.Message.Value as IDisposable;
+                                if (value != null)
+                                {
+                                    value.Dispose();
+                                }
                             }
                             ProduceMessage.Release(pm);
                         }
@@ -722,6 +736,7 @@ namespace Kafka.Routing
         // Raise the MessageExpired event and release a message.
         private void OnMessageExpired(ProduceMessage message)
         {
+            message.Message = CheckReleaseMessage(message.Message);
             MessageExpired(message.Topic, message.Message);
             ProduceMessage.Release(message);
         }
@@ -729,8 +744,19 @@ namespace Kafka.Routing
         // Raise the MessageDiscarded event and release a message.
         private void OnMessageDiscarded(ProduceMessage message)
         {
+            message.Message = CheckReleaseMessage(message.Message);
             MessageDiscarded(message.Topic, message.Message);
             ProduceMessage.Release(message);
+        }
+
+        private Message CheckReleaseMessage(Message message)
+        {
+            if (message.SerializedKeyValue != null)
+            {
+                message.SerializedKeyValue.Dispose();
+                message.SerializedKeyValue = null;
+            }
+            return message;
         }
     }
 }

@@ -179,7 +179,8 @@ namespace Kafka.Public
                 RequiredAcks = configuration.RequiredAcks,
                 Seeds = configuration.Seeds,
                 SendBufferSize = configuration.SendBufferSize,
-                TaskScheduler = configuration.TaskScheduler
+                TaskScheduler = configuration.TaskScheduler,
+                SerializationConfig = new SerializationConfig(configuration.SerializationConfig)
             };
             if (configuration.TaskScheduler == TaskScheduler.Default && configuration.MaximumConcurrency > 0)
             {
@@ -204,12 +205,16 @@ namespace Kafka.Public
         /// <summary>
         /// This is raised when a produce message has expired.
         /// The message partition will be set to None and the offset to 0.
+        /// If SerializationOnProduce is set to true in the serialization
+        /// configuration, Key and Value will be set to null.
         /// </summary>
         public event Action<RawKafkaRecord> MessageExpired = _ => { };
 
         /// <summary>
         /// Rx observable version of the MessageExpired event.
         /// The message partition will be set to None and the offset to 0.
+        /// If SerializationOnProduce is set to true in the serialization
+        /// configuration, Key and Value will be set to null.
         /// </summary>
         public IObservable<RawKafkaRecord> ExpiredMessages { get; private set; }
 
@@ -221,12 +226,16 @@ namespace Kafka.Public
         /// you should get a MessageExpired event instead (cluster will
         /// retry produce on most errors until expiration date comes).
         /// The message partition will be set to None and the offset to 0.
+        /// If SerializationOnProduce is set to true in the serialization
+        /// configuration, Key and Value will be set to null.
         /// </summary>
         public event Action<RawKafkaRecord> MessageDiscarded = _ => { };
 
         /// <summary>
         /// Rx observable version of the MessageDiscarded event.
         /// The message partition will be set to None and the offset to 0.
+        /// If SerializationOnProduce is set to true in the serialization
+        /// configuration, Key and Value will be set to null.
         /// </summary>
         public IObservable<RawKafkaRecord> DiscardedMessages { get; private set; }
 
@@ -236,30 +245,7 @@ namespace Kafka.Public
         /// <param name="configuration">Kafka configuration.</param>
         /// <param name="logger"></param>
         public ClusterClient(Configuration configuration, ILogger logger)
-            : this(configuration, logger, null, null, null)
-        {
-        }
-
-        /// <summary>
-        /// Initialize a client to a Kafka cluster.
-        /// </summary>
-        /// <param name="configuration">Kafka configuration.</param>
-        /// <param name="logger"></param>
-        /// <param name="serializationConfig">Serialization configuration if you want to provide custom serializers/deserializers.</param>
-        public ClusterClient(Configuration configuration, ILogger logger, SerializationConfig serializationConfig)
-            : this(configuration, logger, null, serializationConfig, null)
-        {
-        }
-
-        /// <summary>
-        /// Initialize a client to a Kafka cluster.
-        /// </summary>
-        /// <param name="configuration">Kafka configuration.</param>
-        /// <param name="logger"></param>
-        /// <param name="serializationConfig">Serialization configuration if you want to provide custom serializers/deserializers.</param>
-        /// <param name="statistics">Provide this if you want to inject custom statistics management.</param>
-        public ClusterClient(Configuration configuration, ILogger logger, SerializationConfig serializationConfig, IStatistics statistics)
-            : this(CloneConfig(configuration), logger, null, serializationConfig, statistics)
+            : this(configuration, logger, null, null)
         {
         }
 
@@ -270,20 +256,20 @@ namespace Kafka.Public
         /// <param name="logger"></param>
         /// <param name="statistics">Provide this if you want to inject custom statistics management.</param>
         public ClusterClient(Configuration configuration, ILogger logger, IStatistics statistics)
-            : this(CloneConfig(configuration), logger, null, null, statistics)
+            : this(CloneConfig(configuration), logger, null, statistics)
         {
         }
 
         internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster)
-            : this(configuration, logger, cluster, null, null)
+            : this(configuration, logger, cluster, null)
         {
         }
 
-        internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster, SerializationConfig serializationConfig, IStatistics statistics)
+        internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster, IStatistics statistics)
         {
             _configuration = configuration;
             _logger = logger;
-            _cluster = cluster ?? new Cluster.Cluster(configuration, logger, statistics, serializationConfig);
+            _cluster = cluster ?? new Cluster.Cluster(configuration, logger, statistics);
             _cluster.InternalError += e => _logger.LogError("Cluster internal error: " + e);
             _cluster.ConsumeRouter.MessageReceived += kr => MessageReceived(kr);
             Messages = Observable.FromEvent<RawKafkaRecord>(a => MessageReceived += a, a => MessageReceived -= a);

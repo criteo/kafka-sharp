@@ -45,6 +45,18 @@ namespace Kafka.Public
     }
 
     /// <summary>
+    /// This defines an interface for object serializable to memory.
+    /// If your data Key or Value class implements this interface,
+    /// then it will always be used for serialization by the Producer part of
+    /// the driver.
+    /// This is an alternative to providing an ISerializer for a topic.
+    /// </summary>
+    public interface IMemorySerializable
+    {
+        void Serialize(MemoryStream toStream);
+    }
+
+    /// <summary>
     /// A class holding information on serializer/deserializer per topic.
     /// This class is not threadsafe: don't set from multiple threads at  the same time.
     /// </summary>
@@ -65,7 +77,22 @@ namespace Kafka.Public
         {
             _serializers = new Dictionary<string, Serializers>(config._serializers);
             _deserializers = new Dictionary<string, Deserializers>(config._deserializers);
+            SerializeOnProduce = config.SerializeOnProduce;
         }
+
+        /// <summary>
+        /// If true, the producer will serialize messages keys/values before routing a
+        /// message. Original data will not be kept in memory while buffering messages
+        /// for a batch. This helps decreasing the pressure on the garbage collector
+        /// by avoiding sending original data to Gen 1 or 2.
+        /// As a consequence, in case of unrecoverable error the original object will not
+        /// be reported back to the client.
+        ///
+        /// If you require high performances (you plan for very high throughput),
+        /// or plan to set big windows and wants to minimize GC for batching you sould
+        /// probably set this to true.
+        /// </summary>
+        public bool SerializeOnProduce = false;
 
         public void SetDefaultSerializers(ISerializer keySerializer, ISerializer valueSerializer)
         {

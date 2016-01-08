@@ -199,5 +199,10 @@ namespace Kafka.Public
         /// Maximum size of consume message batches (Offset and Fetch). Keep it small.
         /// </summary>
         public int ConsumeBatchSize = 10;
+
+        /// <summary>
+        /// Serialization configuration options and (de)serializers.
+        /// </summary>
+        public SerializationConfig SerializationConfig = new SerializationConfig();
     }
 }

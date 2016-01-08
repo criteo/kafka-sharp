@@ -41,9 +41,60 @@ namespace tests_kafka_sharp
         [Test]
         public void TestSerializeOneMessage()
         {
+            var message = new Message { Key = Key, Value = Value };
+            TestSerializeOneMessageCommon(message);
+        }
+
+        [Test]
+        public void TestSerializeOneMessageWithPreserializedKeyValue()
+        {
+            var message = new Message { Key = Key, Value = Value };
+            message.SerializeKeyValue(new Tuple<ISerializer, ISerializer>(null, null));
+            Assert.IsNull(message.Key);
+            Assert.IsNull(message.Value);
+            Assert.IsNotNull(message.SerializedKeyValue);
+            TestSerializeOneMessageCommon(message);
+            message.SerializedKeyValue.Dispose();
+        }
+
+        class SimpleSerializable : IMemorySerializable
+        {
+            public byte[] Data;
+
+            public SimpleSerializable(byte[] data)
+            {
+                Data = data;
+            }
+
+            public void Serialize(MemoryStream toStream)
+            {
+                toStream.Write(Data, 0, Data.Length);
+            }
+        }
+
+        [Test]
+        public void TestSerializeOneMessageIMemorySerializable()
+        {
+            var message = new Message {Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value)};
+            TestSerializeOneMessageCommon(message);
+        }
+
+        [Test]
+        public void TestSerializeOneMessageIMemorySerializableWithPreserializedKeyValue()
+        {
+            var message = new Message { Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value) };
+            message.SerializeKeyValue(new Tuple<ISerializer, ISerializer>(null, null));
+            Assert.IsNull(message.Key);
+            Assert.IsNull(message.Value);
+            Assert.IsNotNull(message.SerializedKeyValue);
+            TestSerializeOneMessageCommon(message);
+            message.SerializedKeyValue.Dispose();
+        }
+
+        private void TestSerializeOneMessageCommon(Message message)
+        {
             using (var serialized = ReusableMemoryStream.Reserve())
             {
-                var message = new Message {Key = Key, Value = Value};
                 message.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null));
                 Assert.AreEqual(FullMessageSize, serialized.Length);
                 Assert.AreEqual(0, serialized.GetBuffer()[4]); // magic byte is 0
@@ -57,8 +108,8 @@ namespace tests_kafka_sharp
 
             using (var serialized = ReusableMemoryStream.Reserve())
             {
-                var message = new Message { Value = Value };
-                message.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null));
+                var msg = new Message { Value = Value };
+                msg.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null));
                 Assert.AreEqual(NullKeyMessageSize, serialized.Length);
                 Assert.AreEqual(0, serialized.GetBuffer()[4]); // magic byte is 0
                 Assert.AreEqual(0, serialized.GetBuffer()[5]); // attributes is 0

@@ -74,7 +74,7 @@ namespace Kafka.Public
         where TValue : class
     {
         private static readonly ConcurrentDictionary<string, KafkaProducer<TKey, TValue>> Producers = new ConcurrentDictionary<string, KafkaProducer<TKey, TValue>>();
-        
+
         private readonly IClusterClient _clusterClient;
         private readonly string _topic;
         private readonly Subject<KafkaRecord<TKey, TValue>> _discarded = new Subject<KafkaRecord<TKey, TValue>>();
