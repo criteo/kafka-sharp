@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Configuration;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
@@ -351,6 +352,21 @@ namespace tests_kafka_sharp
                                 new Configuration(), 1);
             var response = await node.FetchMetadata();
             Assert.IsNotNull(response);
+        }
+
+        [Test]
+        public void TestFetchMetadataTimeout()
+        {
+            var con = new Mock<IConnection>();
+            con.Setup(c => c.ConnectAsync()).Returns(Task.FromResult(true));
+            con.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns(Task.FromResult(true));
+            var node = new Node("Node", () => con.Object, new MetadataSerialization(new MetadataResponse()),
+                                new Configuration{RequestTimeoutMs = 1}, 1);
+            bool isDead = false;
+            node.Dead += _ => isDead = true;
+            Assert.Throws<TimeoutException>(async () => await node.FetchMetadata());
+            Assert.IsTrue(isDead);
         }
 
         [Test]

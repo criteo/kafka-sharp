@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.Contracts;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -132,6 +133,20 @@ namespace tests_kafka_sharp
 
             Assert.AreEqual(0, _internalErrors);
             AssertDefaultRouting(routing);
+        }
+
+        [Test]
+        public void TestFetchRoutingTableTimeout()
+        {
+            var failed = new TaskCompletionSource<MetadataResponse>();
+            failed.SetException(new TimeoutException());
+            foreach (var node in _nodeMocks)
+            {
+                node.Setup(n => n.FetchMetadata()).Returns(failed.Task);
+            }
+            _cluster.Start();
+            Assert.Throws<TimeoutException>(async () => await _cluster.RequireNewRoutingTable());
+            Assert.AreEqual(0, _internalErrors);
         }
 
         [Test]

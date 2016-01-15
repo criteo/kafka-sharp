@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using Kafka.Batching;
 using Kafka.Cluster;
-using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
 using ICluster = Kafka.Cluster.ICluster;
@@ -398,9 +397,10 @@ namespace Kafka.Routing
             {
                 _routingTable = await _cluster.RequireNewRoutingTable();
             }
-            catch
+            catch (Exception ex)
             {
                 hasError = true;
+                _cluster.Logger.LogError("Could not get routing table: " + ex);
             }
             if (hasError)
                 await Task.Delay(1000);

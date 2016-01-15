@@ -5,8 +5,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reactive.Linq;
-using System.Reactive.Subjects;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -363,7 +361,7 @@ namespace Kafka.Cluster
         // Dummy class to signal request messages incoming.
         private struct Ping
         {
-        };
+        }
 
         #endregion
 
@@ -375,35 +373,20 @@ namespace Kafka.Cluster
             public int CorrelationId;
         }
 
-        struct ResponseException
-        {
-            public Exception Exception;
-        }
-
-        [StructLayout(LayoutKind.Explicit)]
-        struct ResponseValue
-        {
-            [FieldOffset(0)]
-            public ResponseException ResponseException;
-
-            [FieldOffset(0)]
-            public ResponseData ResponseData;
-        }
-
         /// <summary>
         /// Message types for the underlying response handler actor.
         /// </summary>
         enum ResponseType
         {
             Data,
-            Exception
+            Stop
         }
 
         struct Response
         {
             public ResponseType ResponseType;
             public IConnection Connection;
-            public ResponseValue ResponseValue;
+            public ResponseData ResponseData;
         }
 
         #endregion
@@ -523,7 +506,23 @@ namespace Kafka.Cluster
         {
             var promise = new TaskCompletionSource<MetadataResponse>();
 
-            Post(Request.Create(new MetadataRequest {Topic = topic, Promise = promise}));
+            if (!Post(Request.Create(new MetadataRequest {Topic = topic, Promise = promise})))
+            {
+                promise.SetCanceled();
+            }
+
+            Task.Delay(2 * _configuration.RequestTimeoutMs)
+                .ContinueWith(_ =>
+                {
+                    if (!promise.TrySetException(new TimeoutException("Timeout when fetching metadata"))) return;
+
+                    // Directly mark the node as dead if not already
+                    if (Interlocked.Exchange(ref _successiveErrors, MaxSuccessiveErrors + 1) <=
+                        MaxSuccessiveErrors)
+                    {
+                        OnDead();
+                    }
+                }, TaskContinuationOptions.ExecuteSynchronously);
 
             return promise.Task;
         }
@@ -533,14 +532,22 @@ namespace Kafka.Cluster
         public async Task Stop()
         {
             if (Interlocked.Increment(ref _stopped) > 1) return; // already stopped
+
+            // Flush accumulators
             if (_configuration.BatchStrategy == BatchStrategy.ByNode)
             {
                 _produceMessages.Dispose();
                 _fetchMessages.Dispose();
                 _offsetMessages.Dispose();
             }
+
+            // Complete the incoming queue (pending batches have all been posted)
+            // and wait for everything to be sent.
             _requestQueue.Complete();
             await _requestQueue.Completion;
+
+            // Now we have to wait for pending requests to be acknowledged or
+            // canceled.
             lock (_pendings)
             {
                 if (_pendingsCount != 0)
@@ -552,8 +559,16 @@ namespace Kafka.Cluster
             {
                 await Task.WhenAny(_noMorePending.Task, Task.Delay(5000));
             }
+
             _responseQueue.Complete();
             await _responseQueue.Completion;
+
+            // Clean up remaining pending requests (in case of time out)
+            if (_pendingsCount != 0)
+            {
+                ClearCorrelationIds(_connection);
+            }
+
             if (_connection != null)
             {
                 ClearConnection(_connection);
@@ -574,8 +589,7 @@ namespace Kafka.Cluster
             {
                 ResponseType = ResponseType.Data,
                 Connection = connection,
-                ResponseValue =
-                    new ResponseValue {ResponseData = new ResponseData {CorrelationId = correlationId, Data = data}}
+                ResponseData = new ResponseData {CorrelationId = correlationId, Data = data}
             });
         }
 
@@ -757,8 +771,9 @@ namespace Kafka.Cluster
         {
             switch (response.ResponseType)
             {
-                case ResponseType.Exception:
-                    ProcessConnectionError(response.Connection);
+                case ResponseType.Stop:
+
+                    CleanUpConnection(response.Connection);
                     break;
 
                 case ResponseType.Data:
@@ -782,13 +797,13 @@ namespace Kafka.Cluster
 
                     DecrementPendings();
 
-                    using (var data = response.ResponseValue.ResponseData.Data)
+                    using (var data = response.ResponseData.Data)
                     {
-                        if (pending.CorrelationId != response.ResponseValue.ResponseData.CorrelationId)
+                        if (pending.CorrelationId != response.ResponseData.CorrelationId)
                         {
                             // This is an error but it should not happen because the underlying connection
                             // is already supposed to have managed that.
-                            ProcessConnectionError(response.Connection);
+                            CleanUpConnection(response.Connection);
                             return;
                         }
 
@@ -829,7 +844,7 @@ namespace Kafka.Cluster
         }
 
         // Clean up the mess
-        private void ProcessConnectionError(IConnection connection)
+        private void CleanUpConnection(IConnection connection)
         {
             ClearConnection(connection);
             ClearCorrelationIds(connection);
@@ -1005,13 +1020,8 @@ namespace Kafka.Cluster
             {
                 _responseQueue.Post(new Response
                     {
-                        ResponseType = ResponseType.Exception,
-                        Connection = connection,
-                        ResponseValue =
-                            new ResponseValue
-                                {
-                                    ResponseException = new ResponseException {Exception = ex}
-                                }
+                        ResponseType = ResponseType.Stop,
+                        Connection = connection
                     });
             }
         }

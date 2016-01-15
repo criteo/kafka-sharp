@@ -323,11 +323,14 @@ namespace Kafka.Cluster
         public Task<RoutingTable> RequireNewRoutingTable()
         {
             var promise = new TaskCompletionSource<RoutingTable>();
-            _agent.Post(new ClusterMessage
+            if (!_agent.Post(new ClusterMessage
                 {
                     MessageType = MessageType.Metadata,
                     MessageValue = new MessageValue {Promise = promise}
-                });
+                }))
+            {
+                promise.SetCanceled();
+            }
             return promise.Task;
         }
 
@@ -403,10 +406,16 @@ namespace Kafka.Cluster
                 var promise = topicPromise.Item1;
                 var topic = topicPromise.Item2;
                 var response = await node.FetchMetadata(topic);
-                promise.SetResult(response.TopicsMeta.First(t => t.TopicName == topic).Partitions.Select(p => p.Id).ToArray());
+                promise.SetResult(
+                    response.TopicsMeta.First(t => t.TopicName == topic).Partitions.Select(p => p.Id).ToArray());
             }
             catch (OperationCanceledException ex)
             {
+                topicPromise.Item1.SetException(ex);
+            }
+            catch (TimeoutException ex)
+            {
+                Logger.LogError("Timeout while fetching metadata!");
                 topicPromise.Item1.SetException(ex);
             }
             catch (Exception ex)
@@ -436,6 +445,14 @@ namespace Kafka.Cluster
             }
             catch (OperationCanceledException ex)
             {
+                if (promise != null)
+                {
+                    promise.SetException(ex);
+                }
+            }
+            catch (TimeoutException ex)
+            {
+                Logger.LogError("Timeout while fetching metadata!");
                 if (promise != null)
                 {
                     promise.SetException(ex);
