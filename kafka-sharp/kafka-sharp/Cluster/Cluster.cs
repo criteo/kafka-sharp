@@ -100,6 +100,7 @@ namespace Kafka.Cluster
         private readonly ActionBlock<ClusterMessage> _agent; // inner actor
         private readonly Random _random = new Random((int)(DateTime.Now.Ticks & 0xffffffff));
         private readonly string _seeds; // Addresses of the nodes to use for bootstrapping the cluster
+        private readonly TimeoutScheduler _timeoutScheduler; // Timeout checker
 
         private Timer _refreshMetadataTimer; // Timer for periodic checking of metadata
         private RoutingTable _routingTable; // The current routing table
@@ -135,6 +136,7 @@ namespace Kafka.Cluster
             _seeds = configuration.Seeds;
             Logger = logger;
             Statistics = statistics ?? new Statistics();
+            _timeoutScheduler = new TimeoutScheduler(configuration.ClientRequestTimeoutMs);
 
             // Producer init
             ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration);
@@ -176,6 +178,7 @@ namespace Kafka.Cluster
                                      new Connection(h, p, ep => new RealSocket(ep), configuration.SendBufferSize, configuration.ReceiveBufferSize),
                                      serializer,
                                      configuration,
+                                     _timeoutScheduler,
                                      _resolution));
             _nodeFactory = DecorateFactory(_nodeFactory);
 
@@ -311,6 +314,7 @@ namespace Kafka.Cluster
         public async Task Stop()
         {
             if (!_started) return;
+            _timeoutScheduler.Dispose();
             _refreshMetadataTimer.Dispose();
             await ConsumeRouter.Stop();
             await ProduceRouter.Stop();
@@ -410,6 +414,10 @@ namespace Kafka.Cluster
                     response.TopicsMeta.First(t => t.TopicName == topic).Partitions.Select(p => p.Id).ToArray());
             }
             catch (OperationCanceledException ex)
+            {
+                topicPromise.Item1.SetException(ex);
+            }
+            catch (TransportException ex)
             {
                 topicPromise.Item1.SetException(ex);
             }

@@ -373,20 +373,36 @@ namespace Kafka.Cluster
             public int CorrelationId;
         }
 
+        struct ResponseException
+        {
+            public Exception Exception;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        struct ResponseValue
+        {
+            [FieldOffset(0)]
+            public ResponseException ResponseException;
+
+            [FieldOffset(0)]
+            public ResponseData ResponseData;
+        }
+
         /// <summary>
         /// Message types for the underlying response handler actor.
         /// </summary>
         enum ResponseType
         {
             Data,
-            Stop
+            Stop,
+            Exception
         }
 
         struct Response
         {
             public ResponseType ResponseType;
             public IConnection Connection;
-            public ResponseData ResponseData;
+            public ResponseValue ResponseValue;
         }
 
         #endregion
@@ -400,17 +416,22 @@ namespace Kafka.Cluster
         private readonly Accumulator<OffsetMessage> _offsetMessages; // incoming stream of offset requests
         private readonly ConcurrentQueue<Request> _metadata = new ConcurrentQueue<Request>(); // queue for metadata requests
         private readonly ConcurrentQueue<Request> _nonMetadata = new ConcurrentQueue<Request>(); // queue for all other batched requests
+
         private readonly ActionBlock<Ping> _requestQueue; // incoming request actor
         private readonly ActionBlock<Response> _responseQueue; // incoming response actor
         private readonly ISerialization _serialization;
         private readonly Configuration _configuration;
+        private readonly TimeoutScheduler _timeoutScheduler;
 
         struct Pending
         {
             public int CorrelationId;
             public Request Request;
+            public DateTime TimeStamp;
         }
+
         private readonly ConcurrentDictionary<IConnection, ConcurrentQueue<Pending>> _pendings = new ConcurrentDictionary<IConnection, ConcurrentQueue<Pending>>();
+
         private int _pendingsCount;
         private TaskCompletionSource<bool> _noMorePending;
 
@@ -460,15 +481,23 @@ namespace Kafka.Cluster
 
         public string Name { get; internal set; }
 
-        public Node(string name, ConnectionFactory connectionFactory, ISerialization serialization, Configuration configuration, double resolution = 1000.0)
+        // For tests (no timeout)
+        internal Node(string name, ConnectionFactory connectionFactory, ISerialization serialization,
+            Configuration configuration, double resolution = 1000.0)
+            : this(name, connectionFactory, serialization, configuration, new TimeoutScheduler(), resolution)
+        {
+        }
+
+        public Node(string name, ConnectionFactory connectionFactory, ISerialization serialization,
+            Configuration configuration, TimeoutScheduler timeoutScheduler, double resolution = 1000.0)
         {
             Name = name ?? "[Unknown]";
             _connectionFactory = connectionFactory;
             var options = new ExecutionDataflowBlockOptions
-                {
-                    MaxMessagesPerTask = 1,
-                    TaskScheduler = configuration.TaskScheduler
-                };
+            {
+                MaxMessagesPerTask = 1,
+                TaskScheduler = configuration.TaskScheduler
+            };
             _requestQueue = new ActionBlock<Ping>(r => ProcessRequest(r), options);
             _responseQueue = new ActionBlock<Response>(r => ProcessResponse(r), options);
             _resolution = resolution;
@@ -480,6 +509,8 @@ namespace Kafka.Cluster
             }
             _serialization = serialization;
             _configuration = configuration;
+            _timeoutScheduler = timeoutScheduler;
+            timeoutScheduler.Register(this, CheckForTimeout);
         }
 
         public bool Produce(ProduceMessage message)
@@ -511,19 +542,6 @@ namespace Kafka.Cluster
                 promise.SetCanceled();
             }
 
-            Task.Delay(2 * _configuration.RequestTimeoutMs)
-                .ContinueWith(_ =>
-                {
-                    if (!promise.TrySetException(new TimeoutException("Timeout when fetching metadata"))) return;
-
-                    // Directly mark the node as dead if not already
-                    if (Interlocked.Exchange(ref _successiveErrors, MaxSuccessiveErrors + 1) <=
-                        MaxSuccessiveErrors)
-                    {
-                        OnDead();
-                    }
-                }, TaskContinuationOptions.ExecuteSynchronously);
-
             return promise.Task;
         }
 
@@ -532,6 +550,9 @@ namespace Kafka.Cluster
         public async Task Stop()
         {
             if (Interlocked.Increment(ref _stopped) > 1) return; // already stopped
+
+            // Stop checking timeouts.
+            _timeoutScheduler.Unregister(this);
 
             // Flush accumulators
             if (_configuration.BatchStrategy == BatchStrategy.ByNode)
@@ -589,7 +610,10 @@ namespace Kafka.Cluster
             {
                 ResponseType = ResponseType.Data,
                 Connection = connection,
-                ResponseData = new ResponseData {CorrelationId = correlationId, Data = data}
+                ResponseValue = new ResponseValue
+                {
+                    ResponseData = new ResponseData {CorrelationId = correlationId, Data = data}
+                }
             });
         }
 
@@ -606,7 +630,7 @@ namespace Kafka.Cluster
         //   to its events and connect.
         private async Task<IConnection> InitConnection()
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(_resolution * _successiveErrors));
+            await Task.Delay(TimeSpan.FromMilliseconds(_resolution*_successiveErrors));
             var connection = _connectionFactory();
             connection.ReceiveError += HandleConnectionError;
             connection.Response += ForwardResponse;
@@ -723,7 +747,12 @@ namespace Kafka.Cluster
                     var acked = CheckAckRequired(request);
                     if (acked)
                     {
-                        pendingsQueue.Enqueue(new Pending {CorrelationId = correlationId, Request = request});
+                        pendingsQueue.Enqueue(new Pending
+                        {
+                            CorrelationId = correlationId,
+                            Request = request,
+                            TimeStamp = DateTime.UtcNow
+                        });
                         IncrementPendings();
                     }
                     await connection.SendAsync(correlationId, data, acked);
@@ -772,8 +801,11 @@ namespace Kafka.Cluster
             switch (response.ResponseType)
             {
                 case ResponseType.Stop:
-
                     CleanUpConnection(response.Connection);
+                    break;
+
+                case ResponseType.Exception:
+                    CleanUpConnection(response.Connection, response.ResponseValue.ResponseException.Exception);
                     break;
 
                 case ResponseType.Data:
@@ -797,9 +829,9 @@ namespace Kafka.Cluster
 
                     DecrementPendings();
 
-                    using (var data = response.ResponseData.Data)
+                    using (var data = response.ResponseValue.ResponseData.Data)
                     {
-                        if (pending.CorrelationId != response.ResponseData.CorrelationId)
+                        if (pending.CorrelationId != response.ResponseValue.ResponseData.CorrelationId)
                         {
                             // This is an error but it should not happen because the underlying connection
                             // is already supposed to have managed that.
@@ -844,10 +876,10 @@ namespace Kafka.Cluster
         }
 
         // Clean up the mess
-        private void CleanUpConnection(IConnection connection)
+        private void CleanUpConnection(IConnection connection, Exception exception = null)
         {
             ClearConnection(connection);
-            ClearCorrelationIds(connection);
+            ClearCorrelationIds(connection, exception);
         }
 
         // Preallocated responses
@@ -935,7 +967,8 @@ namespace Kafka.Cluster
             var response = new CommonAcknowledgement<OffsetPartitionResponse> {ReceivedDate = DateTime.UtcNow};
             try
             {
-                response.Response = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId, responseData);
+                response.Response = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId,
+                    responseData);
             }
             catch (Exception ex)
             {
@@ -961,7 +994,8 @@ namespace Kafka.Cluster
             };
             try
             {
-                acknowledgement.ProduceResponse = _serialization.DeserializeCommonResponse<ProducePartitionResponse>(correlationId, responseData);
+                acknowledgement.ProduceResponse =
+                    _serialization.DeserializeCommonResponse<ProducePartitionResponse>(correlationId, responseData);
             }
             catch (Exception ex)
             {
@@ -975,7 +1009,8 @@ namespace Kafka.Cluster
         /// <summary>
         /// Deserialize a metadata response and signal the corresponding promise accordingly.
         /// </summary>
-        private void ProcessMetadataResponse(int correlationId, ReusableMemoryStream responseData, MetadataRequest originalRequest)
+        private void ProcessMetadataResponse(int correlationId, ReusableMemoryStream responseData,
+            MetadataRequest originalRequest)
         {
             try
             {
@@ -989,15 +1024,37 @@ namespace Kafka.Cluster
             }
         }
 
+        // Check if a timeout has occured
+        private void CheckForTimeout()
+        {
+            var connection = _connection;
+            if (connection == null) return;
+            ConcurrentQueue<Pending> pendings;
+            if (_pendings.TryGetValue(connection, out pendings))
+            {
+                Pending pending;
+                // Need only checking the first pending request
+                if (pendings.TryPeek(out pending))
+                {
+                    if (DateTime.UtcNow.Subtract(pending.TimeStamp).TotalMilliseconds >
+                        _configuration.ClientRequestTimeoutMs)
+                    {
+                        // Time out!
+                        HandleConnectionError(connection, new TimeoutException(string.Format("Request {0} from node {1} timed out!", pending.CorrelationId, Name)));
+                    }
+                }
+            }
+        }
+
         // Clean the queue of pending requests of the given connection.
-        private void ClearCorrelationIds(IConnection connection)
+        private void ClearCorrelationIds(IConnection connection, Exception exception = null)
         {
             ConcurrentQueue<Pending> pendings;
             if (_pendings.TryRemove(connection, out pendings))
             {
                 foreach (var pending in pendings)
                 {
-                    Drain(pending.Request, true);
+                    Drain(pending.Request, true, exception);
                     DecrementPendings();
                 }
             }
@@ -1019,22 +1076,30 @@ namespace Kafka.Cluster
             if (connection != null)
             {
                 _responseQueue.Post(new Response
-                    {
-                        ResponseType = ResponseType.Stop,
-                        Connection = connection
-                    });
+                {
+                    ResponseType = ResponseType.Exception,
+                    Connection = connection,
+                    ResponseValue = new ResponseValue {ResponseException = new ResponseException {Exception = ex}}
+                });
             }
         }
 
         // "Cancel" a request. If wasSent is true that means the request
         // was actually sent on the connection.
-        private void Drain(Request request, bool wasSent)
+        private void Drain(Request request, bool wasSent, Exception exception = null)
         {
             switch (request.RequestType)
             {
                     // Cancel metadata requests
                 case RequestType.Metadata:
-                    request.RequestValue.MetadataRequest.Promise.SetCanceled();
+                    if (exception != null)
+                    {
+                        request.RequestValue.MetadataRequest.Promise.SetException(exception);
+                    }
+                    else
+                    {
+                        request.RequestValue.MetadataRequest.Promise.SetCanceled();
+                    }
                     break;
 
                     // Reroute produce requests

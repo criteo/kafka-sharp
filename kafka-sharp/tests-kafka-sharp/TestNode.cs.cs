@@ -191,6 +191,51 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestFetchTimeout()
+        {
+            // Prepare
+            var serializer = new Mock<Node.ISerialization>();
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object, serializer.Object,
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1, ClientRequestTimeoutMs = 2},
+                new TimeoutScheduler(3), 1);
+            var ev = new ManualResetEvent(false);
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns(Success);
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var message = new FetchMessage { Topic = "balbuzzard", Offset = 42, Partition = 1, MaxBytes = 1242 };
+
+            var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
+            node.FetchAcknowledgement += (n, ack) =>
+            {
+                acknowledgement = ack;
+                Assert.AreSame(node, n);
+
+                ev.Set();
+            };
+            var exception = new Exception();
+            node.ConnectionError += (n, e) =>
+            {
+                exception = e;
+            };
+
+            node.Fetch(message);
+            ev.WaitOne();
+
+            // Checks
+            Assert.IsInstanceOf<TimeoutException>(exception);
+            Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(ErrorCode.LocalError, fetch.ErrorCode);
+            Assert.AreEqual(-1, fetch.HighWatermarkOffset);
+            Assert.AreEqual(1, fetch.Partition);
+            Assert.AreEqual(0, fetch.Messages.Count());
+        }
+
+        [Test]
         public void TestOffset()
         {
             var ev = new ManualResetEvent(false);
@@ -346,6 +391,50 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestOffsetTimeout()
+        {
+            // Prepare
+            var serializer = new Mock<Node.ISerialization>();
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object, serializer.Object,
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1, ClientRequestTimeoutMs = 2 },
+                new TimeoutScheduler(3), 1);
+            var ev = new ManualResetEvent(false);
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns(Success);
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var message = new OffsetMessage { Topic = "balbuzzard", Partition = 1, MaxNumberOfOffsets = 1, Time = 12341 };
+            node.Offset(message);
+
+            var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
+            node.OffsetAcknowledgement += (n, ack) =>
+            {
+                acknowledgement = ack;
+                Assert.AreSame(node, n);
+                ev.Set();
+            };
+            var exception = new Exception();
+            node.ConnectionError += (n, e) =>
+            {
+                exception = e;
+            };
+
+            node.Offset(message);
+            ev.WaitOne();
+
+            // Checks
+            Assert.IsInstanceOf<TimeoutException>(exception);
+            Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(ErrorCode.LocalError, fetch.ErrorCode);
+            Assert.AreEqual(1, fetch.Partition);
+            Assert.AreEqual(0, fetch.Offsets.Length);
+        }
+
+        [Test]
         public async Task TestFetchMetadata()
         {
             var node = new Node("Node", () => new EchoConnectionMock(), new MetadataSerialization(new MetadataResponse()),
@@ -362,11 +451,11 @@ namespace tests_kafka_sharp
             con.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
                 .Returns(Task.FromResult(true));
             var node = new Node("Node", () => con.Object, new MetadataSerialization(new MetadataResponse()),
-                                new Configuration{RequestTimeoutMs = 1}, 1);
+                                new Configuration{ClientRequestTimeoutMs = 1}, new TimeoutScheduler(1), 1);
             bool isDead = false;
             node.Dead += _ => isDead = true;
             Assert.Throws<TimeoutException>(async () => await node.FetchMetadata());
-            Assert.IsTrue(isDead);
+            Assert.IsFalse(isDead);
         }
 
         [Test]
@@ -488,6 +577,49 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestProduceTimeout()
+        {
+            // Prepare
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object,
+                new Node.Serialization(null, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Configuration
+                {
+                    TaskScheduler = new CurrentThreadTaskScheduler(),
+                    ErrorStrategy = ErrorStrategy.Discard,
+                    ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
+                    ProduceBatchSize = 1,
+                    ClientRequestTimeoutMs = 2
+                },
+                new TimeoutScheduler(3), 1);
+            var ev = new ManualResetEvent(false);
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns(Success);
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+
+            node.ProduceAcknowledgement += (n, ack) =>
+            {
+                Assert.AreSame(node, n);
+                Assert.AreEqual(default(CommonResponse<ProducePartitionResponse>), ack.ProduceResponse);
+                Assert.AreNotEqual(default(DateTime), ack.ReceiveDate);
+                ev.Set();
+            };
+
+            var exception = new Exception();
+            int ex = 0;
+            node.ConnectionError += (n, e) =>
+            {
+                ++ex;
+                exception = e;
+            };
+
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+            ev.WaitOne();
+
+            Assert.IsInstanceOf<TimeoutException>(exception);
+        }
+
+        [Test]
         public async Task TestNodeFailingConnectionsMakesMetadataRequestCancelled()
         {
             var config = new Configuration {ProduceBatchSize = 1, ProduceBufferingTime = TimeSpan.FromMilliseconds(15)};
@@ -512,37 +644,21 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public async Task TestNodeFailingSendMakesMetadataRequestCancelled()
+        public void TestNodeFailingSendMakesMetadataRequestCancelled()
         {
             var config = new Configuration { ProduceBatchSize = 1, ProduceBufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
                 new Node("[Failing node]", () => new SendFailingConnectionMock(), new DummySerialization(), config, 1);
-            try
-            {
-                var m = await node.FetchMetadata();
-                Assert.IsFalse(true);
-            }
-            catch (Exception e)
-            {
-                Assert.IsInstanceOf<OperationCanceledException>(e);
-            }
+            Assert.Throws<TransportException>(async () => await node.FetchMetadata());
         }
 
         [Test]
-        public async Task TestNodeFailingResponseMakesMetadataRequestCancelled()
+        public void TestNodeFailingResponseMakesMetadataRequestError()
         {
             var config = new Configuration { ProduceBatchSize = 1, ProduceBufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
                 new Node("[Failing node]", () => new ReceiveFailingConnectionMock(), new DummySerialization(), config, 1);
-            try
-            {
-                var m = await node.FetchMetadata();
-                Assert.IsFalse(true);
-            }
-            catch (Exception e)
-            {
-                Assert.IsInstanceOf<OperationCanceledException>(e);
-            }
+            Assert.Throws<TransportException>(async () => await node.FetchMetadata());
         }
 
         [Test]

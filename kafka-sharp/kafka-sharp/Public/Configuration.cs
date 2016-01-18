@@ -133,6 +133,13 @@ namespace Kafka.Public
         public int RequestTimeoutMs = 10000;
 
         /// <summary>
+        /// Client side timeout: if a request is not acknowledged
+        /// by this time, the connection will be reset. Obviously
+        /// it should be greater than RequestTimeoutMs
+        /// </summary>
+        public int ClientRequestTimeoutMs = 20000;
+
+        /// <summary>
         /// Your client name.
         /// </summary>
         public string ClientId = "Kafka#";
