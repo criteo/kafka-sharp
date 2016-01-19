@@ -78,6 +78,11 @@ namespace Kafka.Public
         public TimeSpan MessageTtl = TimeSpan.FromMinutes(1);
 
         /// <summary>
+        /// Period between each metadata autorefresh.
+        /// </summary>
+        public TimeSpan RefreshMetadataInterval = TimeSpan.FromMinutes(5);
+
+        /// <summary>
         /// Strategy in case opf network errors.
         /// </summary>
         public ErrorStrategy ErrorStrategy = ErrorStrategy.Discard;
@@ -125,7 +130,7 @@ namespace Kafka.Public
         /// <summary>
         /// Acknowledgements required.
         /// </summary>
-        public RequiredAcks RequiredAcks = RequiredAcks.Leader;
+        public RequiredAcks RequiredAcks = RequiredAcks.AllInSyncReplicas;
 
         /// <summary>
         /// Kafka server side timeout for requests.
@@ -166,7 +171,7 @@ namespace Kafka.Public
         /// implemented using a special custom TaskScheduler which makes use of the
         /// .NET threadpool without squatting threads when there's nothing to do.
         /// </summary>
-        public int MaximumConcurrency = -1;
+        public int MaximumConcurrency = 3;
 
         /// <summary>
         /// Maximum number of messages in the system before blocking send from clients.

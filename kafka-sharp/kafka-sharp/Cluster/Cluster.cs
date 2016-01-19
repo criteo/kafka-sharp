@@ -93,6 +93,7 @@ namespace Kafka.Cluster
             // TODO: add timestamp and use it to avoid send a request when result is more recent
         }
 
+        private readonly Configuration _configuration;
         private readonly NodeFactory _nodeFactory;
         private readonly Dictionary<INode, BrokerMeta> _nodes = new Dictionary<INode, BrokerMeta>();
         private readonly Dictionary<int, INode> _nodesById = new Dictionary<int, INode>();
@@ -133,6 +134,7 @@ namespace Kafka.Cluster
 
         public Cluster(Configuration configuration, ILogger logger, NodeFactory nodeFactory, ProducerFactory producerFactory, ConsumerFactory consumerFactory, IStatistics statistics = null)
         {
+            _configuration = configuration;
             _seeds = configuration.Seeds;
             Logger = logger;
             Statistics = statistics ?? new Statistics();
@@ -307,7 +309,10 @@ namespace Kafka.Cluster
         {
             Logger.LogInformation("Bootstraping with " + _seeds);
             RefreshMetadata();
-            _refreshMetadataTimer = new Timer(_ => RefreshMetadata(), null, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
+            _refreshMetadataTimer = new Timer(
+                _ => RefreshMetadata(), null,
+                _configuration.RefreshMetadataInterval,
+                _configuration.RefreshMetadataInterval);
             _started = true;
         }
 
