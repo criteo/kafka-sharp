@@ -138,7 +138,7 @@ namespace Kafka.Cluster
             _seeds = configuration.Seeds;
             Logger = logger;
             Statistics = statistics ?? new Statistics();
-            _timeoutScheduler = new TimeoutScheduler(configuration.ClientRequestTimeoutMs);
+            _timeoutScheduler = new TimeoutScheduler(configuration.ClientRequestTimeoutMs / 2);
 
             // Producer init
             ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration);

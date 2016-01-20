@@ -103,6 +103,7 @@ dagfhefdghafdahfh",
    --max-wait TIME       => max wait time before brokers send consuming responses
    --consume FROM p1,p2,p3;p1,p2,p3 => partitions to consume per topic beginning at FROM
    --mix                 => mix produce and consume
+   --delay N             => delay round robin by N
 ";
             Console.WriteLine("Options are:");
             Console.WriteLine(options);
@@ -221,6 +222,10 @@ dagfhefdghafdahfh",
 
                         case "--max-bytes":
                             configuration.FetchMessageMaxBytes = int.Parse(args[++i]);
+                            break;
+
+                        case "--delay":
+                            configuration.NumberOfMessagesBeforeRoundRobin = int.Parse(args[++i]);
                             break;
 
                         case "--consume":
