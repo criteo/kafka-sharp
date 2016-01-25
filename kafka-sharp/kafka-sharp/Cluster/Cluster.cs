@@ -414,6 +414,7 @@ namespace Kafka.Cluster
             {
                 var promise = topicPromise.Item1;
                 var topic = topicPromise.Item2;
+                Logger.LogInformation(string.Format("Fetching metadata for topic '{1}' from {0}...", node.Name, topic));
                 var response = await node.FetchMetadata(topic);
                 promise.SetResult(
                     response.TopicsMeta.First(t => t.TopicName == topic).Partitions.Select(p => p.Id).ToArray());
@@ -428,7 +429,7 @@ namespace Kafka.Cluster
             }
             catch (TimeoutException ex)
             {
-                Logger.LogError("Timeout while fetching metadata!");
+                Logger.LogError(string.Format("Timeout while fetching metadata from {0}!", node.Name));
                 topicPromise.Item1.SetException(ex);
             }
             catch (Exception ex)
@@ -440,10 +441,10 @@ namespace Kafka.Cluster
 
         private async Task ProcessFullMetadata(TaskCompletionSource<RoutingTable> promise)
         {
+            var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
             try
             {
-                Logger.LogInformation("Fetching metadata...");
-                var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
+                Logger.LogInformation(string.Format("Fetching metadata from {0}...", node.Name));
                 var response = await node.FetchMetadata();
                 Logger.LogInformation("[Metadata][Brokers] " + string.Join("/", response.BrokersMeta.Select(bm => bm.ToString())));
                 Logger.LogInformation("[Metadata][Topics] " + string.Join(" | ", response.TopicsMeta.Select(tm => tm.Partitions.Aggregate(tm.TopicName + ":" + tm.ErrorCode, (s, pm) => s + " " + string.Join(":", pm.Id, pm.Leader, pm.ErrorCode)))));
@@ -463,9 +464,16 @@ namespace Kafka.Cluster
                     promise.SetException(ex);
                 }
             }
+            catch (TransportException ex)
+            {
+                if (promise != null)
+                {
+                    promise.SetException(ex);
+                }
+            }
             catch (TimeoutException ex)
             {
-                Logger.LogError("Timeout while fetching metadata!");
+                Logger.LogError(string.Format("Timeout while fetching metadata from {0}!", node.Name));
                 if (promise != null)
                 {
                     promise.SetException(ex);
