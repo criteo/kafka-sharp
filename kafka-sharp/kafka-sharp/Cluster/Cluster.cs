@@ -276,9 +276,20 @@ namespace Kafka.Cluster
                         Logger.LogWarning(string.Format("Failed to connect to {0}, retrying.", n));
                         break;
 
+                        // Brokers very often close their connexions unilateraly,
+                        // so we consider transport errors as "normal". "Real" errors
+                        // will be logged with the proper severity level in case of
+                        // dead nodes (see 'ProcessDeadNode')
                     case TransportError.ReadError:
                     case TransportError.WriteError:
-                        Logger.LogError(string.Format("Transport error to {0}: {1}", n, ex));
+                        Logger.LogInformation(string.Format("Transport error to {0}: {1}", n, ex));
+                        break;
+
+                        // We cannot get there, but just in case and because dumb
+                        // static checkers like Sonar are complaining:
+                    default:
+                        Logger.LogError("Unknown transport error");
+                        InternalError(ex);
                         break;
                 }
             }
