@@ -418,6 +418,16 @@ namespace Kafka.Cluster
             }
         }
 
+        private string TopicInfo(TopicMeta tm)
+        {
+            var buffer = new StringBuilder("[Metadata][Topic] ");
+            buffer.Append(tm.TopicName).Append(":").Append(tm.ErrorCode);
+            return tm.Partitions.Aggregate(
+                buffer,
+                (b, pm) => b.Append(" ").Append(string.Join(":", pm.Id, pm.Leader, pm.ErrorCode))
+                ).ToString();
+        }
+
         private async Task ProcessTopicMetadata(Tuple<TaskCompletionSource<int[]>, string> topicPromise)
         {
             var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
@@ -427,8 +437,9 @@ namespace Kafka.Cluster
                 var topic = topicPromise.Item2;
                 Logger.LogInformation(string.Format("Fetching metadata for topic '{1}' from {0}...", node.Name, topic));
                 var response = await node.FetchMetadata(topic);
-                promise.SetResult(
-                    response.TopicsMeta.First(t => t.TopicName == topic).Partitions.Select(p => p.Id).ToArray());
+                var tm = response.TopicsMeta.First(t => t.TopicName == topic);
+                Logger.LogInformation(TopicInfo(tm));
+                promise.SetResult(tm.Partitions.Select(p => p.Id).ToArray());
             }
             catch (OperationCanceledException ex)
             {
@@ -458,7 +469,10 @@ namespace Kafka.Cluster
                 Logger.LogInformation(string.Format("Fetching metadata from {0}...", node.Name));
                 var response = await node.FetchMetadata();
                 Logger.LogInformation("[Metadata][Brokers] " + string.Join("/", response.BrokersMeta.Select(bm => bm.ToString())));
-                Logger.LogInformation("[Metadata][Topics] " + string.Join(" | ", response.TopicsMeta.Select(tm => tm.Partitions.Aggregate(tm.TopicName + ":" + tm.ErrorCode, (s, pm) => s + " " + string.Join(":", pm.Id, pm.Leader, pm.ErrorCode)))));
+                foreach (var tm in response.TopicsMeta)
+                {
+                    Logger.LogInformation(TopicInfo(tm));
+                }
                 ResponseToTopology(response);
                 ResponseToRoutingTable(response);
                 if (promise != null)
