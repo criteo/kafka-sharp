@@ -235,10 +235,10 @@ namespace tests_kafka_sharp
                 .Returns(0);
 
             socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
-                .Returns(() => ++step != 2) // simulate a synchronous return on step 2
+                .Returns(() => ++step == 3) // simulate a synchronous return on step 1 and 2
                 .Callback((ISocketAsyncEventArgs args) =>
                 {
-                    if (step != 2)
+                    if (step == 3)
                         mocked[args].Raise(a => a.Completed += null, socket.Object, args);
                 });
 
@@ -249,7 +249,55 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestSendAsyncError()
+        public async Task TestSendAsyncSmallInternalBuffer()
+        {
+            var mocked = new Dictionary<ISocketAsyncEventArgs, Mock<ISocketAsyncEventArgs>>();
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(() =>
+            {
+                var saea = new Mock<ISocketAsyncEventArgs>();
+                int from = 0;
+                int count = 0;
+                saea.Setup(a => a.SetBuffer(It.IsAny<int>(), It.IsAny<int>())).Callback((int f, int c) =>
+                {
+                    from = f;
+                    count = c;
+                });
+                saea.Setup(a => a.SocketError).Returns(SocketError.Success);
+                saea.SetupProperty(a => a.UserToken);
+                saea.Setup(a => a.BytesTransferred).Returns(() => count);
+                saea.Setup(a => a.Count).Returns(() => count);
+                saea.Setup(a => a.Offset).Returns(() => from);
+                mocked.Add(saea.Object, saea);
+                return saea.Object;
+            });
+            socket.Setup(s => s.Connected).Returns(true);
+            SocketError error = SocketError.WouldBlock;
+            var buffer = ReusableMemoryStream.Reserve(14);
+            socket.Setup(
+                s =>
+                    s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
+                .Returns(0);
+
+            socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
+                .Returns(true)
+                .Callback((ISocketAsyncEventArgs args) =>
+                {
+                    mocked[args].Raise(a => a.Completed += null, socket.Object, args);
+                });
+
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, 8, 8, true);
+            await connection.SendAsync(12, buffer, true);
+
+            // Ok, so the connection has an 8 bytes send buffer and the data to send is 14 bytes long,
+            // so we should see two calls to socket.SendAsync since socket.Send is set to always return E_WOULDBLOCK
+
+            socket.Verify(s => s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error), Times.Once());
+            socket.Verify(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()), Times.Exactly(2));
+        }
+
+        [Test]
+        public void TestSendAsyncErrorInSocketSendAsync()
         {
             var mocked = new Dictionary<ISocketAsyncEventArgs, Mock<ISocketAsyncEventArgs>>();
             var socket = new Mock<ISocket>();
@@ -274,6 +322,76 @@ namespace tests_kafka_sharp
             var connection = new Connection(new IPEndPoint(0,0), _ => socket.Object);
             var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
             Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
+        }
+
+        [Test]
+        public void TestSendAsyncErrorInSocketSend()
+        {
+            var mocked = new Dictionary<ISocketAsyncEventArgs, Mock<ISocketAsyncEventArgs>>();
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(() => new Mock<ISocketAsyncEventArgs>().Object);
+            socket.Setup(s => s.Connected).Returns(true);
+            SocketError error = SocketError.NetworkReset;
+            var buffer = ReusableMemoryStream.Reserve(14);
+            socket.Setup(
+                s =>
+                    s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
+                .Returns(0);
+            socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
+                .Returns(true)
+                .Callback((ISocketAsyncEventArgs a) => mocked[a].Raise(_ => _.Completed += null, socket.Object, a));
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
+            Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
+            Assert.IsInstanceOf<SocketException>(e.InnerException);
+            var se = e.InnerException as SocketException;
+            Assert.That(se.ErrorCode, Is.EqualTo((int) SocketError.NetworkReset));
+        }
+
+        [Test]
+        public void TestSendAsyncErrorSocketSendThrow()
+        {
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(() =>
+            {
+                var saea = new Mock<ISocketAsyncEventArgs>();
+                return saea.Object;
+            });
+            socket.Setup(s => s.Connected).Returns(true);
+            SocketError error = SocketError.WouldBlock;
+            var buffer = ReusableMemoryStream.Reserve(14);
+            socket.Setup(
+                s =>
+                    s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
+                .Throws<InvalidOperationException>();
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
+            Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
+            Assert.IsInstanceOf<InvalidOperationException>(e.InnerException);
+        }
+
+        [Test]
+        public void TestSendAsyncErrorSocketSendAsyncThrow()
+        {
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.CreateEventArgs()).Returns(() =>
+            {
+                var saea = new Mock<ISocketAsyncEventArgs>();
+                return saea.Object;
+            });
+            socket.Setup(s => s.Connected).Returns(true);
+            SocketError error = SocketError.WouldBlock;
+            var buffer = ReusableMemoryStream.Reserve(14);
+            socket.Setup(
+                s =>
+                    s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
+                .Returns(0);
+            socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
+                .Throws<InvalidOperationException>();
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
+            Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
+            Assert.IsInstanceOf<InvalidOperationException>(e.InnerException);
         }
 
         [Test]
