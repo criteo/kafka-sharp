@@ -18,31 +18,42 @@ namespace Kafka.Common
     /// </summary>
     class ReusableMemoryStream : MemoryStream, IMemorySerializable, IDisposable
     {
-        //private static readonly ConcurrentQueue<ReusableMemoryStream> _pool =
-        //    new ConcurrentQueue<ReusableMemoryStream>();
-        private static readonly Pool<ReusableMemoryStream> _pool = new Pool<ReusableMemoryStream>(() =>  new ReusableMemoryStream(), s => s.SetLength(0));
+        private static readonly Pool<ReusableMemoryStream> ChunkPool = new Pool<ReusableMemoryStream>(() =>  new ReusableMemoryStream(ChunkPool), s => s.SetLength(0));
+        private static readonly Pool<ReusableMemoryStream> BatchPool = new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(BatchPool), s => s.SetLength(0));
+        internal const int SmallLimit = 81920; // 20 * 4096, just under LOH limit
 
         private static int _nextId;
         private readonly int _id; // Useful to track leaks while debugging
+        private readonly Pool<ReusableMemoryStream> _myPool;
 
-        private ReusableMemoryStream()
+        private ReusableMemoryStream(Pool<ReusableMemoryStream> myPool)
         {
             _id = Interlocked.Increment(ref _nextId);
+            _myPool = myPool;
         }
 
+        // Used for single message serialization and "small" buffers.
         public static ReusableMemoryStream Reserve()
         {
-            return _pool.Reserve();
+            return ChunkPool.Reserve();
         }
 
+        // Used for messageset serialization and "big" responses.
+        public static ReusableMemoryStream ReserveBatch()
+        {
+            return BatchPool.Reserve();
+        }
+
+        // Route to Reserve()/ReserveBatch depending on requested size
         public static ReusableMemoryStream Reserve(int capacity)
         {
-            return Reserve().EnsureCapacity(capacity);
+            var rms = capacity > SmallLimit ? BatchPool.Reserve() : ChunkPool.Reserve();
+            return rms.EnsureCapacity(capacity);
         }
 
         private static void Release(ReusableMemoryStream stream)
         {
-            _pool.Release(stream);
+            stream._myPool.Release(stream);
         }
 
         internal byte this[int index]
@@ -85,7 +96,7 @@ namespace Kafka.Common
         // does so efficiently).
         public static void ReusableCopyTo(this Stream input, Stream destination)
         {
-            using (var m = ReusableMemoryStream.Reserve(128*1024))
+            using (var m = ReusableMemoryStream.Reserve(ReusableMemoryStream.SmallLimit))
             {
                 var buffer = m.GetBuffer();
                 int read;

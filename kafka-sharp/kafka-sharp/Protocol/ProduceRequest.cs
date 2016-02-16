@@ -22,7 +22,7 @@ namespace Kafka.Protocol
 
         public ReusableMemoryStream Serialize(int correlationId, byte[] clientId, object extra)
         {
-            return CommonRequest.Serialize(this, correlationId, clientId, Basics.ApiKey.ProduceRequest, extra);
+            return CommonRequest.Serialize(ReusableMemoryStream.ReserveBatch(), this, correlationId, clientId, Basics.ApiKey.ProduceRequest, extra);
         }
 
         public void SerializeBody(ReusableMemoryStream stream, object extra)
@@ -81,11 +81,11 @@ namespace Kafka.Protocol
             if (info.CompressionCodec != CompressionCodec.None)
             {
                 stream.Write(Basics.Zero64, 0, 8);
-                using (var msgsetStream = ReusableMemoryStream.Reserve())
+                using (var msgsetStream = ReusableMemoryStream.ReserveBatch())
                 {
                     SerializeMessagesUncompressed(msgsetStream, messages, info.Serializers);
 
-                    using (var compressed = ReusableMemoryStream.Reserve())
+                    using (var compressed = ReusableMemoryStream.ReserveBatch())
                     {
                         if (info.CompressionCodec == CompressionCodec.Gzip)
                         {

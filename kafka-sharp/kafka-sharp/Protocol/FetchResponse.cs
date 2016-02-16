@@ -176,7 +176,7 @@ namespace Kafka.Protocol
                 }
                 else // compression == CompressionCodec.Gzip
                 {
-                    uncompressed = ReusableMemoryStream.Reserve();
+                    uncompressed = ReusableMemoryStream.ReserveBatch();
                     using (var compressed = new MemoryStream(body, offset, length, false))
                     {
                         using (var gzip = new GZipStream(compressed, CompressionMode.Decompress))

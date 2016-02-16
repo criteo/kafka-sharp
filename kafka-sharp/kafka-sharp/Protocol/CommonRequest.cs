@@ -18,13 +18,12 @@ namespace Kafka.Protocol
     // and ugly ISerializableRequest.
     static class CommonRequest
     {
-        public static ReusableMemoryStream Serialize<TRequest>(TRequest request, int correlationId, byte[] clientId,
+        public static ReusableMemoryStream Serialize<TRequest>(ReusableMemoryStream stream, TRequest request, int correlationId, byte[] clientId,
             Basics.ApiKey apiKey, object extra) where TRequest : ISerializableRequest
         {
-            var stream = ReusableMemoryStream.Reserve();
             Basics.WriteRequestHeader(stream, correlationId, apiKey, clientId);
             request.SerializeBody(stream, extra);
-            stream = Basics.WriteMessageLength(stream);
+            Basics.WriteMessageLength(stream);
             stream.Position = 0;
             return stream;
         }
