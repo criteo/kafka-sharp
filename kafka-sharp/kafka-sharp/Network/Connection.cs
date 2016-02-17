@@ -350,6 +350,7 @@ namespace Kafka.Network
             }
             catch (Exception ex)
             {
+                CleanAsyncArgs(_sendArgs);
                 _bufferPool.Release(buffer);
                 throw new TransportException(TransportError.WriteError, ex);
             }
@@ -375,6 +376,7 @@ namespace Kafka.Network
             if (connection == null) return; // just so that Sonar is happy
             if (saea.SocketError != SocketError.Success)
             {
+                CleanAsyncArgs(saea);
                 connection._bufferPool.Release(connection._sendContext.Buffer);
                 connection._sendContext.Promise.SetException(new TransportException(TransportError.WriteError,
                     new SocketException((int) saea.SocketError)));
@@ -396,6 +398,7 @@ namespace Kafka.Network
                 }
                 else
                 {
+                    CleanAsyncArgs(saea);
                     connection._bufferPool.Release(connection._sendContext.Buffer);
                     connection._sendContext.Promise.SetResult(SuccessResult);
                 }
@@ -424,6 +427,7 @@ namespace Kafka.Network
             }
             catch (Exception ex)
             {
+                CleanAsyncArgs(saea);
                 _bufferPool.Release(_sendContext.Buffer);
                 _sendContext.Promise.SetException(new TransportException(TransportError.WriteError, ex));
             }
@@ -463,7 +467,7 @@ namespace Kafka.Network
                 _receiveContext.Buffer = _bufferPool.Reserve();
                 _receiveContext.Response = null;
                 _receiveArgs.SetBuffer(_receiveContext.Buffer, 0, _receiveContext.RemainingExpected);
-                _receiveArgs.UserToken = _receiveContext;
+                _receiveArgs.UserToken = this;
 
                 // Receive async loop
                 if (!_socket.ReceiveAsync(_receiveArgs))
@@ -473,6 +477,7 @@ namespace Kafka.Network
             }
             catch (Exception ex)
             {
+                CleanAsyncArgs(_receiveArgs);
                 OnReceiveError(new TransportException(TransportError.ReadError, ex));
             }
         }
@@ -480,20 +485,21 @@ namespace Kafka.Network
         private int _recursiveOnReceiveCompleted; // count recursive calls when Socket.ReceiveAsync returns synchronously
 
         // Async receive loop
-        private void OnReceiveCompleted(ISocket sender, ISocketAsyncEventArgs saea)
+        private static void OnReceiveCompleted(ISocket sender, ISocketAsyncEventArgs saea)
         {
-            var context = saea.UserToken as ReceiveContext;
-            if (context == null) return; // just so that Sonar is happy
+            var connection = saea.UserToken as Connection;
+            if (connection == null) return; // just so that Sonar is happy
             if (saea.SocketError != SocketError.Success || saea.BytesTransferred == 0)
             {
-                _bufferPool.Release(context.Buffer);
-                OnReceiveError(new TransportException(TransportError.ReadError,
+                CleanAsyncArgs(saea);
+                connection._bufferPool.Release(connection._receiveContext.Buffer);
+                connection.OnReceiveError(new TransportException(TransportError.ReadError,
                     new SocketException(saea.SocketError != SocketError.Success
                         ? (int) saea.SocketError
                         : (int) SocketError.ConnectionAborted)));
-                if (context.Response != null)
+                if (connection._receiveContext.Response != null)
                 {
-                    context.Response.Dispose();
+                    connection._receiveContext.Response.Dispose();
                 }
                 return;
             }
@@ -504,14 +510,14 @@ namespace Kafka.Network
                 if (saea.BytesTransferred != saea.Count)
                 {
                     saea.SetBuffer(saea.Offset + saea.BytesTransferred, saea.Count - saea.BytesTransferred);
-                    if (!_socket.ReceiveAsync(saea))
+                    if (!sender.ReceiveAsync(saea))
                     {
-                        if (++_recursiveOnReceiveCompleted > 20)
+                        if (++connection._recursiveOnReceiveCompleted > 20)
                         {
                             // Too many recursive calls, we trampoline out of the current
                             // stack trace using a simple Task. This should really not happen
                             // but you never know.
-                            _recursiveOnReceiveCompleted = 0;
+                            connection._recursiveOnReceiveCompleted = 0;
                             Task.Factory.StartNew(() => OnReceiveCompleted(sender, saea));
                             return;
                         }
@@ -521,30 +527,32 @@ namespace Kafka.Network
                 }
 
                 // Handle current state
-                switch (context.State)
+                switch (connection._receiveContext.State)
                 {
                     case ReceiveState.Header:
-                        HandleHeaderState(context, sender, saea);
+                        connection.HandleHeaderState(connection._receiveContext, sender, saea);
                         break;
 
                     case ReceiveState.Body:
-                        HandleBodyState(context, sender, saea);
+                        connection.HandleBodyState(connection._receiveContext, sender, saea);
                         break;
                 }
             }
             catch (CorrelationException ex)
             {
-                _bufferPool.Release(context.Buffer);
-                OnReceiveError(ex);
+                CleanAsyncArgs(saea);
+                connection._bufferPool.Release(connection._receiveContext.Buffer);
+                connection.OnReceiveError(ex);
             }
             catch (Exception ex)
             {
-                _bufferPool.Release(context.Buffer);
-                if (context.Response != null)
+                CleanAsyncArgs(saea);
+                connection._bufferPool.Release(connection._receiveContext.Buffer);
+                if (connection._receiveContext.Response != null)
                 {
-                    context.Response.Dispose();
+                    connection._receiveContext.Response.Dispose();
                 }
-                OnReceiveError(new TransportException(TransportError.ReadError, ex));
+                connection.OnReceiveError(new TransportException(TransportError.ReadError, ex));
             }
         }
 
@@ -582,6 +590,7 @@ namespace Kafka.Network
 
             if (context.RemainingExpected == 0)
             {
+                CleanAsyncArgs(saea);
                 _bufferPool.Release(context.Buffer);
                 context.Response.Position = 0;
                 OnResponse(context.CorrelationId, context.Response);
@@ -598,6 +607,12 @@ namespace Kafka.Network
         }
 
         #endregion
+
+        private static void CleanAsyncArgs(ISocketAsyncEventArgs args)
+        {
+            args.UserToken = null;
+            args.SetBuffer(null, 0, 0);
+        }
 
         public event Action<IConnection, int, ReusableMemoryStream> Response;
         public event Action<IConnection, Exception> ReceiveError;
@@ -621,6 +636,8 @@ namespace Kafka.Network
             _socket.Close();
             _sendArgs.Completed -= OnSendCompleted;
             _receiveArgs.Completed -= OnReceiveCompleted;
+            CleanAsyncArgs(_sendArgs);
+            CleanAsyncArgs(_receiveArgs);
         }
     }
 }
