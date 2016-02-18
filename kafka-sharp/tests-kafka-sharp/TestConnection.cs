@@ -422,6 +422,7 @@ namespace tests_kafka_sharp
 
             Assert.AreSame(connection, r.Connection);
             Assert.AreEqual(correlationId, r.CorrelationId);
+            Assert.AreEqual(0, r.Data.Position);
             Assert.AreEqual(data, Encoding.UTF8.GetString(r.Data.ToArray()));
         }
 
