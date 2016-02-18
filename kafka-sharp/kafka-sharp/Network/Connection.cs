@@ -636,8 +636,8 @@ namespace Kafka.Network
             _socket.Close();
             _sendArgs.Completed -= OnSendCompleted;
             _receiveArgs.Completed -= OnReceiveCompleted;
-            CleanAsyncArgs(_sendArgs);
-            CleanAsyncArgs(_receiveArgs);
+            _sendArgs.UserToken = null;
+            _receiveArgs.UserToken = null;
         }
     }
 }
