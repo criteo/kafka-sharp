@@ -586,6 +586,9 @@ namespace Kafka.Routing
                     }
                     else
                     {
+                        _cluster.Logger.LogError(
+                            string.Format("Irrecoverable error detected: [topic: {0} - partition: {1} - error: {2}",
+                                tr.TopicName, p.Partition, p.ErrorCode));
                         _tmpPartitionsInError[tr.TopicName].Add(p.Partition);
                     }
                 }

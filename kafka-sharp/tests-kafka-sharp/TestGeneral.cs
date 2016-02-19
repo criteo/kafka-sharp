@@ -173,7 +173,7 @@ namespace tests_kafka_sharp
             Assert.GreaterOrEqual(statistics.ResponseReceived, 2); // 1 or more successful produce, 1 or more fetch metadata
             Assert.GreaterOrEqual(statistics.RequestSent, 3); // 2 or more produce response, 1 or more fetch metadata response
             Assert.GreaterOrEqual(logger.InformationLog.Count(), 3); // Fetch metadata feedback
-            Assert.AreEqual(0, logger.ErrorLog.Count());
+            Assert.GreaterOrEqual(logger.ErrorLog.Count(), 1); // At least once an irrecoverable error
             Assert.AreEqual(0, logger.WarningLog.Count());
         }
 
