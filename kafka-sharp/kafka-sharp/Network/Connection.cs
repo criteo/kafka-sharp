@@ -208,9 +208,9 @@ namespace Kafka.Network
         private readonly ISocketAsyncEventArgs _sendArgs;
         private readonly ISocketAsyncEventArgs _receiveArgs;
 
-        // Buffer pool
-        private static Pool<byte[]> _gBufferPool;
+        // Pools
         private readonly Pool<byte[]> _bufferPool;
+        private readonly Pool<ReusableMemoryStream> _responsePool;
 
         // The Kafka server ensures that acks are ordered on a given connection, we take
         // advantage of that by using a queue to store correlation ids.
@@ -228,28 +228,27 @@ namespace Kafka.Network
         /// </summary>
         /// <param name="host">Remote hoit to connect to</param>
         /// <param name="port">Remote port to connect to</param>
+        /// <param name="socketFactory">The creation factory</param>
+        /// <param name="bufferPool">A pool of buffers to use internally in socket APIs</param>
+        /// <param name="responsePool">A pool of buffers to use for receive responses sent to the outside world</param>
         /// <param name="sendBufferSize">Size of the buffer used for send by the underlying socket</param>
         /// <param name="receiveBufferSize">Size of the buffer used for receive by the underlying socket</param>
         public Connection(string host, int port, Func<EndPoint, ISocket> socketFactory,
+            Pool<byte[]> bufferPool,
+            Pool<ReusableMemoryStream> responsePool,
             int sendBufferSize = DefaultBufferSize,
             int receiveBufferSize = DefaultBufferSize)
             : this(
-                new IPEndPoint(Dns.GetHostAddresses(host)[0], port), socketFactory, sendBufferSize,
-                receiveBufferSize)
+                new IPEndPoint(Dns.GetHostAddresses(host)[0], port),
+                socketFactory, bufferPool, responsePool, sendBufferSize, receiveBufferSize)
         {
         }
 
         public Connection(EndPoint endPoint, Func<EndPoint, ISocket> socketFactory,
-            int sendBufferSize = DefaultBufferSize,
-            int receiveBufferSize = DefaultBufferSize)
-            : this(endPoint, socketFactory, sendBufferSize, receiveBufferSize, false)
-        {
-        }
-
-        internal Connection(EndPoint endPoint, Func<EndPoint, ISocket> socketFactory,
+            Pool<byte[]> bufferPool,
+            Pool<ReusableMemoryStream> responsePool,
             int sendBufferSize,
-            int receiveBufferSize,
-            bool useOwnBufferPool)
+            int receiveBufferSize)
         {
             _socket = socketFactory(endPoint);
             _socket.Blocking = false;
@@ -259,27 +258,8 @@ namespace Kafka.Network
             _sendArgs.Completed += OnSendCompleted;
             _receiveArgs = _socket.CreateEventArgs();
             _receiveArgs.Completed += OnReceiveCompleted;
-
-            var bsize = Math.Max(sendBufferSize, Math.Max(HeaderLength, receiveBufferSize));
-            if (!useOwnBufferPool)
-            {
-                if (_gBufferPool == null)
-                {
-                    _gBufferPool = InitBufferPool(bsize);
-                }
-                _bufferPool = _gBufferPool;
-            }
-            else // This is only used in unit tests
-            {
-                _bufferPool = InitBufferPool(bsize);
-            }
-        }
-
-        private static Pool<byte[]> InitBufferPool(int bufferSize)
-        {
-            return new Pool<byte[]>(
-                () => new byte[bufferSize],
-                _ => { });
+            _bufferPool = bufferPool;
+            _responsePool = responsePool;
         }
 
         public async Task ConnectAsync()
@@ -601,7 +581,7 @@ namespace Kafka.Network
             context.CorrelationId = correlationId;
             // responseSize includes 4 bytes of correlation id
             context.RemainingExpected = responseSize - CorrelationIdLength;
-            context.Response = ReusableMemoryStream.Reserve(context.RemainingExpected);
+            context.Response = _responsePool.Reserve();
             saea.SetBuffer(0, Math.Min(context.Buffer.Length, context.RemainingExpected));
             if (!socket.ReceiveAsync(saea))
             {

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using Kafka.Batching;
 using Kafka.Cluster;
+using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
 using ICluster = Kafka.Cluster.ICluster;
@@ -183,9 +184,10 @@ namespace Kafka.Routing
 
         private readonly ICluster _cluster;
         private readonly Configuration _configuration;
+        private readonly Pool<ReusableMemoryStream> _pool;
 
         private RoutingTable _routingTable = new RoutingTable(new Dictionary<string, Partition[]>());
-        private Dictionary<string, PartitionSelector> _partitioners = new Dictionary<string, PartitionSelector>();
+        private readonly Dictionary<string, PartitionSelector> _partitioners = new Dictionary<string, PartitionSelector>();
 
         // The queue of produce messages waiting to be routed
         private readonly ConcurrentQueue<ProduceMessage> _produceMessages = new ConcurrentQueue<ProduceMessage>();
@@ -241,10 +243,12 @@ namespace Kafka.Routing
         /// </summary>
         /// <param name="cluster"></param>
         /// <param name="configuration"></param>
-        public ProduceRouter(ICluster cluster, Configuration configuration)
+        /// <param name="pool">The pool of message buffers (for when SerializeOnProduce is true)</param>
+        public ProduceRouter(ICluster cluster, Configuration configuration, Pool<ReusableMemoryStream> pool)
         {
             _cluster = cluster;
             _configuration = configuration;
+            _pool = pool;
             _messages = new ActionBlock<RouterMessageType>(m => ProcessMessage(m),
                                                            new ExecutionDataflowBlockOptions
                                                                {
@@ -307,7 +311,7 @@ namespace Kafka.Routing
             if (_configuration.SerializationConfig.SerializeOnProduce)
             {
                 var serializers = _configuration.SerializationConfig.GetSerializersForTopic(topic);
-                message.SerializeKeyValue(serializers);
+                message.SerializeKeyValue(_pool.Reserve(), serializers);
             }
             Route(ProduceMessage.New(topic, partition, message, expirationDate));
         }
@@ -650,7 +654,6 @@ namespace Kafka.Routing
                                     value.Dispose();
                                 }
                             }
-                            ProduceMessage.Release(pm);
                         }
                     }
                 }
@@ -741,7 +744,6 @@ namespace Kafka.Routing
         {
             message.Message = CheckReleaseMessage(message.Message);
             MessageExpired(message.Topic, message.Message);
-            ProduceMessage.Release(message);
         }
 
         // Raise the MessageDiscarded event and release a message.
@@ -749,7 +751,6 @@ namespace Kafka.Routing
         {
             message.Message = CheckReleaseMessage(message.Message);
             MessageDiscarded(message.Topic, message.Message);
-            ProduceMessage.Release(message);
         }
 
         private Message CheckReleaseMessage(Message message)

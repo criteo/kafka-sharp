@@ -16,6 +16,12 @@ namespace tests_kafka_sharp
     [TestFixture]
     class TestConnection
     {
+        private static readonly Pool<ReusableMemoryStream> RPool =
+            new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(RPool), (m, b) => { m.SetLength(0); });
+
+        private static readonly Pool<byte[]> BPool =
+            new Pool<byte[]>(() => new byte[8092], (m, b) => { });
+
         enum SimulationMode
         {
             Success,
@@ -134,7 +140,7 @@ namespace tests_kafka_sharp
         {
             var socket = new Mock<ISocket>();
             socket.Setup(s => s.CreateEventArgs()).Returns(() => new RealSocketAsyncEventArgs());
-            var dummy = new Connection("localhost", 0, _ => socket.Object, 1234, 4321);
+            var dummy = new Connection("localhost", 0, _ => socket.Object, BPool, RPool, 1234, 4321);
 
             socket.VerifySet(s => s.SendBufferSize = 1234);
             socket.VerifySet(s => s.ReceiveBufferSize = 4321);
@@ -145,7 +151,7 @@ namespace tests_kafka_sharp
         {
             var socket = new Mock<ISocket>();
             socket.Setup(s => s.CreateEventArgs()).Returns(() => new RealSocketAsyncEventArgs());
-            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
 
             connection.Dispose();
 
@@ -158,9 +164,9 @@ namespace tests_kafka_sharp
             var socket = new Mock<ISocket>();
             socket.Setup(s => s.CreateEventArgs()).Returns(new RealSocketAsyncEventArgs());
             socket.Setup(s => s.Connected).Returns(false);
-            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
 
-            var ex = Assert.Throws<TransportException>(async () => await connection.SendAsync(0, ReusableMemoryStream.Reserve(), true));
+            var ex = Assert.Throws<TransportException>(async () => await connection.SendAsync(0, new ReusableMemoryStream(null), true));
             Assert.AreEqual(TransportError.ConnectError, ex.Error);
         }
 
@@ -170,7 +176,7 @@ namespace tests_kafka_sharp
             var socket = new Mock<ISocket>();
             socket.Setup(s => s.ConnectAsync()).Returns(Task.FromResult(true));
             socket.Setup(s => s.CreateEventArgs()).Returns(new Mock<ISocketAsyncEventArgs>().Object);
-            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
             await connection.ConnectAsync();
             socket.Verify(s => s.ConnectAsync(), Times.Once());
             socket.Verify(s => s.ReceiveAsync(It.IsAny<ISocketAsyncEventArgs>()), Times.Once());
@@ -228,7 +234,8 @@ namespace tests_kafka_sharp
             });
             socket.Setup(s => s.Connected).Returns(true);
             SocketError error = SocketError.WouldBlock;
-            var buffer = ReusableMemoryStream.Reserve(14);
+            var buffer = new ReusableMemoryStream(null);
+            buffer.SetLength(14);
             socket.Setup(
                 s =>
                     s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
@@ -242,7 +249,7 @@ namespace tests_kafka_sharp
                         mocked[args].Raise(a => a.Completed += null, socket.Object, args);
                 });
 
-            var connection = new Connection(new IPEndPoint(0,0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
             await connection.SendAsync(12, buffer, true);
             socket.Verify(s => s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error), Times.Once());
             socket.Verify(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()), Times.Exactly(3));
@@ -273,7 +280,8 @@ namespace tests_kafka_sharp
             });
             socket.Setup(s => s.Connected).Returns(true);
             SocketError error = SocketError.WouldBlock;
-            var buffer = ReusableMemoryStream.Reserve(14);
+            var buffer = new ReusableMemoryStream(null);
+            buffer.SetLength(14);
             socket.Setup(
                 s =>
                     s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
@@ -286,7 +294,8 @@ namespace tests_kafka_sharp
                     mocked[args].Raise(a => a.Completed += null, socket.Object, args);
                 });
 
-            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, 8, 8, true);
+            var miniPool = new Pool<byte[]>(() => new byte[8], (b, f) => { });
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, miniPool, RPool, 8, 8);
             await connection.SendAsync(12, buffer, true);
 
             // Ok, so the connection has an 8 bytes send buffer and the data to send is 14 bytes long,
@@ -311,7 +320,8 @@ namespace tests_kafka_sharp
             });
             socket.Setup(s => s.Connected).Returns(true);
             SocketError error = SocketError.WouldBlock;
-            var buffer = ReusableMemoryStream.Reserve(14);
+            var buffer = new ReusableMemoryStream(null);
+            buffer.SetLength(14);
             socket.Setup(
                 s =>
                     s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
@@ -319,7 +329,7 @@ namespace tests_kafka_sharp
             socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
                 .Returns(true)
                 .Callback((ISocketAsyncEventArgs a) => mocked[a].Raise(_ => _.Completed += null, socket.Object, a));
-            var connection = new Connection(new IPEndPoint(0,0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
             var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
             Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
         }
@@ -332,7 +342,8 @@ namespace tests_kafka_sharp
             socket.Setup(s => s.CreateEventArgs()).Returns(() => new Mock<ISocketAsyncEventArgs>().Object);
             socket.Setup(s => s.Connected).Returns(true);
             SocketError error = SocketError.NetworkReset;
-            var buffer = ReusableMemoryStream.Reserve(14);
+            var buffer = new ReusableMemoryStream(null);
+            buffer.SetLength(14);
             socket.Setup(
                 s =>
                     s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
@@ -340,7 +351,7 @@ namespace tests_kafka_sharp
             socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
                 .Returns(true)
                 .Callback((ISocketAsyncEventArgs a) => mocked[a].Raise(_ => _.Completed += null, socket.Object, a));
-            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
             var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
             Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
             Assert.IsInstanceOf<SocketException>(e.InnerException);
@@ -359,12 +370,13 @@ namespace tests_kafka_sharp
             });
             socket.Setup(s => s.Connected).Returns(true);
             SocketError error = SocketError.WouldBlock;
-            var buffer = ReusableMemoryStream.Reserve(14);
+            var buffer = new ReusableMemoryStream(null);
+            buffer.SetLength(14);
             socket.Setup(
                 s =>
                     s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
                 .Throws<InvalidOperationException>();
-            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
             var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
             Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
             Assert.IsInstanceOf<InvalidOperationException>(e.InnerException);
@@ -381,14 +393,15 @@ namespace tests_kafka_sharp
             });
             socket.Setup(s => s.Connected).Returns(true);
             SocketError error = SocketError.WouldBlock;
-            var buffer = ReusableMemoryStream.Reserve(14);
+            var buffer = new ReusableMemoryStream(null);
+            buffer.SetLength(14);
             socket.Setup(
                 s =>
                     s.Send(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<SocketFlags>(), out error))
                 .Returns(0);
             socket.Setup(s => s.SendAsync(It.IsAny<ISocketAsyncEventArgs>()))
                 .Throws<InvalidOperationException>();
-            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
             var e = Assert.Throws<TransportException>(async () => await connection.SendAsync(12, buffer, true));
             Assert.That(e.Error, Is.EqualTo(TransportError.WriteError));
             Assert.IsInstanceOf<InvalidOperationException>(e.InnerException);
@@ -400,10 +413,10 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.Success);
-            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory, 16, 16);
+            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory, BPool, RPool, 16, 16);
             const int correlationId = 379821;
             const byte ack = 1;
-            var buffer = ReusableMemoryStream.Reserve();
+            var buffer = new ReusableMemoryStream(null);
             BigEndianConverter.Write(buffer, 4 + 4 + 1 + data.Length - 4);
             BigEndianConverter.Write(buffer, correlationId);
             buffer.WriteByte(ack);
@@ -432,10 +445,10 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.Success);
-            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory, 16, 16);
+            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory, BPool, RPool, 16, 16);
             const int correlationId = 379821;
             const byte ack = 1;
-            var buffer = ReusableMemoryStream.Reserve();
+            var buffer = new ReusableMemoryStream(null);
             BigEndianConverter.Write(buffer, 4 + 4 + 1 + data.Length - 4);
             BigEndianConverter.Write(buffer, correlationId);
             buffer.WriteByte(ack);
@@ -452,7 +465,7 @@ namespace tests_kafka_sharp
             buffer.Position = 8;
             buffer.WriteByte(0);
             await connection.SendAsync(correlationId, buffer, false);
-            buffer = ReusableMemoryStream.Reserve();
+            buffer = new ReusableMemoryStream(null);
             buffer.Write(bdata, 0, bdata.Length);
             buffer.Position = 8;
             buffer.WriteByte(1);
@@ -478,10 +491,10 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.ReceiveError);
-            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory);
+            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory, BPool, RPool, 1024, 1024);
             const int correlationId = 379821;
             const byte ack = 1;
-            var buffer = ReusableMemoryStream.Reserve();
+            var buffer = new ReusableMemoryStream(null);
             BigEndianConverter.Write(buffer, 4 + 4 + 1 + data.Length - 4);
             BigEndianConverter.Write(buffer, correlationId);
             buffer.WriteByte(ack);
@@ -509,10 +522,10 @@ namespace tests_kafka_sharp
             const string data = "The cuiqk brwon fox jumps over the zaly god.";
 
             var server = new FakeServer(SimulationMode.CorrelationIdError);
-            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory);
+            var connection = new Connection(server.EndPoint, Connection.DefaultSocketFactory, BPool, RPool, 1024, 1024);
             const int correlationId = 379821;
             const byte ack = 1;
-            var buffer = ReusableMemoryStream.Reserve();
+            var buffer = new ReusableMemoryStream(null);
             BigEndianConverter.Write(buffer, 4 + 4 + 1 + data.Length - 4);
             BigEndianConverter.Write(buffer, correlationId);
             buffer.WriteByte(ack);
@@ -541,7 +554,7 @@ namespace tests_kafka_sharp
             var socket = new Mock<ISocket>();
             socket.Setup(s => s.CreateEventArgs()).Returns(new RealSocketAsyncEventArgs());
             socket.Setup(s => s.ConnectAsync()).Throws(new SocketException((int) SocketError.ConnectionRefused));
-            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object);
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
 
             var exception = Assert.Throws<TransportException>(async () => await connection.ConnectAsync());
             Assert.That(exception.Error, Is.EqualTo(TransportError.ConnectError));

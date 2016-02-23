@@ -13,10 +13,10 @@ namespace Kafka.Protocol
         public object Value;
         public ReusableMemoryStream SerializedKeyValue;
 
-        public void SerializeKeyValue(Tuple<ISerializer, ISerializer> serializers)
+        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers)
         {
-            SerializedKeyValue = ReusableMemoryStream.Reserve();
-            SerializeKeyValue(SerializedKeyValue, serializers);
+            SerializedKeyValue = target;
+            DoSerializeKeyValue(SerializedKeyValue, serializers);
             Key = null;
             Value = null;
         }
@@ -36,7 +36,7 @@ namespace Kafka.Protocol
             }
             else
             {
-                SerializeKeyValue(stream, serializers);
+                DoSerializeKeyValue(stream, serializers);
             }
 
             // update crc
@@ -47,7 +47,7 @@ namespace Kafka.Protocol
             stream.Position = curPos;
         }
 
-        private void SerializeKeyValue(ReusableMemoryStream stream, Tuple<ISerializer, ISerializer> serializers)
+        private void DoSerializeKeyValue(ReusableMemoryStream stream, Tuple<ISerializer, ISerializer> serializers)
         {
             if (Key == null)
             {

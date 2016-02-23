@@ -13,47 +13,25 @@ namespace Kafka.Common
     /// of underlying buffers. This kills two birds with one stone:
     /// we can minimize MemoryStream/buffers creation when (de)serialing requests/responses
     /// and we can minimize the number of buffers passed to the network layers.
-    ///
-    /// TODO: (for all pools) check that we do not keep too many objects in the pool
     /// </summary>
     class ReusableMemoryStream : MemoryStream, IMemorySerializable, IDisposable
     {
-        private static readonly Pool<ReusableMemoryStream> ChunkPool = new Pool<ReusableMemoryStream>(() =>  new ReusableMemoryStream(ChunkPool), s => s.SetLength(0));
-        private static readonly Pool<ReusableMemoryStream> BatchPool = new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(BatchPool), s => s.SetLength(0));
-        internal const int SmallLimit = 81920; // 20 * 4096, just under LOH limit
-
         private static int _nextId;
         private readonly int _id; // Useful to track leaks while debugging
         private readonly Pool<ReusableMemoryStream> _myPool;
 
-        private ReusableMemoryStream(Pool<ReusableMemoryStream> myPool)
+        public ReusableMemoryStream(Pool<ReusableMemoryStream> myPool)
         {
             _id = Interlocked.Increment(ref _nextId);
             _myPool = myPool;
         }
 
-        // Used for single message serialization and "small" buffers.
-        public static ReusableMemoryStream Reserve()
+        public Pool<ReusableMemoryStream> Pool
         {
-            return ChunkPool.Reserve();
-        }
-
-        // Used for messageset serialization and "big" responses.
-        public static ReusableMemoryStream ReserveBatch()
-        {
-            return BatchPool.Reserve();
-        }
-
-        // Route to Reserve()/ReserveBatch depending on requested size
-        public static ReusableMemoryStream Reserve(int capacity)
-        {
-            var rms = capacity > SmallLimit ? BatchPool.Reserve() : ChunkPool.Reserve();
-            return rms.EnsureCapacity(capacity);
-        }
-
-        private static void Release(ReusableMemoryStream stream)
-        {
-            stream._myPool.Release(stream);
+            get
+            {
+                return _myPool;
+            }
         }
 
         internal byte this[int index]
@@ -69,21 +47,16 @@ namespace Kafka.Common
 
         void IDisposable.Dispose()
         {
-            Release(this);
-        }
-
-        private ReusableMemoryStream EnsureCapacity(int capacity)
-        {
-            int position = (int) Position;
-            SetLength(capacity);
-            Position = position;
-            return this;
+            if (_myPool != null)
+            {
+                _myPool.Release(this);
+            }
         }
 
         public void Serialize(MemoryStream toStream)
         {
             byte[] array = GetBuffer();
-            int length = (int)Length;
+            int length = (int) Length;
             toStream.Write(array, 0, length);
         }
     }
@@ -94,16 +67,14 @@ namespace Kafka.Common
         // we might as well provide a CopyTo that makes use of that instead of
         // using Stream.CopyTo (which allocates a buffer of its own, even if it
         // does so efficiently).
-        public static void ReusableCopyTo(this Stream input, Stream destination)
+        public static void ReusableCopyTo(this Stream input, Stream destination, ReusableMemoryStream tmpBuffer)
         {
-            using (var m = ReusableMemoryStream.Reserve(ReusableMemoryStream.SmallLimit))
+            tmpBuffer.SetLength(81920);
+            var buffer = tmpBuffer.GetBuffer();
+            int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) != 0)
             {
-                var buffer = m.GetBuffer();
-                int read;
-                while ((read = input.Read(buffer, 0, buffer.Length)) != 0)
-                {
-                    destination.Write(buffer, 0, read);
-                }
+                destination.Write(buffer, 0, read);
             }
         }
     }

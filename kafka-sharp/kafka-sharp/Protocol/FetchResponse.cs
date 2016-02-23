@@ -23,7 +23,7 @@ namespace Kafka.Protocol
 
     static class ResponseMessageListPool
     {
-        private static readonly Pool<List<ResponseMessage>> _pool = new Pool<List<ResponseMessage>>(() => new List<ResponseMessage>(), l => l.Clear());
+        private static readonly Pool<List<ResponseMessage>> _pool = new Pool<List<ResponseMessage>>(() => new List<ResponseMessage>(), (l, _) => l.Clear());
 
         public static List<ResponseMessage> Reserve()
         {
@@ -136,8 +136,9 @@ namespace Kafka.Protocol
                     var dataPos = stream.Position;
                     stream.Position += compressedLength;
                     CheckCrc(crc, stream, crcStartPos);
-                    using (var uncompressedStream = Uncompress(stream.GetBuffer(), (int) dataPos, compressedLength, codec))
+                    using (var uncompressedStream = stream.Pool.Reserve())
                     {
+                        Uncompress(uncompressedStream, stream.GetBuffer(), (int) dataPos, compressedLength, codec);
                         // Deserialize recursively
                         foreach (var m in LazyDeserializeMessageSet(uncompressedStream, (int) uncompressedStream.Length, deserializers))
                         {
@@ -164,29 +165,29 @@ namespace Kafka.Protocol
 
         #region Compression handling
 
-        private static ReusableMemoryStream Uncompress(byte[] body, int offset, int length, CompressionCodec codec)
+        private static void Uncompress(ReusableMemoryStream uncompressed, byte[] body, int offset, int length, CompressionCodec codec)
         {
             try
             {
-                ReusableMemoryStream uncompressed;
                 if (codec == CompressionCodec.Snappy)
                 {
-                    uncompressed = ReusableMemoryStream.Reserve(SnappyCodec.GetUncompressedLength(body, offset, length));
+                    uncompressed.SetLength(SnappyCodec.GetUncompressedLength(body, offset, length));
                     SnappyCodec.Uncompress(body, offset, length, uncompressed.GetBuffer(), 0);
                 }
                 else // compression == CompressionCodec.Gzip
                 {
-                    uncompressed = ReusableMemoryStream.ReserveBatch();
                     using (var compressed = new MemoryStream(body, offset, length, false))
                     {
                         using (var gzip = new GZipStream(compressed, CompressionMode.Decompress))
                         {
-                            gzip.ReusableCopyTo(uncompressed);
+                            using (var tmp = uncompressed.Pool.Reserve())
+                            {
+                                gzip.ReusableCopyTo(uncompressed, tmp);
+                            }
                         }
                     }
                 }
                 uncompressed.Position = 0;
-                return uncompressed;
             }
             catch (Exception ex)
             {

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Batching;
 using Kafka.Cluster;
+using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
 using Kafka.Routing;
@@ -16,6 +17,8 @@ namespace tests_kafka_sharp
     [TestFixture]
     class TestRouter
     {
+        private static readonly Pool<ReusableMemoryStream> Pool =
+            new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(Pool), (m, b) => { m.SetLength(0); });
         private NodeMock[] _nodes;
         private ClusterMock _cluster;
         private Dictionary<string, Partition[]> _routes;
@@ -105,7 +108,7 @@ namespace tests_kafka_sharp
             _cluster = new ClusterMock(_routes);
 
             MessagesEnqueued = MessagesExpired = MessagesReEnqueued = MessagesRouted = MessagesPostponed = RoutingTableRequired = 0;
-            InitRouter(new ProduceRouter(_cluster, config));
+            InitRouter(new ProduceRouter(_cluster, config, Pool));
             _finished = null;
         }
 
@@ -169,7 +172,7 @@ namespace tests_kafka_sharp
                 {
                     TaskScheduler = new CurrentThreadTaskScheduler(),
                     SerializationConfig = new SerializationConfig {SerializeOnProduce = true}
-                });
+                }, Pool);
 
             var key = new byte[] {65, 66}; // 'A', 'B'
             var value = new byte[] {67, 68}; // 'C', 'D'
@@ -202,7 +205,7 @@ namespace tests_kafka_sharp
                     ProduceBatchSize = 2,
                     ProduceBufferingTime = TimeSpan.FromDays(2), // To make sure there's no race on batch tick
                     TaskScheduler = new CurrentThreadTaskScheduler()
-                });
+                }, Pool);
 
             producer.Route("toto", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(42));
             // The second Route will tick a batch. All of this is done on the test thread thanks
@@ -425,7 +428,7 @@ namespace tests_kafka_sharp
         [Test]
         public async Task TestAcknowledgementResponseNoneProduceWasSentRetry()
         {
-            InitRouter(new ProduceRouter(_cluster, new Configuration{ErrorStrategy = ErrorStrategy.Retry}));
+            InitRouter(new ProduceRouter(_cluster, new Configuration{ErrorStrategy = ErrorStrategy.Retry}, Pool));
             _finished = new AsyncCountdownEvent(3);
             var acknowledgement = new ProduceAcknowledgement
             {

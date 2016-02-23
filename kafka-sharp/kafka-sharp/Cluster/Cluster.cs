@@ -93,6 +93,7 @@ namespace Kafka.Cluster
             // TODO: add timestamp and use it to avoid send a request when result is more recent
         }
 
+        private readonly Pools _pools;
         private readonly Configuration _configuration;
         private readonly NodeFactory _nodeFactory;
         private readonly Dictionary<INode, BrokerMeta> _nodes = new Dictionary<INode, BrokerMeta>();
@@ -140,8 +141,10 @@ namespace Kafka.Cluster
             Statistics = statistics ?? new Statistics();
             _timeoutScheduler = new TimeoutScheduler(configuration.ClientRequestTimeoutMs / 2);
 
+            _pools = InitPools(Statistics, configuration);
+
             // Producer init
-            ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration);
+            ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration, _pools.MessageBuffersPool);
             ProduceRouter.MessageExpired += (t, m) =>
             {
                 Statistics.UpdateExpired();
@@ -171,13 +174,13 @@ namespace Kafka.Cluster
 
             // Node factory
             var clientId = Encoding.UTF8.GetBytes(configuration.ClientId);
-            var serializer = new Node.Serialization(configuration.SerializationConfig, clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
+            var serializer = new Node.Serialization(configuration.SerializationConfig, _pools.RequestsBuffersPool, clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
                                                  configuration.CompressionCodec, configuration.FetchMinBytes, configuration.FetchMaxWaitTime);
             _nodeFactory = nodeFactory ??
                            ((h, p) =>
                             new Node(string.Format("[{0}:{1}]", h, p),
                                      () =>
-                                     new Connection(h, p, ep => new RealSocket(ep), configuration.SendBufferSize, configuration.ReceiveBufferSize),
+                                     new Connection(h, p, ep => new RealSocket(ep), _pools.SocketBuffersPool, _pools.RequestsBuffersPool, configuration.SendBufferSize, configuration.ReceiveBufferSize),
                                      serializer,
                                      configuration,
                                      _timeoutScheduler,
@@ -200,6 +203,29 @@ namespace Kafka.Cluster
         {
             _resolution = resolution;
             return this;
+        }
+
+        private static Pools InitPools(IStatistics statistics, Configuration configuration)
+        {
+            var pools = new Pools(statistics);
+            pools.InitSocketBuffersPool(Math.Max(configuration.SendBufferSize, configuration.ReceiveBufferSize));
+            pools.InitRequestsBuffersPool();
+            var limit = configuration.MaxBufferedMessages;
+            if (limit <= 0)
+            {
+                // Try to be smart
+                if (configuration.BatchStrategy == BatchStrategy.Global)
+                {
+                    limit = 10 * configuration.ProduceBatchSize;
+                }
+                else
+                {
+                    limit = 100 * configuration.ProduceBatchSize;
+                }
+            }
+            pools.InitMessageBuffersPool(limit);
+
+            return pools;
         }
 
         private void RefreshMetadata()

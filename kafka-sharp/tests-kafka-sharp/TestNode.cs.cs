@@ -19,6 +19,8 @@ namespace tests_kafka_sharp
     class TestNode
     {
         private static readonly Task Success = Task.FromResult(true);
+        private static readonly Pool<ReusableMemoryStream> Pool =
+            new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(Pool), (m, b) => { m.SetLength(0); });
 
         [Test]
         public void TestFetch()
@@ -116,7 +118,9 @@ namespace tests_kafka_sharp
             };
 
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve(28));
+            var r = new ReusableMemoryStream(null);
+            r.SetLength(28);
+            connection.Raise(c => c.Response += null, connection.Object, corr, r);
 
             // Checks
             Assert.IsTrue(resp);
@@ -175,7 +179,7 @@ namespace tests_kafka_sharp
                 .Throws(new Exception());
 
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve());
+            connection.Raise(c => c.Response += null, connection.Object, corr, new ReusableMemoryStream(null));
 
             // Checks
             Assert.AreEqual(1, decodeError);
@@ -320,7 +324,7 @@ namespace tests_kafka_sharp
                 });
 
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve());
+            connection.Raise(c => c.Response += null, connection.Object, corr, new ReusableMemoryStream(null));
 
             // Checks
             Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
@@ -376,7 +380,7 @@ namespace tests_kafka_sharp
                 .Throws(new Exception());
 
             // Now send a response
-            connection.Raise(c => c.Response += null, connection.Object, corr, ReusableMemoryStream.Reserve());
+            connection.Raise(c => c.Response += null, connection.Object, corr, new ReusableMemoryStream(null));
 
             // Checks
             Assert.AreEqual(1, decodeError);
@@ -462,7 +466,7 @@ namespace tests_kafka_sharp
         public void TestMetadataDecodeError()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serialization(null, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                                new Node.Serialization(null, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                                 new Configuration());
             Exception ex = null;
             node.DecodeError += (n, e) =>
@@ -544,7 +548,7 @@ namespace tests_kafka_sharp
         public void TestProduceDecodeErrorAreAcknowledged()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serialization(null, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                                new Node.Serialization(null, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                                 new Configuration
                                     {
                                         ErrorStrategy = ErrorStrategy.Discard,
@@ -582,7 +586,7 @@ namespace tests_kafka_sharp
             // Prepare
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object,
-                new Node.Serialization(null, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Node.Serialization(null, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                 new Configuration
                 {
                     TaskScheduler = new CurrentThreadTaskScheduler(),

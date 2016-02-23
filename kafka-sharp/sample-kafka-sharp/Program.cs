@@ -113,7 +113,10 @@ dagfhefdghafdahfh",
         {
             Mode mode = Mode.Profile;
             bool mix = false;
-            var configuration = new Configuration();
+            var configuration = new Configuration
+            {
+                ConsumeBatchSize = 100
+            };
 
             // Ugly command line parsing
             string curOpt = "";
@@ -255,7 +258,7 @@ dagfhefdghafdahfh",
 
             var serializer = new StringSerializer();
             var deserializer = new StringDeserializer();
-            var serializationConfig = new SerializationConfig();
+            var serializationConfig = new SerializationConfig(){SerializeOnProduce = true};
             foreach (var topic in _topics)
             {
                 serializationConfig.SetSerializersForTopic(topic, serializer, serializer);

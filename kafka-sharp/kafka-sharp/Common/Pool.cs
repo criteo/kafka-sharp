@@ -14,7 +14,7 @@ namespace Kafka.Common
     {
         private readonly ConcurrentQueue<T> _pool = new ConcurrentQueue<T>();
         private readonly Func<T> _constructor;
-        private readonly Action<T> _clearAction;
+        private readonly Action<T, bool> _clearAction;
         private readonly int _limit;
         private int _watermark;
 
@@ -23,11 +23,11 @@ namespace Kafka.Common
             get { return _watermark; }
         }
 
-        public Pool(Func<T> constructor, Action<T> clearAction) : this(0, constructor, clearAction)
+        public Pool(Func<T> constructor, Action<T, bool> clearAction) : this(0, constructor, clearAction)
         {
         }
 
-        public Pool(int limit, Func<T> constructor, Action<T> clearAction)
+        public Pool(int limit, Func<T> constructor, Action<T, bool> clearAction)
         {
             if (constructor == null)
             {
@@ -57,13 +57,14 @@ namespace Kafka.Common
         public void Release(T item)
         {
             if (item == null) return;
-            _clearAction(item);
             if (_limit > 0 && Interlocked.Increment(ref _watermark) > _limit)
             {
+                _clearAction(item, false);
                 Interlocked.Decrement(ref _watermark);
             }
             else
             {
+                _clearAction(item, true);
                 _pool.Enqueue(item);
             }
         }

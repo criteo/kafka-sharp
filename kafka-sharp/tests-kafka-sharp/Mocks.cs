@@ -325,7 +325,7 @@ namespace tests_kafka_sharp
 
             if (acknowledge)
             {
-                var response = ReusableMemoryStream.Reserve();
+                var response = new ReusableMemoryStream(null);
                 buffer.WriteTo(response);
                 OnResponse(correlationId, response);
             }
@@ -400,22 +400,22 @@ namespace tests_kafka_sharp
     {
         public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
@@ -445,17 +445,17 @@ namespace tests_kafka_sharp
 
         public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
@@ -481,7 +481,7 @@ namespace tests_kafka_sharp
 
         public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
@@ -491,12 +491,12 @@ namespace tests_kafka_sharp
 
         public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
@@ -620,22 +620,22 @@ namespace tests_kafka_sharp
 
             _produceResponses[correlationId] = r;
 
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
         {
-            return ReusableMemoryStream.Reserve();
+            return new ReusableMemoryStream(null);
         }
 
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)

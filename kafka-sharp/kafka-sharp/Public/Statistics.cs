@@ -77,6 +77,22 @@ namespace Kafka.Public
         /// </summary>
         long RawProducedBytes { get; }
 
+        /// <summary>
+        /// The number of allocated socket buffers.
+        /// </summary>
+        long SocketBuffers { get; }
+
+        /// <summary>
+        ///  The number of allocated bufers to serialize requests.
+        /// </summary>
+        long RequestsBuffers { get; }
+
+        /// <summary>
+        /// The number of allocated buffers to serialize messages
+        /// when SerializeOnProduce is set to true.
+        /// </summary>
+        long MessageBuffers { get; }
+
         void UpdateSuccessfulSent(long nb);
 
         void UpdateRequestSent();
@@ -104,6 +120,12 @@ namespace Kafka.Public
         void UpdateRawProduced(long nb);
 
         void UpdateRawProducedBytes(long nb);
+
+        void UpdateSocketBuffers(long nb);
+
+        void UpdateRequestsBuffers(long nb);
+
+        void UpdateMessageBuffers(long nb);
     }
 
     public class Statistics : IStatistics
@@ -121,6 +143,9 @@ namespace Kafka.Public
         private long _rawReceivedBytes;
         private long _rawProduced;
         private long _rawProducedBytes;
+        private long _socketBuffers;
+        private long _requestsBuffers;
+        private long _messageBuffers;
 
         public long SuccessfulSent { get { return _successfulSent; } }
 
@@ -148,11 +173,30 @@ namespace Kafka.Public
 
         public long RawProducedBytes { get { return _rawProducedBytes; } }
 
+        public long SocketBuffers { get { return _socketBuffers; } }
+
+        public long RequestsBuffers { get { return _requestsBuffers; } }
+
+        public long MessageBuffers { get { return _messageBuffers; } }
+
+
         public override string ToString()
         {
             return string.Format(
-                "{{Messages successfully sent: {0} - Messages received: {8} - Requests sent: {1} - Responses received: {2} - Errors: {3} - Dead nodes: {4} - Expired: {5} - Discarded: {6} - Exited: {7} - Raw produced: {9} - Raw produced bytes: {10} - Raw received: {11} - Raw received bytes: {12}}}",
-                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exited, Received, RawProduced, RawProducedBytes, RawReceived, RawReceivedBytes);
+                @"Messages successfully sent: {0} - Messages received: {8}
+Requests sent: {1} - Responses received: {2}
+Errors: {3} - Dead nodes: {4}
+Expired: {5} - Discarded: {6} - Exited: {7}
+Raw produced: {9} - Raw produced bytes: {10}
+Raw received: {11} - Raw received bytes: {12}
+Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
+",
+                SuccessfulSent, RequestSent,
+                ResponseReceived, Errors, NodeDead,
+                Expired, Discarded, Exited, Received,
+                RawProduced, RawProducedBytes, RawReceived, RawReceivedBytes,
+                SocketBuffers, RequestsBuffers, MessageBuffers
+                );
         }
 
         public void UpdateSuccessfulSent(long nb)
@@ -223,6 +267,21 @@ namespace Kafka.Public
         public void UpdateRawProducedBytes(long nb)
         {
             Interlocked.Add(ref _rawProducedBytes, nb);
+        }
+
+        public void UpdateSocketBuffers(long nb)
+        {
+            Interlocked.Add(ref _socketBuffers, nb);
+        }
+
+        public void UpdateRequestsBuffers(long nb)
+        {
+            Interlocked.Add(ref _requestsBuffers, nb);
+        }
+
+        public void UpdateMessageBuffers(long nb)
+        {
+            Interlocked.Add(ref _messageBuffers, nb);
         }
     }
 }

@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reactive.Concurrency;
 using System.Text;
+using Kafka.Cluster;
 using Kafka.Common;
+using Kafka.Public;
 using NUnit.Framework;
 
 namespace tests_kafka_sharp
@@ -13,7 +16,9 @@ namespace tests_kafka_sharp
         [Test]
         public void TestReusableMemoryStream()
         {
-            using (var stream = ReusableMemoryStream.Reserve())
+            var pool = new Pools(new Statistics());
+            pool.InitRequestsBuffersPool();
+            using (var stream = pool.RequestsBuffersPool.Reserve())
             {
                 Assert.AreEqual(0, stream.Length);
                 Assert.AreEqual(0, stream.Position);
@@ -24,16 +29,9 @@ namespace tests_kafka_sharp
                 stream.Write(b, 0, b.Length);
             }
 
-            using (var stream = ReusableMemoryStream.Reserve(1024))
-            {
-                Assert.AreEqual(1024, stream.Length);
-                Assert.AreEqual(0, stream.Position);
-                Assert.GreaterOrEqual(1024, stream.Capacity);
-            }
-
-            var s = ReusableMemoryStream.Reserve();
+            var s = pool.RequestsBuffersPool.Reserve();
             s.Dispose();
-            Assert.AreSame(s, ReusableMemoryStream.Reserve()); //  Won't work if tests are in parallel
+            Assert.AreSame(s, pool.RequestsBuffersPool.Reserve());
         }
 
         class Item
@@ -44,7 +42,12 @@ namespace tests_kafka_sharp
         [Test]
         public void TestPool()
         {
-            var pool = new Pool<Item>(5, () => new Item(), i => i.Value = 0);
+            int over = 0;
+            var pool = new Pool<Item>(6, () => new Item(), (i, b) =>
+            {
+                i.Value = 0;
+                if (!b) ++over;
+            });
 
             var item = pool.Reserve();
             Assert.IsNotNull(item);
@@ -59,11 +62,12 @@ namespace tests_kafka_sharp
             {
                 pool.Release(i);
             }
-            Assert.That(pool.Watermark, Is.EqualTo(5));
+            Assert.That(pool.Watermark, Is.EqualTo(6));
+            Assert.That(over, Is.EqualTo(4));
 
             Assert.That(() => pool.Release(null), Throws.Nothing);
             Assert.That(() => new Pool<Item>(() => new Item(), null), Throws.InstanceOf<ArgumentNullException>());
-            Assert.That(() => new Pool<Item>(null, i => i.Value = 0), Throws.InstanceOf<ArgumentNullException>());
+            Assert.That(() => new Pool<Item>(null, (i, _) => i.Value = 0), Throws.InstanceOf<ArgumentNullException>());
         }
     }
 }

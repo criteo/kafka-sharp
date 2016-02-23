@@ -9,7 +9,7 @@ namespace Kafka.Protocol
     // quite ugly from OO perspective but struct cannot inherit in C#.
     interface ISerializableRequest
     {
-        ReusableMemoryStream Serialize(int correlationId, byte[] clientId, object extra);
+        ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra);
         void SerializeBody(ReusableMemoryStream stream, object extra);
     }
 

@@ -117,8 +117,9 @@ namespace Kafka.Batching
     class BatchByTopic<TData> : IBatchByTopic<TData>
     {
         private static readonly Pool<BatchByTopic<TData>> _pool = new Pool<BatchByTopic<TData>>(
+            16, // If you need that much pending batches, you're doing something wrong
             () => new BatchByTopic<TData>(),
-            b =>
+            (b, _) =>
             {
                 foreach (var value in b._batch.Values)
                 {
@@ -257,8 +258,9 @@ namespace Kafka.Batching
     class BatchByTopicByPartition<TData> : IBatchByTopicByPartition<TData>
     {
         private static readonly Pool<BatchByTopicByPartition<TData>> _pool = new Pool<BatchByTopicByPartition<TData>>(
+            16, // If you need that much pending batches, you're doing something wrong
             () => new BatchByTopicByPartition<TData>(),
-            b =>
+            (b, _) =>
             {
                 foreach (var byTopic in b._batch.Values)
                 {

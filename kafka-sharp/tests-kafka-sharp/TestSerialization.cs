@@ -21,6 +21,9 @@ namespace tests_kafka_sharp
         private static readonly byte[] Key = Encoding.UTF8.GetBytes(TheKey);
         private static readonly byte[] ClientId = Encoding.UTF8.GetBytes(TheClientId);
 
+        private static readonly Pool<ReusableMemoryStream> Pool =
+            new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(Pool), (m, b) => { m.SetLength(0); });
+
         private static readonly int FullMessageSize = 4 + 1 + 1 + 4 + TheKey.Length + 4 + TheValue.Length;
         private static readonly int NullKeyMessageSize = 4 + 1 + 1 + 4 + 4 + TheValue.Length;
 
@@ -49,7 +52,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageWithPreserializedKeyValue()
         {
             var message = new Message { Key = Key, Value = Value };
-            message.SerializeKeyValue(new Tuple<ISerializer, ISerializer>(null, null));
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
             Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
@@ -83,7 +86,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageIMemorySerializableWithPreserializedKeyValue()
         {
             var message = new Message { Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value) };
-            message.SerializeKeyValue(new Tuple<ISerializer, ISerializer>(null, null));
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
             Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
@@ -93,7 +96,7 @@ namespace tests_kafka_sharp
 
         private void TestSerializeOneMessageCommon(Message message)
         {
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 message.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null));
                 Assert.AreEqual(FullMessageSize, serialized.Length);
@@ -106,7 +109,7 @@ namespace tests_kafka_sharp
                 CompareBuffers(Value, serialized);
             }
 
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 var msg = new Message { Value = Value };
                 msg.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null));
@@ -124,7 +127,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageCodec()
         {
             // Just check attributes, we don't put correct data
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 var message = new Message { Value = Value };
                 message.Serialize(serialized, CompressionCodec.Snappy, new Tuple<ISerializer, ISerializer>(null, null));
@@ -132,7 +135,7 @@ namespace tests_kafka_sharp
                 Assert.AreEqual(2, serialized.GetBuffer()[5]); // attributes is 2
             }
 
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 var message = new Message { Value = Value };
                 message.Serialize(serialized, CompressionCodec.Gzip, new Tuple<ISerializer, ISerializer>(null, null));
@@ -144,7 +147,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestSerializeMessageSet()
         {
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 var set = new PartitionData
                 {
@@ -177,7 +180,7 @@ namespace tests_kafka_sharp
         [TestCase(CompressionCodec.Snappy, 2)]
         public void TestSerializeMessageSetCompressed(CompressionCodec codec, byte attr)
         {
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = Pool.Reserve())
             {
                 var set = new PartitionData
                 {
@@ -215,7 +218,7 @@ namespace tests_kafka_sharp
         [TestCase(CompressionCodec.Snappy)]
         public void TestDeserializeMessageSet(CompressionCodec codec)
         {
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = Pool.Reserve())
             {
                 var set = new PartitionData
                 {
@@ -262,7 +265,7 @@ namespace tests_kafka_sharp
             {
                 Topics = new[] { "poulpe", "banana" }
             };
-            using (var serialized = meta.Serialize(61, ClientId, null))
+            using (var serialized = meta.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
             {
                 CheckHeader(Basics.ApiKey.MetadataRequest, 0, 61, TheClientId, serialized);
                 Assert.AreEqual(2, BigEndianConverter.ReadInt32(serialized));
@@ -274,7 +277,7 @@ namespace tests_kafka_sharp
             {
                 Topics = null
             };
-            using (var serialized = meta.Serialize(61, ClientId, null))
+            using (var serialized = meta.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
             {
                 CheckHeader(Basics.ApiKey.MetadataRequest, 0, 61, TheClientId, serialized);
                 Assert.AreEqual(0, BigEndianConverter.ReadInt32(serialized));
@@ -315,7 +318,7 @@ namespace tests_kafka_sharp
                         }
                     }
             };
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 meta.Serialize(serialized, null);
                 Assert.AreEqual(74, serialized.Length); // TODO: better check that serialization is correct?
@@ -366,7 +369,7 @@ namespace tests_kafka_sharp
                         }
                     }
             };
-            using (var serialized = fetch.Serialize(1234, ClientId, null))
+            using (var serialized = fetch.Serialize(new ReusableMemoryStream(null), 1234, ClientId, null))
             {
                 CheckHeader(Basics.ApiKey.FetchRequest, 0, 1234, TheClientId, serialized);
                 Assert.AreEqual(-1, BigEndianConverter.ReadInt32(serialized)); // ReplicaId
@@ -427,7 +430,7 @@ namespace tests_kafka_sharp
             var config = new SerializationConfig();
             config.SetSerializersForTopic("barbu", new StringSerializer(), new StringSerializer());
             config.SetDeserializersForTopic("barbu", new StringDeserializer(), new StringDeserializer());
-            using (var serialized = produce.Serialize(321, ClientId, config))
+            using (var serialized = produce.Serialize(new ReusableMemoryStream(null), 321, ClientId, config))
             {
                 CheckHeader(Basics.ApiKey.ProduceRequest, 0, 321, TheClientId, serialized);
                 Assert.AreEqual(produce.RequiredAcks, BigEndianConverter.ReadInt16(serialized));
@@ -466,7 +469,7 @@ namespace tests_kafka_sharp
                 }
             };
 
-            using (var serialized = offset.Serialize(1235, ClientId, null))
+            using (var serialized = offset.Serialize(new ReusableMemoryStream(null), 1235, ClientId, null))
             {
                 CheckHeader(Basics.ApiKey.OffsetRequest, 0, 1235, TheClientId, serialized);
                 Assert.AreEqual(-1, BigEndianConverter.ReadInt32(serialized)); // ReplicaId
@@ -522,7 +525,7 @@ namespace tests_kafka_sharp
                 }
             };
 
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 Basics.WriteArray(serialized, response.TopicsResponse);
 
@@ -550,7 +553,7 @@ namespace tests_kafka_sharp
                 }
             };
 
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 Basics.WriteArray(serialized, response.TopicsResponse);
 
@@ -602,7 +605,7 @@ namespace tests_kafka_sharp
                 }
             };
 
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 var config = new SerializationConfig();
                 Basics.WriteArray(serialized, response.TopicsResponse, config);
@@ -635,7 +638,7 @@ namespace tests_kafka_sharp
         public void Test003_SerializeString()
         {
             // Non null string
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 Basics.SerializeString(serialized, TheValue);
                 Assert.AreEqual(2 + Value.Length, serialized.Length);
@@ -645,7 +648,7 @@ namespace tests_kafka_sharp
             }
 
             // Null string
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 Basics.SerializeString(serialized, null);
                 Assert.AreEqual(2, serialized.Length);
@@ -657,7 +660,7 @@ namespace tests_kafka_sharp
         [Test]
         public void Test004_DeserializeString()
         {
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 // Non null string
                 BigEndianConverter.Write(serialized, (short) Value.Length);
@@ -680,7 +683,7 @@ namespace tests_kafka_sharp
         public void Test001_SerializeArray()
         {
             var array = new[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 109};
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 Basics.WriteArray(serialized, array, BigEndianConverter.Write);
                 serialized.Position = 0;
@@ -698,7 +701,7 @@ namespace tests_kafka_sharp
         public void Test002_DeserializeArray()
         {
             var array = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 109 };
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 Basics.WriteArray(serialized, array, BigEndianConverter.Write);
                 serialized.Position = 0;
@@ -720,7 +723,7 @@ namespace tests_kafka_sharp
             const byte b6 = 101;
             const byte b7 = 7;
 
-            using (var s = ReusableMemoryStream.Reserve())
+            using (var s = new ReusableMemoryStream(null))
             {
                 var n1 = (short) ((b0 << 8) | b1);
                 BigEndianConverter.Write(s, n1);
@@ -883,7 +886,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestUnsupportedMagicByte()
         {
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 var set = new PartitionData
                 {
@@ -905,7 +908,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestBadCrc()
         {
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = new ReusableMemoryStream(null))
             {
                 var set = new PartitionData
                 {
@@ -927,7 +930,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestBadCompression()
         {
-            using (var serialized = ReusableMemoryStream.Reserve())
+            using (var serialized = Pool.Reserve())
             {
                 var set = new PartitionData
                 {

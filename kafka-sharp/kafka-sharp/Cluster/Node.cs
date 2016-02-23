@@ -192,8 +192,9 @@ namespace Kafka.Cluster
             private readonly int _maxWait;
             private readonly CompressionCodec _compressionCodec;
             private readonly SerializationConfig _serializationConfig;
+            private readonly Pool<ReusableMemoryStream> _requestPool;
 
-            public Serialization(SerializationConfig serializationConfig, byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait)
+            public Serialization(SerializationConfig serializationConfig, Pool<ReusableMemoryStream> requestPool, byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait)
             {
                 _clientId = clientId;
                 _requiredAcks = (short) requiredAcks;
@@ -202,11 +203,12 @@ namespace Kafka.Cluster
                 _maxWait = maxWait;
                 _compressionCodec = compressionCodec;
                 _serializationConfig = serializationConfig ?? new SerializationConfig();
+                _requestPool = requestPool;
             }
 
             public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
             {
-                return new TopicRequest().Serialize(correlationId, _clientId, null);
+                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
             }
 
             public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
@@ -226,7 +228,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return produceRequest.Serialize(correlationId, _clientId, _serializationConfig);
+                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig);
             }
 
             public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
@@ -246,7 +248,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return fetchRequest.Serialize(correlationId, _clientId, null);
+                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
             }
 
             public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
@@ -264,7 +266,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return offsetRequest.Serialize(correlationId, _clientId, null);
+                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
             }
 
             public MetadataResponse DeserializeMetadataResponse(int notUsed, ReusableMemoryStream data)
@@ -691,7 +693,7 @@ namespace Kafka.Cluster
                         request.RequestValue.OffsetBatchRequest);
 
                 default: // Compiler requires a default case, even if all possible cases are already handled
-                    return ReusableMemoryStream.Reserve();
+                    throw new ArgumentOutOfRangeException("request", "Non valid RequestType enum value");
             }
         }
 

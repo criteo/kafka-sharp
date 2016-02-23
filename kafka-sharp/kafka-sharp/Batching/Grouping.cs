@@ -11,7 +11,11 @@ namespace Kafka.Batching
 {
     class Grouping<TKey, TData> : IGrouping<TKey, TData>, IDisposable
     {
-        private static readonly Pool<Grouping<TKey, TData>> _pool = new Pool<Grouping<TKey, TData>>(() => new Grouping<TKey, TData>(), g => g.Clear());
+        private static readonly Pool<Grouping<TKey, TData>> _pool =
+            new Pool<Grouping<TKey, TData>>(
+                16384, // Hard codded security to avoid memory explosion if you're doing someting wrong
+                () => new Grouping<TKey, TData>(),
+                (g, _) => g.Clear());
 
         private readonly List<TData> _data = new List<TData>();
 
@@ -74,8 +78,9 @@ namespace Kafka.Batching
     class Grouping<TKey1, TKey2, TData> : IGrouping<TKey1, IGrouping<TKey2, TData>>, IDisposable
     {
         private static readonly Pool<Grouping<TKey1, TKey2, TData>> _pool = new Pool<Grouping<TKey1, TKey2, TData>>(
+            16384, // Hard codded security to avoid memory explosion if you're doing someting wrong
             () => new Grouping<TKey1, TKey2, TData>(),
-            g => g.Clear());
+            (g, _) => g.Clear());
 
         private readonly Dictionary<TKey2, Grouping<TKey2, TData>> _key2Groupings = new Dictionary<TKey2, Grouping<TKey2, TData>>();
 

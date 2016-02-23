@@ -130,7 +130,7 @@ namespace Kafka.Public
 
             _clusterClient.MessageReceived += OnClusterMessage;
             _messagesSub = _clusterClient.Messages.Where(CheckRecord).Select(ToRecord).Subscribe(_messages.OnNext);
-        } 
+        }
 
         public event Action<KafkaRecord<TKey, TValue>> MessageReceived = _ => { };
 

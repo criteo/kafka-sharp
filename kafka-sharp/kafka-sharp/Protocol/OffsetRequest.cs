@@ -12,9 +12,9 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public ReusableMemoryStream Serialize(int correlationId, byte[] clientId, object noextra)
+        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object noextra)
         {
-            return CommonRequest.Serialize(ReusableMemoryStream.Reserve(), this, correlationId, clientId, Basics.ApiKey.OffsetRequest, null);
+            return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.OffsetRequest, null);
         }
 
         public void SerializeBody(ReusableMemoryStream stream, object noextra)
