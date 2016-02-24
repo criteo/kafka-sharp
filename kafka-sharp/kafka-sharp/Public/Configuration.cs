@@ -70,6 +70,22 @@ namespace Kafka.Public
         ByNode
     }
 
+    /// <summary>
+    /// Strategy when limiting the number of messages in the system.
+    /// </summary>
+    public enum OverflowStrategy
+    {
+        /// <summary>
+        /// Produce will block once the max number of pending messages has been reached.
+        /// </summary>
+        Block,
+
+        /// <summary>
+        /// Produce will instantly discard the message when the max pending has been reached.
+        /// </summary>
+        Discard
+    }
+
     public class Configuration
     {
         /// <summary>
@@ -174,10 +190,16 @@ namespace Kafka.Public
         public int MaximumConcurrency = 3;
 
         /// <summary>
-        /// Maximum number of messages in the system before blocking send from clients.
+        /// Maximum number of messages in the system before blocking/discarding send from clients.
         /// By default we never block and the number is unbounded.
         /// </summary>
         public int MaxBufferedMessages = -1;
+
+        /// <summary>
+        /// The strategy to use when the maximum number of pending produce messages
+        /// has been reached. By default we block.
+        /// </summary>
+        public OverflowStrategy OverflowStrategy = OverflowStrategy.Block;
 
         /// <summary>
         /// The maximum amount of time in ms brokers will block before answering fetch requests

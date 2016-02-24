@@ -22,7 +22,8 @@ namespace Kafka.Public
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
         /// <param name="data">Message value</param>
-        void Produce(string topic, object data);
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object data);
 
         /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
@@ -30,7 +31,8 @@ namespace Kafka.Public
         /// <param name="topic">Kafka message topic</param>
         /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
-        void Produce(string topic, object key, object data);
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object key, object data);
 
         /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
@@ -41,7 +43,8 @@ namespace Kafka.Public
         /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
         /// <param name="partition">Target partition</param>
-        void Produce(string topic, object key, object data, int partition);
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object key, object data, int partition);
 
         /// <summary>
         /// Consume messages from the given topic, from all partitions, and starting from
@@ -359,27 +362,39 @@ namespace Kafka.Public
 
         private long _sent;
 
-        public void Produce(string topic, object data)
+        public bool Produce(string topic, object data)
         {
-            Produce(topic, null, data);
+            return Produce(topic, null, data);
         }
 
-        public void Produce(string topic, object key, object data)
+        public bool Produce(string topic, object key, object data)
         {
-            Produce(topic, key, data, Partitions.Any);
+            return Produce(topic, key, data, Partitions.Any);
         }
 
-        public void Produce(string topic, object key, object data, int partition)
+        public bool Produce(string topic, object key, object data, int partition)
         {
             if (_configuration.MaxBufferedMessages > 0)
             {
                 if (_sent - _cluster.PassedThrough >= _configuration.MaxBufferedMessages)
                 {
-                    SpinWait.SpinUntil(() => _sent - _cluster.PassedThrough < _configuration.MaxBufferedMessages);
+                    switch (_configuration.OverflowStrategy)
+                    {
+                        case OverflowStrategy.Discard:
+                            return false;
+
+                        case OverflowStrategy.Block:
+                            SpinWait.SpinUntil(() => _sent - _cluster.PassedThrough < _configuration.MaxBufferedMessages);
+                            break;
+
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
                 }
                 Interlocked.Increment(ref _sent);
             }
             _cluster.ProduceRouter.Route(topic, new Message {Key = key, Value = data}, partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
+            return true;
         }
 
         public Task<int[]> GetPartitionforTopicAsync(string topic)

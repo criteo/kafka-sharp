@@ -20,18 +20,23 @@ namespace tests_kafka_sharp
         private Mock<IConsumeRouter> _consumer;
         private Mock<INode> _node;
 
-        [SetUp]
-        public void SetUp()
+        private void Init(Configuration configuration)
         {
             _node = new Mock<INode>();
             _node.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(new MetadataResponse()));
             _producer = new Mock<IProduceRouter>();
             _consumer = new Mock<IConsumeRouter>();
-            var configuration = new Configuration {Seeds = "localhost:1", TaskScheduler = new CurrentThreadTaskScheduler()};
             var logger = new Mock<ILogger>();
             _client = new ClusterClient(configuration, logger.Object,
                 new Cluster(configuration, logger.Object, (h, p) => _node.Object, () => _producer.Object,
                     () => _consumer.Object));
+        }
+
+        [SetUp]
+        public void SetUp()
+        {
+            var configuration = new Configuration { Seeds = "localhost:1", TaskScheduler = new CurrentThreadTaskScheduler() };
+            Init(configuration);
         }
 
         [TearDown]
@@ -55,7 +60,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestProduceValue()
         {
-            _client.Produce(Topic, ValueB);
+            Assert.IsTrue(_client.Produce(Topic, ValueB));
             _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Once());
             _producer.Verify(
                 p =>
@@ -69,7 +74,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestProduceKeyValue()
         {
-            _client.Produce(Topic, KeyB, ValueB);
+            Assert.IsTrue(_client.Produce(Topic, KeyB, ValueB));
             _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Once());
             _producer.Verify(
                 p =>
@@ -83,7 +88,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestProduceKeyValuePartition()
         {
-            _client.Produce(Topic, KeyB, ValueB, 28);
+            Assert.IsTrue(_client.Produce(Topic, KeyB, ValueB, 28));
             _producer.Verify(p => p.Route(It.IsAny<string>(), It.IsAny<Message>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Once());
             _producer.Verify(
                 p =>
@@ -546,6 +551,22 @@ namespace tests_kafka_sharp
         {
             _client.GetPartitionforTopicAsync("toto");
             _node.Verify(n => n.FetchMetadata("toto"));
+        }
+
+        [Test]
+        public void TestOverflowDiscard()
+        {
+            var configuration = new Configuration
+            {
+                Seeds = "localhost:1",
+                TaskScheduler = new CurrentThreadTaskScheduler(),
+                OverflowStrategy = OverflowStrategy.Discard,
+                MaxBufferedMessages = 2
+            };
+            Init(configuration);
+            Assert.IsTrue(_client.Produce(Topic, ValueB));
+            Assert.IsTrue(_client.Produce(Topic, ValueB));
+            Assert.IsFalse(_client.Produce(Topic, ValueB));
         }
     }
 }
