@@ -580,7 +580,7 @@ namespace Kafka.Routing
                 {
                     // Topic / partition was probably not started
                     InternalError(exception);
-                    return;
+                    continue;
                 }
 
                 if (topicOnOff.Offset == Offsets.Now ||
@@ -588,12 +588,12 @@ namespace Kafka.Routing
                 {
                     state.Active = false;
                     state.Postponed = false;
-                    return;
+                    continue;
                 }
 
                 if (topicOnOff.Offset < 0)
                 {
-                    return;
+                    continue;
                 }
 
                 state.StopAt = topicOnOff.Offset;

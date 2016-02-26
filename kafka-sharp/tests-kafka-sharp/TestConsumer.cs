@@ -357,6 +357,79 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestStopConsumeAfterFetchLoopMultiple()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            consumer.StartConsume(TOPIC, 0, OFFSET);
+            consumer.StartConsume(TOPIC, 1, OFFSET);
+            consumer.StopConsume(TOPIC, Partitions.All, Offsets.Now);
+
+            // Now simulate a fetch response getting out of range, this should not trigger any new fetch request.
+            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            {
+                Response = new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<FetchPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData = new[]
+                            {
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = 0,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                    }
+                                },
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = 1,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            // Check
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2));
+        }
+
+        [Test]
         public void TestOffsetResponseIsFollowedByFetchRequest_NoError()
         {
             var node = new Mock<INode>();
