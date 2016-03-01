@@ -749,6 +749,7 @@ namespace Kafka.Cluster
                     var acked = CheckAckRequired(request);
                     if (acked)
                     {
+                        await ReadyToSendRequest();
                         pendingsQueue.Enqueue(new Pending
                         {
                             CorrelationId = correlationId,
@@ -791,6 +792,31 @@ namespace Kafka.Cluster
                 {
                     Drain(request, false);
                 }
+            }
+        }
+
+        private static readonly Task SuccessTask = Task.FromResult(true);
+
+        /// <summary>
+        /// Check if we've reached the max number of pending requests allowed
+        /// </summary>
+        /// <returns></returns>
+        private Task ReadyToSendRequest()
+        {
+            if (_configuration.MaxInFlightRequests > 0)
+            {
+                return _pendingsCount < _configuration.MaxInFlightRequests ? SuccessTask : WaitSlot();
+            }
+            return SuccessTask;
+        }
+
+        private async Task WaitSlot()
+        {
+            // Not the best way to do that but it's the simplest for now.
+            // TODO: do a full event driven async wait
+            while (_pendingsCount >= _configuration.MaxInFlightRequests)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(15));
             }
         }
 

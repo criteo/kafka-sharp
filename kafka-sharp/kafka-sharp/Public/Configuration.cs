@@ -161,6 +161,14 @@ namespace Kafka.Public
         public int ClientRequestTimeoutMs = 20000;
 
         /// <summary>
+        /// The maximum number of unacknowledged requests the client will
+        /// send on a single connection before async waiting for the connection.
+        /// Note that if this setting is set to be greater than 1 and there are
+        /// failed sends, there is a risk of message re-ordering due to retries.
+        /// </summary>
+        public int MaxInFlightRequests = 5;
+
+        /// <summary>
         /// Your client name.
         /// </summary>
         public string ClientId = "Kafka#";

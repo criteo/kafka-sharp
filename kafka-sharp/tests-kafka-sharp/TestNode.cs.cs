@@ -58,7 +58,7 @@ namespace tests_kafka_sharp
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
-                .Returns((int c, byte[] d, bool a) =>
+                .Returns((int c, ReusableMemoryStream d, bool a) =>
                 {
                     corrs.Enqueue(c);
                     return Success;
@@ -148,7 +148,7 @@ namespace tests_kafka_sharp
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
-                .Returns((int c, byte[] d, bool a) =>
+                .Returns((int c, ReusableMemoryStream d, bool a) =>
                 {
                     corrs.Enqueue(c);
                     return Success;
@@ -275,7 +275,7 @@ namespace tests_kafka_sharp
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
-                .Returns((int c, byte[] d, bool a) =>
+                .Returns((int c, ReusableMemoryStream d, bool a) =>
                 {
                     corrs.Enqueue(c);
                     return Success;
@@ -349,7 +349,7 @@ namespace tests_kafka_sharp
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
-                .Returns((int c, byte[] d, bool a) =>
+                .Returns((int c, ReusableMemoryStream d, bool a) =>
                 {
                     corrs.Enqueue(c);
                     return Success;
@@ -593,7 +593,8 @@ namespace tests_kafka_sharp
                     ErrorStrategy = ErrorStrategy.Discard,
                     ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                     ProduceBatchSize = 1,
-                    ClientRequestTimeoutMs = 2
+                    ClientRequestTimeoutMs = 2,
+                    MaxInFlightRequests = -1
                 },
                 new TimeoutScheduler(3), 1);
             var ev = new ManualResetEvent(false);
@@ -691,6 +692,51 @@ namespace tests_kafka_sharp
 
             ev.WaitOne();
             Assert.IsTrue(dead);
+        }
+
+        [Test]
+        public void TestMaxInFlightRequests()
+        {
+            // Prepare
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object,
+                new Node.Serialization(null, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Configuration
+                {
+                    TaskScheduler = new CurrentThreadTaskScheduler(),
+                    ErrorStrategy = ErrorStrategy.Discard,
+                    ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
+                    ProduceBatchSize = 1,
+                    ClientRequestTimeoutMs = 60000,
+                    MaxInFlightRequests = 1
+                },
+                new TimeoutScheduler(3), 1);
+            var ev = new ManualResetEvent(false);
+            var corrs = new Queue<int>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns((int c, ReusableMemoryStream d, bool a) =>
+                {
+                    corrs.Enqueue(c);
+                    return Success;
+                });
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+
+            node.RequestSent += n =>
+            {
+                ev.Set();
+            };
+
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+            ev.WaitOne();
+            ev.Reset();
+
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+            Assert.IsFalse(ev.WaitOne(50));
+
+            var corr = corrs.Dequeue();
+            connection.Raise(c => c.Response += null, connection.Object, corr, new ReusableMemoryStream(null));
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+            ev.WaitOne();
         }
     }
 }
