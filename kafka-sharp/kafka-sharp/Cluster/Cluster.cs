@@ -70,7 +70,8 @@ namespace Kafka.Cluster
         {
             Metadata,
             TopicMetadata,
-            NodeEvent
+            NodeEvent,
+            SeenTopic
         }
 
         [StructLayout(LayoutKind.Explicit)]
@@ -84,6 +85,9 @@ namespace Kafka.Cluster
 
             [FieldOffset(0)]
             public Action NodeEventProcessing;
+
+            [FieldOffset(0)]
+            public string SeenTopic;
         }
 
         struct ClusterMessage
@@ -104,6 +108,7 @@ namespace Kafka.Cluster
         private readonly string _seeds; // Addresses of the nodes to use for bootstrapping the cluster
         private readonly TimeoutScheduler _timeoutScheduler; // Timeout checker
 
+        private HashSet<string> _seenTopics = new HashSet<string>(); // Gather seen topics for feedback filtering
         private Timer _refreshMetadataTimer; // Timer for periodic checking of metadata
         private RoutingTable _routingTable; // The current routing table
         private bool _started; // Cluster is active
@@ -154,6 +159,7 @@ namespace Kafka.Cluster
             {
                 Statistics.UpdateSuccessfulSent(c);
                 Statistics.UpdateExited(c);
+                SignalSeenTopic(t);
             };
             ProduceRouter.MessageDiscarded += (t, m) =>
             {
@@ -226,6 +232,18 @@ namespace Kafka.Cluster
             pools.InitMessageBuffersPool(limit);
 
             return pools;
+        }
+
+        private void SignalSeenTopic(string topic)
+        {
+            if (!_seenTopics.Contains(topic))
+            {
+                _agent.Post(new ClusterMessage
+                {
+                    MessageType = MessageType.SeenTopic,
+                    MessageValue = new MessageValue {SeenTopic = topic}
+                });
+            }
         }
 
         private void RefreshMetadata()
@@ -383,6 +401,7 @@ namespace Kafka.Cluster
         public Task<int[]> RequireAllPartitionsForTopic(string topic)
         {
             var promise = new TaskCompletionSource<int[]>();
+            SignalSeenTopic(topic);
             _agent.Post(new ClusterMessage
             {
                 MessageType = MessageType.TopicMetadata,
@@ -437,6 +456,12 @@ namespace Kafka.Cluster
                 // Full metadata required
                 case MessageType.Metadata:
                     await ProcessFullMetadata(message.MessageValue.Promise);
+                    break;
+
+                // New topic seen
+                case MessageType.SeenTopic:
+                    var seen = new HashSet<string>(_seenTopics) {message.MessageValue.SeenTopic};
+                    _seenTopics = seen;
                     break;
 
                 default:
@@ -494,8 +519,9 @@ namespace Kafka.Cluster
             {
                 Logger.LogInformation(string.Format("Fetching metadata from {0}...", node.Name));
                 var response = await node.FetchMetadata();
-                Logger.LogInformation("[Metadata][Brokers] " + string.Join("/", response.BrokersMeta.Select(bm => bm.ToString())));
-                foreach (var tm in response.TopicsMeta)
+                Logger.LogInformation("[Metadata][Brokers] " +
+                                      string.Join("/", response.BrokersMeta.Select(bm => bm.ToString())));
+                foreach (var tm in response.TopicsMeta.Where(tm => _seenTopics.Contains(tm.TopicName)))
                 {
                     Logger.LogInformation(TopicInfo(tm));
                 }
