@@ -60,6 +60,13 @@ namespace Kafka.Public
         /// Rx observable version of the MessageDiscarded event.
         /// </summary>
         IObservable<KafkaRecord<TKey, TValue>> DiscardedMessages { get; }
+
+        /// <summary>
+        /// This is raised when a bunch of messages has been successfully
+        /// acknowledged for the producer topic. If you set the acknowledgement
+        /// strategy to none, it is never raised.
+        /// </summary>
+        event Action<int> Acknowledged;
     }
 
     /// <summary>
@@ -116,6 +123,13 @@ namespace Kafka.Public
 
             _clusterClient.MessageDiscarded += OnClusterMessageDiscarded;
             _clusterClient.MessageExpired += OnClusterMessageExpired;
+            _clusterClient.ProduceAcknowledged += (t, n) =>
+            {
+                if (t == topic)
+                {
+                    Acknowledged(n);
+                }
+            };
 
             _discardedSub =
                 _clusterClient.DiscardedMessages.Where(CheckRecord).Select(ToRecord).Subscribe(_discarded.OnNext);
@@ -161,6 +175,8 @@ namespace Kafka.Public
         {
             get { return _discarded; }
         }
+
+        public event Action<int> Acknowledged = _ => { };
 
         private bool _disposed;
 

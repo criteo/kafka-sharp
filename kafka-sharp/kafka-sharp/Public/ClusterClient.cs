@@ -138,6 +138,13 @@ namespace Kafka.Public
         IObservable<RawKafkaRecord> DiscardedMessages { get; }
 
         /// <summary>
+        /// This is raised when a bunch of messages has been successfully
+        /// acknowledged for a given topic. If ou set the acknowledgement strategy
+        /// to none, it is never raised.
+        /// </summary>
+        event Action<string, int> ProduceAcknowledged;
+
+        /// <summary>
         /// Returns all the partitions ids for a given topic. This is useful
         /// if you intend to do custom assignation to partitions.
         /// </summary>
@@ -243,6 +250,13 @@ namespace Kafka.Public
         public IObservable<RawKafkaRecord> DiscardedMessages { get; private set; }
 
         /// <summary>
+        /// This is raised when a bunch of messages has been successfully
+        /// acknowledged for a given topic. If you set the acknowledgement strategy
+        /// to none, it is never raised.
+        /// </summary>
+        public event Action<string, int> ProduceAcknowledged = (t, n) => { };
+
+        /// <summary>
         /// Initialize a client to a Kafka cluster.
         /// </summary>
         /// <param name="configuration">Kafka configuration.</param>
@@ -298,6 +312,7 @@ namespace Kafka.Public
                         Offset = 0
                     });
             DiscardedMessages = Observable.FromEvent<RawKafkaRecord>(a => MessageDiscarded += a, a => MessageDiscarded -= a);
+            _cluster.ProduceRouter.MessagesAcknowledged += (t, n) => ProduceAcknowledged(t, n);
             _cluster.Start();
         }
 

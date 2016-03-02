@@ -276,6 +276,21 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestProduceAcknowledged()
+        {
+            int count = 0;
+            string topic = "";
+            _client.ProduceAcknowledged += (t, n) =>
+            {
+                topic = t;
+                count = n;
+            };
+            _producer.Raise(c => c.MessagesAcknowledged += null, Topic, 28);
+            Assert.AreEqual(28, count);
+            Assert.AreEqual(Topic, topic);
+        }
+
+        [Test]
         public void TestProducer()
         {
             var client = new Mock<IClusterClient>();
