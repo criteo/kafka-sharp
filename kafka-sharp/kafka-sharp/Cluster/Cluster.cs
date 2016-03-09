@@ -430,7 +430,7 @@ namespace Kafka.Cluster
                                               deadNode.Name));
                 return;
             }
-            Logger.LogError(string.Format("Kafka node {0} is dead, refreshing metadata.", GetNodeName(deadNode)));
+            Logger.LogWarning(string.Format("Kafka node {0} is dead, refreshing metadata.", GetNodeName(deadNode)));
             _nodes.Remove(deadNode);
             deadNode.Stop();
             _nodesByHostPort.Remove(BuildKey(m.Host, m.Port));
