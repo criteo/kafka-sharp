@@ -770,6 +770,9 @@ namespace Kafka.Routing
 
         private void Postpone(string topic, int partition)
         {
+            _cluster.Logger.LogError(
+                string.Format("[Consumer] No node available for [topic: {0} / partition: {1}]",
+                    topic, partition));
             _partitionsStates[topic][partition].Postponed = true;
             FetchPostponed(topic, partition);
             CheckStartTimer();

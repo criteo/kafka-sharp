@@ -728,6 +728,20 @@ namespace Kafka.Routing
                 _postponedMessages.Add(produceMessage.Topic, postponedQueue);
             }
             postponedQueue.Enqueue(produceMessage);
+            if (postponedQueue.Count == 1)
+            {
+                if (produceMessage.RequiredPartition >= 0)
+                {
+                    _cluster.Logger.LogError(
+                        string.Format("[Producer] No node available for [topic: {0} / partition: {1}], postponing messages.",
+                            produceMessage.Topic, produceMessage.RequiredPartition));
+                }
+                else
+                {
+                    _cluster.Logger.LogError(string.Format(
+                        "[Producer] No partition available for topic {0}, postponing messages.", produceMessage.Topic));
+                }
+            }
             ++_numberOfPostponedMessages;
             MessagePostponed(produceMessage.Topic);
 

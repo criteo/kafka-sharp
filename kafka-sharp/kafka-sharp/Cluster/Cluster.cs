@@ -426,7 +426,7 @@ namespace Kafka.Cluster
             BrokerMeta m;
             if (!_nodes.TryGetValue(deadNode, out m))
             {
-                Logger.LogError(string.Format("Kafka unknown node dead, the node makes itself known as: {0}.",
+                Logger.LogWarning(string.Format("Kafka unknown node dead, the node makes itself known as: {0}.",
                                               deadNode.Name));
                 return;
             }

@@ -685,6 +685,7 @@ namespace tests_kafka_sharp
         public void TestPostponeIfNoRoute()
         {
             var cluster = new Mock<ICluster>();
+            cluster.SetupGet(c => c.Logger).Returns(new DevNullLogger());
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(
                     Task.FromResult(
