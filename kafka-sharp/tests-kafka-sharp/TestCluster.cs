@@ -46,9 +46,16 @@ namespace tests_kafka_sharp
                 _routingTable = r;
             });
 
-            _cluster = new Cluster(new Configuration { Seeds = "localhost:1", TaskScheduler = new CurrentThreadTaskScheduler() }, new DevNullLogger(),
-                                   (h, p) => _nodeMocks[p - 1].Object,
-                                   () => _routerMock.Object, () => _consumeMock.Object);
+            _cluster =
+                new Cluster(
+                    new Configuration
+                    {
+                        Seeds = "localhost:1",
+                        TaskScheduler = new CurrentThreadTaskScheduler(),
+                        MinimumTimeBetweenRefreshMetadata = TimeSpan.FromSeconds(0)
+                    }, new DevNullLogger(),
+                    (h, p) => _nodeMocks[p - 1].Object,
+                    () => _routerMock.Object, () => _consumeMock.Object);
             _internalErrors = 0;
             _cluster.InternalError += _ => ++_internalErrors;
         }

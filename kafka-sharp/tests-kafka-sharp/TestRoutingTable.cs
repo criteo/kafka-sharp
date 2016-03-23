@@ -36,5 +36,25 @@ namespace tests_kafka_sharp
             Assert.Less(0, routingTable.GetPartitions("test1p").Length);
             Assert.AreEqual(0, routingTable.GetPartitions("tortemoque").Length);
         }
+
+        [Test]
+        public void TestSignalDeadNode()
+        {
+            var node = new NodeMock();
+            var routes = new Dictionary<string, Partition[]>
+            {
+                {"test1p", new[] {new Partition {Id = 0, Leader = node}}},
+                {"test2p", new[] {new Partition {Id = 1, Leader = new NodeMock()}, new Partition {Id = 2, Leader = node}, new Partition {Id = 3, Leader = new NodeMock()}}},
+            };
+            var routingTable = new RoutingTable(routes);
+
+            Assert.AreEqual(1, routingTable.GetPartitions("test1p").Length);
+            Assert.AreEqual(3, routingTable.GetPartitions("test2p").Length);
+
+            routingTable = new RoutingTable(routingTable, node);
+
+            Assert.AreEqual(0, routingTable.GetPartitions("test1p").Length);
+            Assert.AreEqual(2, routingTable.GetPartitions("test2p").Length);
+        }
     }
 }

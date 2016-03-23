@@ -431,6 +431,8 @@ namespace Kafka.Cluster
                 return;
             }
             Logger.LogWarning(string.Format("Kafka node {0} is dead, refreshing metadata.", GetNodeName(deadNode)));
+            _routingTable = new RoutingTable(_routingTable, deadNode);
+            RoutingTableChange(_routingTable);
             _nodes.Remove(deadNode);
             deadNode.Stop();
             _nodesByHostPort.Remove(BuildKey(m.Host, m.Port));
@@ -479,9 +481,14 @@ namespace Kafka.Cluster
                 ).ToString();
         }
 
+        private INode ChooseRefreshNode()
+        {
+            return _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
+        }
+
         private async Task ProcessTopicMetadata(Tuple<TaskCompletionSource<int[]>, string> topicPromise)
         {
-            var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
+            var node = ChooseRefreshNode();
             try
             {
                 var promise = topicPromise.Item1;
@@ -514,55 +521,65 @@ namespace Kafka.Cluster
 
         private async Task ProcessFullMetadata(TaskCompletionSource<RoutingTable> promise)
         {
-            var node = _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
-            try
+            if (_routingTable == null || _routingTable.LastRefreshed + _configuration.MinimumTimeBetweenRefreshMetadata < DateTime.UtcNow)
             {
-                Logger.LogInformation(string.Format("Fetching metadata from {0}...", node.Name));
-                var response = await node.FetchMetadata();
-                Logger.LogInformation("[Metadata][Brokers] " +
-                                      string.Join("/", response.BrokersMeta.Select(bm => bm.ToString())));
-                foreach (var tm in response.TopicsMeta.Where(tm => _seenTopics.Contains(tm.TopicName)))
+                var node = ChooseRefreshNode();
+                try
                 {
-                    Logger.LogInformation(TopicInfo(tm));
+                    Logger.LogInformation(string.Format("Fetching metadata from {0}...", node.Name));
+                    var response = await node.FetchMetadata();
+                    Logger.LogInformation("[Metadata][Brokers] " +
+                                          string.Join("/", response.BrokersMeta.Select(bm => bm.ToString())));
+                    foreach (var tm in response.TopicsMeta.Where(tm => _seenTopics.Contains(tm.TopicName)))
+                    {
+                        Logger.LogInformation(TopicInfo(tm));
+                    }
+                    ResponseToTopology(response);
+                    ResponseToRoutingTable(response);
+                    if (promise != null)
+                    {
+                        promise.SetResult(_routingTable);
+                    }
+                    RoutingTableChange(_routingTable);
+                    CheckNoMoreNodes();
                 }
-                ResponseToTopology(response);
-                ResponseToRoutingTable(response);
+                catch (OperationCanceledException ex)
+                {
+                    if (promise != null)
+                    {
+                        promise.SetException(ex);
+                    }
+                }
+                catch (TransportException ex)
+                {
+                    if (promise != null)
+                    {
+                        promise.SetException(ex);
+                    }
+                }
+                catch (TimeoutException ex)
+                {
+                    Logger.LogError(string.Format("Timeout while fetching metadata from {0}!", node.Name));
+                    if (promise != null)
+                    {
+                        promise.SetException(ex);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (promise != null)
+                    {
+                        promise.SetCanceled();
+                    }
+                    InternalError(ex);
+                }
+            }
+            else
+            {
                 if (promise != null)
                 {
                     promise.SetResult(_routingTable);
                 }
-                RoutingTableChange(_routingTable);
-                CheckNoMoreNodes();
-            }
-            catch (OperationCanceledException ex)
-            {
-                if (promise != null)
-                {
-                    promise.SetException(ex);
-                }
-            }
-            catch (TransportException ex)
-            {
-                if (promise != null)
-                {
-                    promise.SetException(ex);
-                }
-            }
-            catch (TimeoutException ex)
-            {
-                Logger.LogError(string.Format("Timeout while fetching metadata from {0}!", node.Name));
-                if (promise != null)
-                {
-                    promise.SetException(ex);
-                }
-            }
-            catch (Exception ex)
-            {
-                if (promise != null)
-                {
-                    promise.SetCanceled();
-                }
-                InternalError(ex);
             }
         }
 

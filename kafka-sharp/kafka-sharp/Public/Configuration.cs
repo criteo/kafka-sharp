@@ -96,7 +96,13 @@ namespace Kafka.Public
         /// <summary>
         /// Period between each metadata autorefresh.
         /// </summary>
-        public TimeSpan RefreshMetadataInterval = TimeSpan.FromMinutes(5);
+        public TimeSpan RefreshMetadataInterval = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// Minimum interval between two refresh metadata (to avoid bombing
+        /// the cluster with too many calls when you have a large number of clients).
+        /// </summary>
+        public TimeSpan MinimumTimeBetweenRefreshMetadata = TimeSpan.FromSeconds(42);
 
         /// <summary>
         /// Strategy in case opf network errors.
