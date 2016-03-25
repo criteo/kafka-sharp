@@ -229,7 +229,7 @@ namespace Kafka.Cluster
                     limit = 100 * configuration.ProduceBatchSize;
                 }
             }
-            pools.InitMessageBuffersPool(limit);
+            pools.InitMessageBuffersPool(limit, configuration.SerializationConfig.MaxMessagePoolChunkSize);
 
             return pools;
         }

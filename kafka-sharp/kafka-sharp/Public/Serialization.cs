@@ -94,6 +94,14 @@ namespace Kafka.Public
         /// </summary>
         public bool SerializeOnProduce = false;
 
+        /// <summary>
+        /// Maximum size of kept memory chunks in the message pool. This is only effective
+        /// while using SerializeOnProduce = true. It means memory used for serializing messages
+        /// bigger than this value won't be retained in the underlying memory pool. It helps protect
+        /// against topic that most of the time have small messages and sometimes have very big messages.
+        /// </summary>
+        public int MaxMessagePoolChunkSize = 16384;
+
         public void SetDefaultSerializers(ISerializer keySerializer, ISerializer valueSerializer)
         {
             _defaultSerializers = Tuple.Create(keySerializer, valueSerializer);

@@ -23,7 +23,8 @@ namespace Kafka.Protocol
 
     static class ResponseMessageListPool
     {
-        private static readonly Pool<List<ResponseMessage>> _pool = new Pool<List<ResponseMessage>>(() => new List<ResponseMessage>(), (l, _) => l.Clear());
+        private static readonly Pool<List<ResponseMessage>> _pool =
+            new Pool<List<ResponseMessage>>(() => new List<ResponseMessage>(), (l, _) => l.Clear());
 
         public static List<ResponseMessage> Reserve()
         {

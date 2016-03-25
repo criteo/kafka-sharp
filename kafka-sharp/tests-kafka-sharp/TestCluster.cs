@@ -645,5 +645,32 @@ namespace tests_kafka_sharp
             CollectionAssert.AreEqual(new[] { 1, 2, 3 }, partitions);
             Assert.AreEqual(0, _internalErrors);
         }
+
+        [Test]
+        public void TestPools()
+        {
+            var stats = new Statistics();
+            var pools = new Pools(stats);
+            pools.InitMessageBuffersPool(1, 16);
+
+            var m1 = pools.MessageBuffersPool.Reserve();
+            m1.Capacity = 32;
+            m1.Dispose();
+
+            var m2 = pools.MessageBuffersPool.Reserve();
+            Assert.AreSame(m1, m2);
+            Assert.AreEqual(16, m2.Capacity);
+            Assert.AreEqual(1, stats.MessageBuffers);
+
+            pools.InitRequestsBuffersPool();
+            var r = pools.RequestsBuffersPool.Reserve();
+            r.Dispose();
+            Assert.AreEqual(1, stats.RequestsBuffers);
+
+            pools.InitSocketBuffersPool(16);
+            var b = pools.SocketBuffersPool.Reserve();
+            Assert.AreEqual(16, b.Length);
+            Assert.AreEqual(1, stats.SocketBuffers);
+        }
     }
 }

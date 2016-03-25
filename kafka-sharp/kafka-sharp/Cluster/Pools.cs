@@ -32,7 +32,7 @@ namespace Kafka.Cluster
 
         public Pool<ReusableMemoryStream> MessageBuffersPool { get; private set; }
 
-        public void InitMessageBuffersPool(int limit)
+        public void InitMessageBuffersPool(int limit, int maxChunkSize)
         {
             MessageBuffersPool = new Pool<ReusableMemoryStream>(
                 limit,
@@ -50,6 +50,10 @@ namespace Kafka.Cluster
                     else
                     {
                         b.SetLength(0);
+                        if (b.Capacity > maxChunkSize)
+                        {
+                            b.Capacity = maxChunkSize;
+                        }
                     }
                 });
         }
