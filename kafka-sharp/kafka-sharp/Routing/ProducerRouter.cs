@@ -347,7 +347,7 @@ namespace Kafka.Routing
             }
 
             message.Partition = Partitions.None; // so that round robined msgs are re robined
-            if (Post(message))
+            if (++message.Retried <= _configuration.MaxRetry && Post(message))
             {
                 MessageReEnqueued(message.Topic);
             }
@@ -721,6 +721,12 @@ namespace Kafka.Routing
         /// <param name="produceMessage"></param>
         private void PostponeMessage(ProduceMessage produceMessage)
         {
+            if (_numberOfPostponedMessages >= _configuration.MaxPostponedMessages)
+            {
+                OnMessageDiscarded(produceMessage);
+                return;
+            }
+
             Queue<ProduceMessage> postponedQueue;
             if (!_postponedMessages.TryGetValue(produceMessage.Topic, out postponedQueue))
             {

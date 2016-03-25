@@ -16,6 +16,7 @@ namespace Kafka.Cluster
         public DateTime ExpirationDate;
         public int RequiredPartition;
         public int Partition;
+        public int Retried;
 
         public static ProduceMessage New(string topic, int partition, Message message, DateTime expirationDate)
         {

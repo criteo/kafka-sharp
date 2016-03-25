@@ -617,6 +617,17 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestMaxRetry()
+        {
+            int discarded = 0;
+            _produceRouter.MessageDiscarded += (t, m) => discarded += 1;
+            var pm = ProduceMessage.New("test1p", Partitions.Any, new Message(), DateTime.UtcNow.AddMinutes(5));
+            pm.Retried = 42;
+            _produceRouter.ReEnqueue(pm);
+            Assert.AreEqual(1, discarded);
+        }
+
+        [Test]
         public async Task TestExpiredMessagesAreNotRouted()
         {
             _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMilliseconds(-1));
@@ -672,6 +683,27 @@ namespace tests_kafka_sharp
             Assert.AreEqual(2, _messagesSentByTopic["test1p"]);
             Assert.AreEqual(1, _messagesSentByTopic["test2p"]);
             CheckCounters(expectedMessagesEnqueued: 3, expectedMessagesReEnqueued: 3, expectedMessagesRouted: 3, expectedMessagesPostponed: 3, expectedRoutingTableRequired: 2);
+        }
+
+        [Test]
+        public void TestMaxPostponed()
+        {
+            SetUp(new Configuration
+            {
+                TaskScheduler = new CurrentThreadTaskScheduler(),
+                MaxPostponedMessages = 1
+            });
+            int discarded = 0;
+            _produceRouter.MessageDiscarded += (t, m) => discarded += 1;
+
+            _cluster.Partitions = new Dictionary<string, Partition[]>();
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessagePostponed
+            _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessageDiscarded because max postponed reached
+            _produceRouter.Route("test2p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5)); // => 1x MessageEnqueued, 1x MessageDiscarded because max postponed reached
+
+            Assert.AreEqual(0, _messagesSentByTopic["test1p"]);
+            Assert.AreEqual(0, _messagesSentByTopic["test2p"]);
+            Assert.AreEqual(2, discarded);
         }
 
         [Test]

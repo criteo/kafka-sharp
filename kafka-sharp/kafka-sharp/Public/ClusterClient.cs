@@ -172,31 +172,12 @@ namespace Kafka.Public
         private readonly Configuration _configuration;
         private readonly ILogger _logger;
 
-        private static Configuration CloneConfig(Configuration configuration)
+        private static void PrepareConfig(Configuration configuration)
         {
-            configuration = new Configuration
-            {
-                ProduceBatchSize = configuration.ProduceBatchSize,
-                ProduceBufferingTime = configuration.ProduceBufferingTime,
-                ClientId = configuration.ClientId,
-                CompressionCodec = configuration.CompressionCodec,
-                ErrorStrategy = configuration.ErrorStrategy,
-                MaxBufferedMessages = configuration.MaxBufferedMessages,
-                MessageTtl = configuration.MessageTtl,
-                ReceiveBufferSize = configuration.ReceiveBufferSize,
-                MaximumConcurrency = configuration.MaximumConcurrency,
-                RequestTimeoutMs = configuration.RequestTimeoutMs,
-                RequiredAcks = configuration.RequiredAcks,
-                Seeds = configuration.Seeds,
-                SendBufferSize = configuration.SendBufferSize,
-                TaskScheduler = configuration.TaskScheduler,
-                SerializationConfig = new SerializationConfig(configuration.SerializationConfig)
-            };
             if (configuration.TaskScheduler == TaskScheduler.Default && configuration.MaximumConcurrency > 0)
             {
                 configuration.TaskScheduler = new ActionBlockTaskScheduler(configuration.MaximumConcurrency);
             }
-            return configuration;
         }
 
         /// <summary>
@@ -273,7 +254,7 @@ namespace Kafka.Public
         /// <param name="logger"></param>
         /// <param name="statistics">Provide this if you want to inject custom statistics management.</param>
         public ClusterClient(Configuration configuration, ILogger logger, IStatistics statistics)
-            : this(CloneConfig(configuration), logger, null, statistics)
+            : this(configuration, logger, null, statistics)
         {
         }
 
@@ -284,6 +265,7 @@ namespace Kafka.Public
 
         internal ClusterClient(Configuration configuration, ILogger logger, Cluster.Cluster cluster, IStatistics statistics)
         {
+            PrepareConfig(configuration);
             _configuration = configuration;
             _logger = logger;
             _cluster = cluster ?? new Cluster.Cluster(configuration, logger, statistics);

@@ -186,6 +186,7 @@ namespace tests_kafka_sharp
                 ProduceBatchSize = 10,
                 ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                 ErrorStrategy = ErrorStrategy.Retry,
+                MaxRetry = 42, // Need high value
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
             var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, false, true);

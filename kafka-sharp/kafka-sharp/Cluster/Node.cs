@@ -580,7 +580,7 @@ namespace Kafka.Cluster
             }
             if (_noMorePending != null)
             {
-                await Task.WhenAny(_noMorePending.Task, Task.Delay(5000));
+                await Task.WhenAny(_noMorePending.Task, Task.Delay(3 * _configuration.ClientRequestTimeoutMs));
             }
 
             _responseQueue.Complete();

@@ -204,10 +204,20 @@ namespace Kafka.Public
         public int MaximumConcurrency = 3;
 
         /// <summary>
-        /// Maximum number of messages in the system before blocking/discarding send from clients.
+        /// Maximum number of produce messages in the system before blocking/discarding send from clients.
         /// By default we never block and the number is unbounded.
         /// </summary>
         public int MaxBufferedMessages = -1;
+
+        /// <summary>
+        /// Maximum number of postponed produce messages when no partition is available.
+        /// </summary>
+        public int MaxPostponedMessages = 1000;
+
+        /// <summary>
+        /// Maximum number of retry when sending messages in error
+        /// </summary>
+        public int MaxRetry = 3;
 
         /// <summary>
         /// The strategy to use when the maximum number of pending produce messages
