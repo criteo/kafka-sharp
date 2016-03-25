@@ -553,9 +553,6 @@ namespace Kafka.Cluster
         {
             if (Interlocked.Increment(ref _stopped) > 1) return; // already stopped
 
-            // Stop checking timeouts.
-            _timeoutScheduler.Unregister(this);
-
             // Flush accumulators
             if (_configuration.BatchStrategy == BatchStrategy.ByNode)
             {
@@ -586,10 +583,16 @@ namespace Kafka.Cluster
             _responseQueue.Complete();
             await _responseQueue.Completion;
 
+            // Stop checking timeouts.
+            _timeoutScheduler.Unregister(this);
+
             // Clean up remaining pending requests (in case of time out)
             if (_pendingsCount != 0)
             {
-                ClearCorrelationIds(_connection);
+                foreach (var connection in _pendings.Keys.ToArray())
+                {
+                    ClearCorrelationIds(connection);
+                }
             }
 
             if (_connection != null)
