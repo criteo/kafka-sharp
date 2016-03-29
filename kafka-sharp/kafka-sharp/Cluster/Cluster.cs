@@ -431,8 +431,11 @@ namespace Kafka.Cluster
                 return;
             }
             Logger.LogWarning(string.Format("Kafka node {0} is dead, refreshing metadata.", GetNodeName(deadNode)));
-            _routingTable = new RoutingTable(_routingTable, deadNode);
-            RoutingTableChange(_routingTable);
+            if (_routingTable != null)
+            {
+                _routingTable = new RoutingTable(_routingTable, deadNode);
+                RoutingTableChange(_routingTable);
+            }
             _nodes.Remove(deadNode);
             deadNode.Stop();
             _nodesByHostPort.Remove(BuildKey(m.Host, m.Port));
