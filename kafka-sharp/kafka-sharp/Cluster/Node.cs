@@ -439,8 +439,6 @@ namespace Kafka.Cluster
 
         private IConnection _connection; // underlying connection to the broker
         private long _successiveErrors; // used to decide when a node is dead
-
-        private const long MaxSuccessiveErrors = 5;
         private readonly double _resolution;
 
         private void IncrementPendings()
@@ -606,7 +604,7 @@ namespace Kafka.Cluster
         // on the connection.
         private bool IsDead()
         {
-            return Interlocked.Read(ref _successiveErrors) > MaxSuccessiveErrors;
+            return Interlocked.Read(ref _successiveErrors) > _configuration.MaxSuccessiveNodeErrors;
         }
 
         private void ForwardResponse(IConnection connection, int correlationId, ReusableMemoryStream data)
@@ -705,6 +703,14 @@ namespace Kafka.Cluster
             return _configuration.RequiredAcks != RequiredAcks.None || request.RequestType != RequestType.Produce;
         }
 
+        private void RepostOrDrain(Request request)
+        {
+            if (!Post(request))
+            {
+                Drain(request, false);
+            }
+        }
+
         /// <summary>
         /// Process messages received on the request actor. Metadata
         /// requests are prioritized. We connect to the underlying connection
@@ -737,14 +743,6 @@ namespace Kafka.Cluster
 
                 // Get a new correlation id
                 int correlationId = Interlocked.Increment(ref _correlationId);
-                ConcurrentQueue<Pending> pendingsQueue;
-                if (!_pendings.TryGetValue(connection, out pendingsQueue))
-                {
-                    // Means a receive error just after connect, just repost the message
-                    // since we never sent anything on the connection
-                    Post(request);
-                    return;
-                }
 
                 // Serialize & send
                 using (var data = Serialize(correlationId, request))
@@ -753,13 +751,29 @@ namespace Kafka.Cluster
                     if (acked)
                     {
                         await ReadyToSendRequest();
-                        pendingsQueue.Enqueue(new Pending
+
+                        // locking is necessary here to avoid a race when an error occured
+                        // before we got a chance  to populate the pending queue (the queue could
+                        // disappear just after having got it).
+                        // TODO: find a cleaner way of doing this (no messy locking)
+                        lock (_pendings)
                         {
-                            CorrelationId = correlationId,
-                            Request = request,
-                            TimeStamp = DateTime.UtcNow
-                        });
-                        IncrementPendings();
+                            ConcurrentQueue<Pending> pendingsQueue;
+                            if (!_pendings.TryGetValue(connection, out pendingsQueue))
+                            {
+                                // Means a receive error just after connect, just repost the message
+                                // since we never sent anything on the connection
+                                RepostOrDrain(request);
+                                return;
+                            }
+                            pendingsQueue.Enqueue(new Pending
+                            {
+                                CorrelationId = correlationId,
+                                Request = request,
+                                TimeStamp = DateTime.UtcNow
+                            });
+                            IncrementPendings();
+                        }
                     }
                     await connection.SendAsync(correlationId, data, acked);
                     Interlocked.Exchange(ref _successiveErrors, 0);
@@ -776,10 +790,7 @@ namespace Kafka.Cluster
                 // the request, which will retry to connect eventually.
                 if (ex.Error == TransportError.ConnectError)
                 {
-                    if (!Post(request))
-                    {
-                        Drain(request, false);
-                    }
+                    RepostOrDrain(request);
                 }
                 HandleConnectionError(connection, ex);
             }
@@ -817,8 +828,14 @@ namespace Kafka.Cluster
         {
             // Not the best way to do that but it's the simplest for now.
             // TODO: do a full event driven async wait
+            var limit = DateTime.UtcNow.AddMilliseconds(_configuration.ClientRequestTimeoutMs * 2);
             while (_pendingsCount >= _configuration.MaxInFlightRequests)
             {
+                // Avoid infinite loop in strange cases (namely an overlooked bug)
+                if (DateTime.UtcNow >= limit)
+                {
+                    throw new TimeoutException("Too many pending requests for too much time!");
+                }
                 await Task.Delay(TimeSpan.FromMilliseconds(15));
             }
         }
@@ -1080,9 +1097,10 @@ namespace Kafka.Cluster
         // Clean the queue of pending requests of the given connection.
         private void ClearCorrelationIds(IConnection connection, Exception exception = null)
         {
-            ConcurrentQueue<Pending> pendings;
-            if (_pendings.TryRemove(connection, out pendings))
+            lock (_pendings)
             {
+                ConcurrentQueue<Pending> pendings;
+                if (!_pendings.TryRemove(connection, out pendings)) return;
                 foreach (var pending in pendings)
                 {
                     Drain(pending.Request, true, exception);
@@ -1099,7 +1117,7 @@ namespace Kafka.Cluster
             if (Interlocked.CompareExchange(ref _connection, null, connection) != connection) return;
 
             OnConnectionError(ex);
-            if (Interlocked.Increment(ref _successiveErrors) == MaxSuccessiveErrors + 1)
+            if (Interlocked.Increment(ref _successiveErrors) == _configuration.MaxSuccessiveNodeErrors + 1)
             {
                 OnDead();
             }

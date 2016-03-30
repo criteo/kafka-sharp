@@ -220,6 +220,11 @@ namespace Kafka.Public
         public int MaxRetry = 3;
 
         /// <summary>
+        /// Number of errors on a node before considering it dead
+        /// </summary>
+        public int MaxSuccessiveNodeErrors = 2;
+
+        /// <summary>
         /// The strategy to use when the maximum number of pending produce messages
         /// has been reached. By default we block.
         /// </summary>

@@ -396,18 +396,14 @@ namespace Kafka.Routing
         private async Task EnsureHasRoutingTable()
         {
             RoutingTableRequired();
-            bool hasError = false;
             try
             {
                 _routingTable = await _cluster.RequireNewRoutingTable();
             }
             catch (Exception ex)
             {
-                hasError = true;
-                _cluster.Logger.LogError("Could not get routing table: " + ex);
+                _cluster.Logger.LogError("Could not get routing table! The Kafka cluster is probably having problems answering requests. Exception was: " + ex);
             }
-            if (hasError)
-                await Task.Delay(1000);
         }
 
         /// <summary>
