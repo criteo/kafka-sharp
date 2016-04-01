@@ -21,14 +21,14 @@ namespace Kafka.Public
         /// Send a value to a Kafka cluster.
         /// </summary>
         /// <param name="data">Message value</param>
-        void Produce(TValue data);
+        bool Produce(TValue data);
 
         /// <summary>
         /// Send a value to a Kafka Cluster, using the given key.
         /// </summary>
         /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
-        void Produce(TKey key, TValue data);
+        bool Produce(TKey key, TValue data);
 
         /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
@@ -38,7 +38,7 @@ namespace Kafka.Public
         /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
         /// <param name="partition">Target partition</param>
-        void Produce(TKey key, TValue data, int partition);
+        bool Produce(TKey key, TValue data, int partition);
 
         /// <summary>
         /// This is raised when a produce message has expired.
@@ -136,20 +136,19 @@ namespace Kafka.Public
             _expiredSub = _clusterClient.ExpiredMessages.Where(CheckRecord).Select(ToRecord).Subscribe(_expired.OnNext);
         }
 
-        public void Produce(TValue data)
+        public bool Produce(TValue data)
         {
-            Produce(null, data);
+            return Produce(null, data);
         }
 
-        public void Produce(TKey key, TValue data)
+        public bool Produce(TKey key, TValue data)
         {
-            Produce(key, data, Partitions.Any);
+            return Produce(key, data, Partitions.Any);
         }
 
-        public void Produce(TKey key, TValue data, int partition)
+        public bool Produce(TKey key, TValue data, int partition)
         {
-            if (_disposed) return;
-            _clusterClient.Produce(_topic, key, data, partition);
+            return !_disposed && _clusterClient.Produce(_topic, key, data, partition);
         }
 
         public event Action<KafkaRecord<TKey, TValue>> MessageExpired = _ => { };

@@ -114,6 +114,7 @@ namespace Kafka.Cluster
         private bool _started; // Cluster is active
 
         private double _resolution = 1000.0;
+        private long _exited;
 
         public IStatistics Statistics { get; private set; }
 
@@ -126,7 +127,7 @@ namespace Kafka.Cluster
 
         internal long PassedThrough
         {
-            get { return Statistics.Exited; }
+            get { return Interlocked.Read(ref _exited); }
         }
 
         public Cluster() : this(new Configuration(), new DevNullLogger(), null, null, null)
@@ -153,18 +154,18 @@ namespace Kafka.Cluster
             ProduceRouter.MessageExpired += (t, m) =>
             {
                 Statistics.UpdateExpired();
-                Statistics.UpdateExited();
+                UpdateExited(1);
             };
             ProduceRouter.MessagesAcknowledged += (t, c) =>
             {
                 Statistics.UpdateSuccessfulSent(c);
-                Statistics.UpdateExited(c);
+                UpdateExited(c);
                 SignalSeenTopic(t);
             };
             ProduceRouter.MessageDiscarded += (t, m) =>
             {
                 Statistics.UpdateDiscarded();
-                Statistics.UpdateExited();
+                UpdateExited(1);
             };
             RoutingTableChange += ProduceRouter.ChangeRoutingTable;
 
@@ -216,22 +217,20 @@ namespace Kafka.Cluster
             var pools = new Pools(statistics);
             pools.InitSocketBuffersPool(Math.Max(configuration.SendBufferSize, configuration.ReceiveBufferSize));
             pools.InitRequestsBuffersPool();
-            var limit = configuration.MaxBufferedMessages;
-            if (limit <= 0)
+            var limit = configuration.SerializationConfig.MaxPooledMessages;
+            if (configuration.MaxBufferedMessages > 0 && limit > configuration.MaxBufferedMessages)
             {
-                // Try to be smart
-                if (configuration.BatchStrategy == BatchStrategy.Global)
-                {
-                    limit = 10 * configuration.ProduceBatchSize;
-                }
-                else
-                {
-                    limit = 100 * configuration.ProduceBatchSize;
-                }
+                limit = configuration.MaxBufferedMessages;
             }
             pools.InitMessageBuffersPool(limit, configuration.SerializationConfig.MaxMessagePoolChunkSize);
 
             return pools;
+        }
+
+        private void UpdateExited(long nb)
+        {
+            Statistics.UpdateExited(nb);
+            Interlocked.Add(ref _exited, nb);
         }
 
         private void SignalSeenTopic(string topic)
@@ -446,31 +445,38 @@ namespace Kafka.Cluster
 
         private async Task ProcessMessage(ClusterMessage message)
         {
-            switch (message.MessageType)
+            try
             {
-                // Event occured on a node
-                case MessageType.NodeEvent:
-                    message.MessageValue.NodeEventProcessing();
-                    break;
+                switch (message.MessageType)
+                {
+                    // Event occured on a node
+                    case MessageType.NodeEvent:
+                        message.MessageValue.NodeEventProcessing();
+                        break;
 
-                // Single topic metadata, this is generally for the consumer
-                case MessageType.TopicMetadata:
-                    await ProcessTopicMetadata(message.MessageValue.TopicPromise);
-                    break;
+                    // Single topic metadata, this is generally for the consumer
+                    case MessageType.TopicMetadata:
+                        await ProcessTopicMetadata(message.MessageValue.TopicPromise);
+                        break;
 
-                // Full metadata required
-                case MessageType.Metadata:
-                    await ProcessFullMetadata(message.MessageValue.Promise);
-                    break;
+                    // Full metadata required
+                    case MessageType.Metadata:
+                        await ProcessFullMetadata(message.MessageValue.Promise);
+                        break;
 
-                // New topic seen
-                case MessageType.SeenTopic:
-                    var seen = new HashSet<string>(_seenTopics) {message.MessageValue.SeenTopic};
-                    _seenTopics = seen;
-                    break;
+                    // New topic seen
+                    case MessageType.SeenTopic:
+                        var seen = new HashSet<string>(_seenTopics) {message.MessageValue.SeenTopic};
+                        _seenTopics = seen;
+                        break;
 
-                default:
-                    throw new ArgumentOutOfRangeException("message", "Invalid message type");
+                    default:
+                        throw new ArgumentOutOfRangeException("message", "Invalid message type");
+                }
+            }
+            catch (Exception ex)
+            {
+                InternalError(ex);
             }
         }
 

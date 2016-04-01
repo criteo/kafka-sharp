@@ -102,6 +102,12 @@ namespace Kafka.Public
         /// </summary>
         public int MaxMessagePoolChunkSize = 16384;
 
+        /// <summary>
+        /// Maximum number of messages kept in the pool. This is only effective
+        /// while using SerializeOnProduce = true.
+        /// </summary>
+        public int MaxPooledMessages = 10000;
+
         public void SetDefaultSerializers(ISerializer keySerializer, ISerializer valueSerializer)
         {
             _defaultSerializers = Tuple.Create(keySerializer, valueSerializer);

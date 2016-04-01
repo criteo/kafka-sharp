@@ -411,14 +411,16 @@ namespace Kafka.Routing
         /// </summary>
         private async Task ProcessMessage(RouterMessageType messageType)
         {
-            switch (messageType)
+            try
             {
+                switch (messageType)
+                {
                     // In this case we prioritize reading produce responses
                     // to refresh metadata as soon as possible if needed.
                     // Unless batching is set to batches of one message there
                     // should be way less reponses than produce messages and
                     // this should not impact the speed of processing.
-                case RouterMessageType.ProduceEvent:
+                    case RouterMessageType.ProduceEvent:
                     {
                         ProduceAcknowledgement response;
                         if (_produceResponses.TryDequeue(out response))
@@ -445,16 +447,21 @@ namespace Kafka.Routing
                             await HandleProduceMessage(produce);
                         }
                     }
-                    break;
+                        break;
 
                     // Refresh metadata, then check posponed messages
-                case RouterMessageType.CheckPostponed:
-                    await EnsureHasRoutingTable();
-                    goto case RouterMessageType.CheckPostponedFollowingRoutingTableChange;
+                    case RouterMessageType.CheckPostponed:
+                        await EnsureHasRoutingTable();
+                        goto case RouterMessageType.CheckPostponedFollowingRoutingTableChange;
 
-                case RouterMessageType.CheckPostponedFollowingRoutingTableChange:
-                    HandlePostponedMessages();
-                    break;
+                    case RouterMessageType.CheckPostponedFollowingRoutingTableChange:
+                        HandlePostponedMessages();
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _cluster.Logger.LogError("Unexpected exception in produce router: " + ex);
             }
         }
 
@@ -552,6 +559,27 @@ namespace Kafka.Routing
 
         private static readonly HashSet<int> NullHash = new HashSet<int>(); // A sentinel object
 
+        private void ClearMessage(Message message)
+        {
+            if (_configuration.SerializationConfig.SerializeOnProduce)
+            {
+                message.SerializedKeyValue.Dispose();
+            }
+            else
+            {
+                var key = message.Key as IDisposable;
+                if (key != null)
+                {
+                    key.Dispose();
+                }
+                var value = message.Value as IDisposable;
+                if (value != null)
+                {
+                    value.Dispose();
+                }
+            }
+        }
+
         /// <summary>
         /// Handle an acknowledgement with a ProduceResponse. Essentially search for errors and discard/retry
         /// accordingly. The logic is rather painful and boring. We try to be as efficient as possible
@@ -633,23 +661,7 @@ namespace Kafka.Routing
                         else
                         {
                             ++sent;
-                            if (_configuration.SerializationConfig.SerializeOnProduce)
-                            {
-                                pm.Message.SerializedKeyValue.Dispose();
-                            }
-                            else
-                            {
-                                var key = pm.Message.Key as IDisposable;
-                                if (key != null)
-                                {
-                                    key.Dispose();
-                                }
-                                var value = pm.Message.Value as IDisposable;
-                                if (value != null)
-                                {
-                                    value.Dispose();
-                                }
-                            }
+                            ClearMessage(pm.Message);
                         }
                     }
                 }
