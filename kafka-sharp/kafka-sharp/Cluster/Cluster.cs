@@ -362,6 +362,14 @@ namespace Kafka.Cluster
         public void Start()
         {
             Logger.LogInformation("Bootstraping with " + _seeds);
+            Logger.LogInformation(
+                string.Format("Configuration: {0} - {1} - {2} - max before overflow: {3} - produce batch size: {4} - client timeout: {5}",
+                _configuration.OverflowStrategy == OverflowStrategy.Block ? "blocking" : "discard",
+                _configuration.BatchStrategy == BatchStrategy.Global ? "global" : "by node",
+                _configuration.ErrorStrategy == ErrorStrategy.Discard ? "discard on error" : "retry on error",
+                _configuration.MaxBufferedMessages,
+                _configuration.ProduceBatchSize,
+                _configuration.ClientRequestTimeoutMs));
             RefreshMetadata();
             _refreshMetadataTimer = new Timer(
                 _ => RefreshMetadata(), null,
