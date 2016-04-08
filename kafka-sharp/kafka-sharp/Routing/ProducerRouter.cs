@@ -186,7 +186,7 @@ namespace Kafka.Routing
         private readonly Configuration _configuration;
         private readonly Pool<ReusableMemoryStream> _pool;
 
-        private RoutingTable _routingTable = new RoutingTable(new Dictionary<string, Partition[]>());
+        private RoutingTable _routingTable = new RoutingTable();
         private readonly Dictionary<string, PartitionSelector> _partitioners = new Dictionary<string, PartitionSelector>();
 
         // The queue of produce messages waiting to be routed
@@ -292,11 +292,16 @@ namespace Kafka.Routing
         /// <param name="table"></param>
         public void ChangeRoutingTable(RoutingTable table)
         {
-            if (_routingTable.LastRefreshed < table.LastRefreshed)
+            if (_routingTable != null && _routingTable.LastRefreshed >= table.LastRefreshed) return;
+            if (_configuration.RequiredAcks == RequiredAcks.AllInSyncReplicas)
             {
-                Interlocked.Exchange(ref _routingTable, table);
-                _messages.Post(RouterMessageType.CheckPostponedFollowingRoutingTableChange);
+                Interlocked.Exchange(ref _routingTable, new RoutingTable(table, _configuration.MinInSyncReplicas));
             }
+            else
+            {
+                Interlocked.Exchange(ref _routingTable, new RoutingTable(table));
+            }
+            _messages.Post(RouterMessageType.CheckPostponedFollowingRoutingTableChange);
         }
 
         /// <summary>
@@ -398,7 +403,7 @@ namespace Kafka.Routing
             RoutingTableRequired();
             try
             {
-                _routingTable = await _cluster.RequireNewRoutingTable();
+                ChangeRoutingTable(await _cluster.RequireNewRoutingTable());
             }
             catch (Exception ex)
             {
@@ -580,6 +585,15 @@ namespace Kafka.Routing
             }
         }
 
+        private bool IsPartitionOkForClients(ErrorCode errorCode)
+        {
+            if (errorCode != ErrorCode.NotEnoughReplicasAfterAppend) return Error.IsPartitionOkForClients(errorCode);
+
+            // If error is NotEnoughReplicasAfterAppend the messages have actually been written on the leader,
+            // retyring is a matter of checking our config:
+            return !_configuration.RetryIfNotEnoughReplicasAfterAppend;
+        }
+
         /// <summary>
         /// Handle an acknowledgement with a ProduceResponse. Essentially search for errors and discard/retry
         /// accordingly. The logic is rather painful and boring. We try to be as efficient as possible
@@ -599,7 +613,7 @@ namespace Kafka.Routing
             foreach (var tr in produceResponse.TopicsResponse)
             {
                 bool errors = false;
-                foreach (var p in tr.PartitionsData.Where(p => !Error.IsPartitionOkForClients(p.ErrorCode)))
+                foreach (var p in tr.PartitionsData.Where(p => !IsPartitionOkForClients(p.ErrorCode)))
                 {
                     if (!errors)
                     {
@@ -615,7 +629,7 @@ namespace Kafka.Routing
                     else
                     {
                         _cluster.Logger.LogError(
-                            string.Format("Irrecoverable error detected: [topic: {0} - partition: {1} - error: {2}",
+                            string.Format("Irrecoverable error detected: [topic: {0} - partition: {1} - error: {2}]",
                                 tr.TopicName, p.Partition, p.ErrorCode));
                         _tmpPartitionsInError[tr.TopicName].Add(p.Partition);
                     }

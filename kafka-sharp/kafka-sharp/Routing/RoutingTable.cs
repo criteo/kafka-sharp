@@ -13,6 +13,7 @@ namespace Kafka.Routing
     {
         public int Id { get; set; }
         public INode Leader { get; set; }
+        public int NbIsr { get; set; }
 
         public static Partition None = new Partition {Id = Partitions.None};
 
@@ -28,13 +29,32 @@ namespace Kafka.Routing
         private static readonly Partition[] NullPartition = new Partition[0];
 
         /// <summary>
+        /// Default
+        /// </summary>
+        public RoutingTable()
+        {
+            _routes = new Dictionary<string, Partition[]>();
+        }
+
+        /// <summary>
         /// Initialize from map topic -> partitions
         /// </summary>
         /// <param name="routes"></param>
         public RoutingTable(Dictionary<string, Partition[]> routes)
         {
-            _routes = routes;
+            _routes = new Dictionary<string, Partition[]>(routes);
             LastRefreshed = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Initialize from existing routing table
+        /// than a given value
+        /// </summary>
+        /// <param name="fromTable"></param>
+        public RoutingTable(RoutingTable fromTable)
+        {
+            _routes = new Dictionary<string, Partition[]>(fromTable._routes);
+            LastRefreshed = fromTable.LastRefreshed;
         }
 
         /// <summary>
@@ -49,6 +69,25 @@ namespace Kafka.Routing
             foreach (var kv in fromTable._routes)
             {
                 tmp.AddRange(kv.Value.Where(partition => partition.Leader != deadNode));
+                _routes.Add(kv.Key, tmp.ToArray());
+                tmp.Clear();
+            }
+            LastRefreshed = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Initialize from existing routing table, removing partitions with NbIsr less
+        /// than a given value
+        /// </summary>
+        /// <param name="fromTable"></param>
+        /// <param name="minIsr"></param>
+        public RoutingTable(RoutingTable fromTable, int minIsr)
+        {
+            _routes = new Dictionary<string, Partition[]>();
+            var tmp = new List<Partition>();
+            foreach (var kv in fromTable._routes)
+            {
+                tmp.AddRange(kv.Value.Where(partition => partition.NbIsr >= minIsr));
                 _routes.Add(kv.Key, tmp.ToArray());
                 tmp.Clear();
             }

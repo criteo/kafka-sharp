@@ -52,7 +52,8 @@ namespace tests_kafka_sharp
                     {
                         Seeds = "localhost:1",
                         TaskScheduler = new CurrentThreadTaskScheduler(),
-                        MinimumTimeBetweenRefreshMetadata = TimeSpan.FromSeconds(0)
+                        MinimumTimeBetweenRefreshMetadata = TimeSpan.FromSeconds(0),
+                        MinInSyncReplicas = 2
                     }, new DevNullLogger(),
                     (h, p) => _nodeMocks[p - 1].Object,
                     () => _routerMock.Object, () => _consumeMock.Object);
@@ -73,19 +74,19 @@ namespace tests_kafka_sharp
         {
             var defaultRoutingTable = new RoutingTable(new Dictionary<string, Partition[]>
                 {
-                    {"topic1", new[] {new Partition {Id = 1, Leader = _nodeMocks[0].Object}}},
+                    {"topic1", new[] {new Partition {Id = 1, Leader = _nodeMocks[0].Object, NbIsr = 1}}},
                     {"topic2", new[]
                     {
-                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},
-                        new Partition {Id = 2, Leader = _nodeMocks[1].Object}
+                        new Partition {Id = 1, Leader = _nodeMocks[0].Object, NbIsr = 1},
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object, NbIsr = 1}
                     }},
                     {"topic3", new[]
                     {
-                        new Partition {Id = 1, Leader = _nodeMocks[0].Object},
-                        new Partition {Id = 2, Leader = _nodeMocks[1].Object},
-                        new Partition {Id = 3, Leader = _nodeMocks[2].Object},
+                        new Partition {Id = 1, Leader = _nodeMocks[0].Object, NbIsr = 1},
+                        new Partition {Id = 2, Leader = _nodeMocks[1].Object, NbIsr = 1},
+                        new Partition {Id = 3, Leader = _nodeMocks[2].Object, NbIsr = 1},
                     }},
-                    {"error2", new[] {new Partition {Id = 2, Leader = _nodeMocks[1].Object}}}
+                    {"error2", new[] {new Partition {Id = 2, Leader = _nodeMocks[1].Object, NbIsr = 1}}}
                 });
 
             AssertRouting(defaultRoutingTable, routing);
@@ -182,27 +183,27 @@ namespace tests_kafka_sharp
                     {
                         new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
                         {
-                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1, Isr = TestData.Isr1},
                         }},
                         new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
                         {
-                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
-                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1, Isr = TestData.Isr1},
+                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = TestData.Isr1},
                         }},
                         new TopicMeta {TopicName = "topic3", ErrorCode = ErrorCode.NoError, Partitions = new []
                         {
-                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
-                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
-                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1, Isr = TestData.Isr1},
+                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = TestData.Isr1},
+                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3, Isr = TestData.Isr1},
                         }},
                         new TopicMeta {TopicName = "error1", ErrorCode = ErrorCode.Unknown, Partitions = new []
                         {
-                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1, Isr = TestData.Isr1},
                         }},
                         new TopicMeta {TopicName = "error2", ErrorCode = ErrorCode.NoError, Partitions = new []
                         {
-                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
-                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                            new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1, Isr = TestData.Isr1},
+                            new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = TestData.Isr1},
                         }},
                     }
             };
@@ -410,28 +411,28 @@ namespace tests_kafka_sharp
                 {
                     new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
                     {
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = TestData.Isr1},
                     }},
                     new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
                     {
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = TestData.Isr1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = TestData.Isr1},
                     }},
                     new TopicMeta {TopicName = "topic3", ErrorCode = ErrorCode.NoError, Partitions = new []
                     {
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 4, Leader = 4}
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = TestData.Isr1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = TestData.Isr1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3, Isr = TestData.Isr1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 4, Leader = 4, Isr = TestData.Isr1}
                     }},
                     new TopicMeta {TopicName = "error1", ErrorCode = ErrorCode.Unknown, Partitions = new []
                     {
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = TestData.Isr1},
                     }},
                     new TopicMeta {TopicName = "error2", ErrorCode = ErrorCode.NoError, Partitions = new []
                     {
-                        new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                        new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1, Isr = TestData.Isr1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = TestData.Isr1},
                     }},
                 }
             };
@@ -526,8 +527,8 @@ namespace tests_kafka_sharp
                 {
                     new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
                     {
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = TestData.Isr1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = TestData.Isr1},
                     }}
                 }
             };
@@ -566,7 +567,7 @@ namespace tests_kafka_sharp
                 {
                     new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
                     {
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = TestData.Isr1},
                     }}
                 }
             };
@@ -627,9 +628,9 @@ namespace tests_kafka_sharp
                 {
                     new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
                     {
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                        new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 2, Leader = 2},
-                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Replicas = TestData.Isr1, Isr = TestData.Isr1},
+                        new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 2, Leader = 2, Replicas = TestData.Isr1, Isr = TestData.Isr1},
+                        new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3, Replicas = TestData.Isr1, Isr = TestData.Isr1},
                     }}
                 }
             };

@@ -494,7 +494,7 @@ namespace Kafka.Cluster
             buffer.Append(tm.TopicName).Append(":").Append(tm.ErrorCode);
             return tm.Partitions.Aggregate(
                 buffer,
-                (b, pm) => b.Append(" ").Append(string.Join(":", pm.Id, pm.Leader, pm.ErrorCode))
+                (b, pm) => b.Append(" ").Append(string.Join(":", pm.Id, pm.Leader, pm.ErrorCode, pm.Replicas.Length, pm.Isr.Length))
                 ).ToString();
         }
 
@@ -650,7 +650,10 @@ namespace Kafka.Cluster
             var routes = new Dictionary<string, Partition[]>();
             foreach (var tm in response.TopicsMeta.Where(_ => Error.IsPartitionOkForClients(_.ErrorCode)))
             {
-                routes[tm.TopicName] = tm.Partitions.Where(_ => Error.IsPartitionOkForClients(_.ErrorCode) && _.Leader >= 0).Select(_ => new Partition {Id = _.Id, Leader = _nodesById[_.Leader]}).OrderBy(p => p).ToArray();
+                routes[tm.TopicName] = tm.Partitions.Where(
+                    _ => Error.IsPartitionOkForClients(_.ErrorCode)
+                         && _.Leader >= 0)
+                    .Select(_ => new Partition {Id = _.Id, Leader = _nodesById[_.Leader], NbIsr = _.Isr.Length}).OrderBy(p => p).ToArray();
             }
             _routingTable = new RoutingTable(routes);
         }

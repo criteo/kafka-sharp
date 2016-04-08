@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Batching;
@@ -162,7 +161,7 @@ namespace tests_kafka_sharp
             node.Setup(n => n.Produce(It.IsAny<ProduceMessage>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(new RoutingTable(new Dictionary<string, Partition[]>
                     {
                         {"toto", new[] {new Partition {Id = 0, Leader = node.Object}}}
@@ -187,13 +186,67 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestFilterMinInSyncNotEnough()
+        {
+            var node = new Mock<INode>();
+            node.Setup(n => n.Produce(It.IsAny<ProduceMessage>())).Returns(true);
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(new RoutingTable(new Dictionary<string, Partition[]>
+                    {
+                        {"toto", new[] {new Partition {Id = 0, Leader = node.Object, NbIsr = 1}}}
+                    })));
+            var producer = new ProduceRouter(cluster.Object,
+                new Configuration
+                {
+                    TaskScheduler = new CurrentThreadTaskScheduler(),
+                    SerializationConfig = new SerializationConfig { SerializeOnProduce = true },
+                    MinInSyncReplicas = 2
+                }, Pool);
+
+            var key = new byte[] { 65, 66 }; // 'A', 'B'
+            var value = new byte[] { 67, 68 }; // 'C', 'D'
+            producer.Route("toto", new Message { Key = key, Value = value }, Partitions.Any,
+                DateTime.UtcNow.AddMinutes(42));
+            node.Verify(n => n.Produce(It.IsAny<ProduceMessage>()), Times.Never());
+        }
+
+        [Test]
+        public void TestFilterMinInSyncEnough()
+        {
+            var node = new Mock<INode>();
+            node.Setup(n => n.Produce(It.IsAny<ProduceMessage>())).Returns(true);
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(new RoutingTable(new Dictionary<string, Partition[]>
+                    {
+                        {"toto", new[] {new Partition {Id = 0, Leader = node.Object, NbIsr = 2}}}
+                    })));
+            var producer = new ProduceRouter(cluster.Object,
+                new Configuration
+                {
+                    TaskScheduler = new CurrentThreadTaskScheduler(),
+                    SerializationConfig = new SerializationConfig { SerializeOnProduce = true },
+                    MinInSyncReplicas = 2
+                }, Pool);
+
+            var key = new byte[] { 65, 66 }; // 'A', 'B'
+            var value = new byte[] { 67, 68 }; // 'C', 'D'
+            producer.Route("toto", new Message { Key = key, Value = value }, Partitions.Any,
+                DateTime.UtcNow.AddMinutes(42));
+            node.Verify(n => n.Produce(It.IsAny<ProduceMessage>()), Times.Once());
+        }
+
+        [Test]
         public void TestMessageAreSent_GlobalBatching()
         {
             var node = new Mock<INode>();
             node.Setup(n => n.Post(It.IsAny<IBatchByTopicByPartition<ProduceMessage>>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(new RoutingTable(new Dictionary<string, Partition[]>
                     {
                         {"toto", new[] {new Partition {Id = 0, Leader = node.Object}}}
@@ -244,6 +297,42 @@ namespace tests_kafka_sharp
                                 new ProducePartitionResponse
                                 {
                                     ErrorCode = ErrorCode.NoError,
+                                    Offset = 0,
+                                    Partition = 0
+                                }
+                            }
+                        }
+                    }
+                },
+                OriginalBatch =
+                    new TestBatchByTopicByPartition(new[]
+                    {
+                        ProduceMessage.New("test", 0, new Message(),
+                            DateTime.UtcNow.AddDays(1))
+                    })
+
+            };
+
+            _TestAcknowledgementNoError(acknowledgement, 1);
+        }
+
+        [Test]
+        public void TestNotEnoughReplicasAfterAppendIgnored()
+        {
+            var acknowledgement = new ProduceAcknowledgement
+            {
+                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<ProducePartitionResponse>
+                        {
+                            TopicName = "test",
+                            PartitionsData = new[]
+                            {
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NotEnoughReplicasAfterAppend,
                                     Offset = 0,
                                     Partition = 0
                                 }
@@ -516,6 +605,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestProduceRecoverableErrorsAreRerouted()
         {
+            SetUp(new Configuration{TaskScheduler = new CurrentThreadTaskScheduler(), RetryIfNotEnoughReplicasAfterAppend = true});
             var acknowledgement = new ProduceAcknowledgement
             {
                 ProduceResponse = new CommonResponse<ProducePartitionResponse>()
@@ -556,7 +646,13 @@ namespace tests_kafka_sharp
                                     ErrorCode = ErrorCode.UnknownTopicOrPartition,
                                     Offset = 0,
                                     Partition = 4
-                                }
+                                },
+                                new ProducePartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NotEnoughReplicasAfterAppend,
+                                    Offset = 0,
+                                    Partition = 5
+                                },
                             }
                         }
                     }
@@ -572,11 +668,13 @@ namespace tests_kafka_sharp
                     ProduceMessage.New("test", 3, new Message(),
                         DateTime.UtcNow.AddDays(1)),
                     ProduceMessage.New("test", 4, new Message(),
+                        DateTime.UtcNow.AddDays(1)),
+                    ProduceMessage.New("test", 5, new Message(),
                         DateTime.UtcNow.AddDays(1))
                 })
             };
 
-            const int exp = 5;
+            const int exp = 6;
             var ev = new ManualResetEvent(false);
             int rec = 0;
             int success = 0;
@@ -610,10 +708,10 @@ namespace tests_kafka_sharp
             _produceRouter.Acknowledge(acknowledgement);
 
             ev.WaitOne();
-            Assert.AreEqual(5, rec);
+            Assert.AreEqual(6, rec);
             Assert.AreEqual(1, success);
             Assert.AreEqual(0, discarded);
-            Assert.AreEqual(4, rerouted);
+            Assert.AreEqual(5, rerouted);
         }
 
         [Test]

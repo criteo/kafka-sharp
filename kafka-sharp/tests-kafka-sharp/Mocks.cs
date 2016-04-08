@@ -64,6 +64,8 @@ namespace tests_kafka_sharp
 
     static class TestData
     {
+        public static int[] Isr1 = new int[1];
+
         public static readonly MetadataResponse TestMetadataResponse = new MetadataResponse
         {
             BrokersMeta = new[]
@@ -76,27 +78,27 @@ namespace tests_kafka_sharp
             {
                 new TopicMeta {TopicName = "topic1", ErrorCode = ErrorCode.NoError, Partitions = new []
                 {
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = Isr1},
                 }},
                 new TopicMeta {TopicName = "topic2", ErrorCode = ErrorCode.NoError, Partitions = new []
                 {
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = Isr1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = Isr1},
                 }},
                 new TopicMeta {TopicName = "topic3", ErrorCode = ErrorCode.NoError, Partitions = new []
                 {
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = Isr1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = Isr1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 3, Leader = 3, Isr = Isr1},
                 }},
                 new TopicMeta {TopicName = "error1", ErrorCode = ErrorCode.Unknown, Partitions = new []
                 {
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 1, Leader = 1, Isr = Isr1},
                 }},
                 new TopicMeta {TopicName = "error2", ErrorCode = ErrorCode.NoError, Partitions = new []
                 {
-                    new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1},
-                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2},
+                    new PartitionMeta{ErrorCode = ErrorCode.LeaderNotAvailable, Id = 1, Leader = 1, Isr = Isr1},
+                    new PartitionMeta{ErrorCode = ErrorCode.NoError, Id = 2, Leader = 2, Isr = Isr1},
                 }},
             }
         };

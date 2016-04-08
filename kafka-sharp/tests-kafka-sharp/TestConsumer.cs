@@ -29,7 +29,7 @@ namespace tests_kafka_sharp
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
                 .Returns(Task.FromResult(new[] {0, 1, 2}));
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -65,7 +65,7 @@ namespace tests_kafka_sharp
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
                 .Returns(Task.FromResult(new[] {0, 1, 2}));
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -103,7 +103,7 @@ namespace tests_kafka_sharp
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
                 .Returns(Task.FromResult(new[] { 0, 1, 2 }));
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -142,7 +142,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -174,7 +174,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -211,7 +211,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -245,7 +245,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -302,7 +302,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -362,7 +362,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -435,7 +435,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -514,7 +514,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -624,7 +624,7 @@ namespace tests_kafka_sharp
             var node = new Mock<INode>();
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {
@@ -687,7 +687,7 @@ namespace tests_kafka_sharp
             var cluster = new Mock<ICluster>();
             cluster.SetupGet(c => c.Logger).Returns(new DevNullLogger());
             cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(
+                .Returns(() =>
                     Task.FromResult(
                         new RoutingTable(new Dictionary<string, Partition[]>
                         {

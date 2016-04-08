@@ -155,6 +155,18 @@ namespace Kafka.Public
         public RequiredAcks RequiredAcks = RequiredAcks.AllInSyncReplicas;
 
         /// <summary>
+        /// Minimum in sync replicas required to consider a partition as alive.
+        /// <= 0 means only leader is required.
+        /// </summary>
+        public int MinInSyncReplicas = -1;
+
+        /// <summary>
+        /// If you use MinInSyncReplicas and a broker replies with the NotEnoughReplicasAfterAppend error,
+        /// we will resend the messages if this value is true.
+        /// </summary>
+        public bool RetryIfNotEnoughReplicasAfterAppend = false;
+
+        /// <summary>
         /// Kafka server side timeout for requests.
         /// </summary>
         public int RequestTimeoutMs = 10000;

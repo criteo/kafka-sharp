@@ -21,6 +21,8 @@ namespace Kafka.Protocol
                 case ErrorCode.UnknownTopicOrPartition:
                 case ErrorCode.InvalidMessage:
                 case ErrorCode.InvalidMessageSize:
+                case ErrorCode.NotEnoughReplicas:
+                case ErrorCode.NotEnoughReplicasAfterAppend:
                     return true;
 
                 default:

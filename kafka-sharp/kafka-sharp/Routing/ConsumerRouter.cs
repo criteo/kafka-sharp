@@ -270,7 +270,7 @@ namespace Kafka.Routing
         private readonly Configuration _configuration;
         private readonly ActionBlock<ConsumerMessage> _innerActor;
 
-        private RoutingTable _routingTable = new RoutingTable(new Dictionary<string, Partition[]>());
+        private RoutingTable _routingTable = new RoutingTable();
 
         // Active when there are some postponed topic/partition, it checks regurlarly
         // if they can be fetched again
@@ -409,14 +409,12 @@ namespace Kafka.Routing
         /// <param name="table"></param>
         public void ChangeRoutingTable(RoutingTable table)
         {
-            if (_routingTable.LastRefreshed < table.LastRefreshed)
+            if (_routingTable != null && _routingTable.LastRefreshed >= table.LastRefreshed) return;
+            Interlocked.Exchange(ref _routingTable, new RoutingTable(table));
+            _innerActor.Post(new ConsumerMessage
             {
-                Interlocked.Exchange(ref _routingTable, table);
-                _innerActor.Post(new ConsumerMessage
-                {
-                    MessageType = ConsumerMessageType.CheckPostponedAfterRoutingTableChange
-                });
-            }
+                MessageType = ConsumerMessageType.CheckPostponedAfterRoutingTableChange
+            });
         }
 
         /// <summary>
@@ -429,7 +427,7 @@ namespace Kafka.Routing
             bool hasError = false;
             try
             {
-                _routingTable = await _cluster.RequireNewRoutingTable();
+                ChangeRoutingTable(await _cluster.RequireNewRoutingTable());
             }
             catch
             {
