@@ -506,6 +506,30 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestProduceWithNoErrorsNoAck()
+        {
+            var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerialization(new CommonResponse<ProducePartitionResponse>()),
+                                new Configuration { ProduceBufferingTime = TimeSpan.FromMilliseconds(15), RequiredAcks = RequiredAcks.None}, 1);
+            var count = new CountdownEvent(2);
+            bool batch = false;
+            ProduceAcknowledgement acknowledgement = new ProduceAcknowledgement();
+            node.ProduceBatchSent += (n, c, s) =>
+            {
+                count.Signal();
+            };
+            node.ProduceAcknowledgement += (n, ack) =>
+            {
+                acknowledgement = ack;
+                count.Signal();
+            };
+
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+
+            count.Wait();
+            Assert.AreEqual(ErrorCode.NoError, acknowledgement.ProduceResponse.TopicsResponse[0].PartitionsData.First().ErrorCode);
+        }
+
+        [Test]
         public void TestProduceRequiredAcks()
         {
             var connection = new Mock<IConnection>();

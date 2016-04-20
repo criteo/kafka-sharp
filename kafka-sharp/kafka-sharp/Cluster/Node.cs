@@ -782,6 +782,11 @@ namespace Kafka.Cluster
                     {
                         OnProduceBatchSent(request.RequestValue.ProduceBatchRequest.Count, data.Length);
                     }
+                    if (!acked)
+                    {
+                        // simulate a response
+                        OnProduceAcknowledgement(BuildUnackedProduceResponseFromOriginal(request.RequestValue.ProduceBatchRequest));
+                    }
                 }
             }
             catch (TransportException ex)
@@ -969,6 +974,29 @@ namespace Kafka.Cluster
                         Offsets = NoOffset
                     }).ToArray()
                 }).ToArray()
+            };
+        }
+
+        // Build a response for produce requests sent in unacked mode.
+        private static ProduceAcknowledgement BuildUnackedProduceResponseFromOriginal(
+            IBatchByTopicByPartition<ProduceMessage> originalRequest)
+        {
+            return new ProduceAcknowledgement
+            {
+                OriginalBatch = originalRequest,
+                ProduceResponse = new CommonResponse<ProducePartitionResponse>
+                {
+                    TopicsResponse = originalRequest.Select(b => new TopicData<ProducePartitionResponse>
+                    {
+                        TopicName = b.Key,
+                        PartitionsData = b.Select(fm => new ProducePartitionResponse
+                        {
+                            ErrorCode = ErrorCode.NoError,
+                            Partition = fm.Key,
+                        }).ToArray()
+                    }).ToArray()
+                },
+                ReceiveDate = DateTime.UtcNow
             };
         }
 
