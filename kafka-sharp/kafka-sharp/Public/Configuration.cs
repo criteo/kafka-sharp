@@ -105,6 +105,12 @@ namespace Kafka.Public
         public TimeSpan MinimumTimeBetweenRefreshMetadata = TimeSpan.FromSeconds(42);
 
         /// <summary>
+        /// When a recoverable error corresponding to a topology change is returned,
+        /// involved partitions will be ignored for a time by the producer.
+        /// </summary>
+        public TimeSpan TemporaryIgnorePartitionTime = TimeSpan.FromSeconds(42);
+
+        /// <summary>
         /// Strategy in case opf network errors.
         /// </summary>
         public ErrorStrategy ErrorStrategy = ErrorStrategy.Discard;

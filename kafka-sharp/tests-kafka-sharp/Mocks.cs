@@ -221,7 +221,7 @@ namespace tests_kafka_sharp
         public ClusterMock(Dictionary<string, Partition[]> partitions)
         {
             Partitions = partitions;
-            Logger = new DevNullLogger();
+            Logger = new TestLogger();
         }
 
         public Task<RoutingTable> RequireNewRoutingTable()

@@ -2,6 +2,7 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Generic;
 using Kafka.Public;
 
 namespace Kafka.Routing
@@ -10,16 +11,18 @@ namespace Kafka.Routing
     internal class PartitionSelector
     {
         private ulong _next;
-        private ulong _index = 1;
+        private ulong _cursor = 1;
         private readonly ulong _delay;
+        private static readonly Dictionary<int, DateTime> EmptyBlackList = new Dictionary<int, DateTime>();
 
         public PartitionSelector(int delay = 1)
         {
             _delay = delay <= 0 ? 1UL : (ulong) delay;
         }
 
-        public Partition GetPartition(int partition, Partition[] partitions)
+        public Partition GetPartition(int partition, Partition[] partitions, Dictionary<int, DateTime> blacklist = null)
         {
+            blacklist = blacklist ?? EmptyBlackList;
             switch (partition)
             {
                 case Partitions.None:
@@ -27,12 +30,20 @@ namespace Kafka.Routing
 
                 case Partitions.Any:
                 case Partitions.All:
-                    return partitions.Length == 0
-                        ? Partition.None
-                        : partitions[(int) (_index++%_delay == 0 ? _next++ : _next)%partitions.Length];
+                    var index = 0;
+                    while (index < partitions.Length)
+                    {
+                        var p = partitions[(int) (_cursor++%_delay == 0 ? _next++ : _next)%partitions.Length];
+                        if (!blacklist.ContainsKey(p.Id))
+                        {
+                            return p;
+                        }
+                        ++index;
+                    }
+                    return Partition.None;
 
                 default:
-                    int found = Array.BinarySearch(partitions, new Partition {Id = partition});
+                    var found = Array.BinarySearch(partitions, new Partition {Id = partition});
                     return found >= 0 ? partitions[found] : Partition.None;
             }
         }

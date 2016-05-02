@@ -141,6 +141,7 @@ namespace tests_kafka_sharp
             {
                 ProduceBatchSize = 10,
                 ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
+                MinimumTimeBetweenRefreshMetadata = default(TimeSpan),
                 ErrorStrategy = ErrorStrategy.Discard,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
@@ -174,7 +175,7 @@ namespace tests_kafka_sharp
             Assert.GreaterOrEqual(statistics.RequestSent, 3); // 2 or more produce response, 1 or more fetch metadata response
             Assert.GreaterOrEqual(logger.InformationLog.Count(), 3); // Fetch metadata feedback
             Assert.GreaterOrEqual(logger.ErrorLog.Count(), 1); // At least once an irrecoverable error
-            Assert.AreEqual(0, logger.WarningLog.Count());
+            Assert.AreEqual(2, logger.WarningLog.Count());
         }
 
         [Test]
@@ -230,6 +231,7 @@ namespace tests_kafka_sharp
             {
                 ProduceBatchSize = 10,
                 ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
+                MinimumTimeBetweenRefreshMetadata = default(TimeSpan),
                 ErrorStrategy = ErrorStrategy.Retry,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };

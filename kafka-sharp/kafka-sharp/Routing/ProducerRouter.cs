@@ -188,6 +188,8 @@ namespace Kafka.Routing
 
         private RoutingTable _routingTable = new RoutingTable();
         private readonly Dictionary<string, PartitionSelector> _partitioners = new Dictionary<string, PartitionSelector>();
+        private readonly Dictionary<string, Dictionary<int, DateTime>> _filters = new Dictionary<string, Dictionary<int, DateTime>>();
+        private DateTime _filtersLastChecked;
 
         // The queue of produce messages waiting to be routed
         private readonly ConcurrentQueue<ProduceMessage> _produceMessages = new ConcurrentQueue<ProduceMessage>();
@@ -418,6 +420,7 @@ namespace Kafka.Routing
         {
             try
             {
+                UpdatePartitionsBlacklist();
                 switch (messageType)
                 {
                     // In this case we prioritize reading produce responses
@@ -512,14 +515,22 @@ namespace Kafka.Routing
                 partitions = _routingTable.GetPartitions(topic);
             }
 
-            var partition = selector.GetPartition(produceMessage.RequiredPartition, partitions);
+            var partition = selector.GetPartition(produceMessage.RequiredPartition, partitions, GetFilter(topic));
 
             if (partition.Id == Partitions.None)
             {
-                // Messages for topics with no partition available are postponed.
-                // They will be checked again when the routing table is updated.
-                PostponeMessage(produceMessage);
-                return;
+                // Retry without filters because filtered partitions should be valid, we just wanted to avoid
+                // spamming them while they're being rebalanced.
+                partition = selector.GetPartition(produceMessage.RequiredPartition, partitions);
+
+                if (partition.Id == Partitions.None)
+                {
+                    // So now there is really no available partition.
+                    // Messages for topics with no partition available are postponed.
+                    // They will be checked again when the routing table is updated.
+                    PostponeMessage(produceMessage);
+                    return;
+                }
             }
 
             produceMessage.Partition = partition.Id;
@@ -624,7 +635,18 @@ namespace Kafka.Routing
 
                     if (Error.IsPartitionErrorRecoverableForProducer(p.ErrorCode))
                     {
+
+                        _cluster.Logger.LogWarning(
+                            string.Format("Recoverable error detected: [topic: {0} - partition: {1} - error: {2}]",
+                                tr.TopicName, p.Partition, p.ErrorCode));
                         _tmpPartitionsInRecoverableError[tr.TopicName].Add(p.Partition);
+                        if (p.ErrorCode != ErrorCode.InvalidMessageSize && p.ErrorCode != ErrorCode.InvalidMessage)
+                        {
+                            _cluster.Logger.LogWarning(
+                                string.Format("Will ignore [topic: {0} / partition: {1}] for a time", tr.TopicName,
+                                    p.Partition));
+                            BlacklistPartition(tr.TopicName, p.Partition);
+                        }
                     }
                     else
                     {
@@ -779,6 +801,60 @@ namespace Kafka.Routing
                     new Timer(_ => _messages.Post(RouterMessageType.CheckPostponed),
                               null, _configuration.MessageTtl, _configuration.MessageTtl);
             }
+        }
+
+        /// <summary>
+        /// Mark a partition as temporary not usable.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        private void BlacklistPartition(string topic, int partition)
+        {
+            if (_configuration.MinimumTimeBetweenRefreshMetadata == default(TimeSpan))
+            {
+                return;
+            }
+
+            Dictionary<int, DateTime> filter;
+            if (!_filters.TryGetValue(topic, out filter))
+            {
+                filter = new Dictionary<int, DateTime>();
+                _filters.Add(topic, filter);
+            }
+            filter[partition] = DateTime.UtcNow.Add(_configuration.TemporaryIgnorePartitionTime);
+        }
+
+        private readonly List<int> _tmpFiltered = new List<int>();
+
+        /// <summary>
+        /// Check and remove old partition filters
+        /// </summary>
+        private void UpdatePartitionsBlacklist()
+        {
+            var now = DateTime.UtcNow;
+            if (_filtersLastChecked.Add(_configuration.MinimumTimeBetweenRefreshMetadata) <= now)
+            {
+                _filtersLastChecked = now;
+                foreach (var filter in _filters)
+                {
+                    _tmpFiltered.Clear();
+                    foreach (var pt in filter.Value.Where(kv => kv.Value <= now))
+                    {
+                        _tmpFiltered.Add(pt.Key);
+                    }
+                    foreach (var partition in _tmpFiltered)
+                    {
+                        _cluster.Logger.LogInformation(string.Format("Unfiltering partition {0} for topic {1}", partition, filter.Key));
+                        filter.Value.Remove(partition);
+                    }
+                }
+            }
+        }
+
+        private Dictionary<int, DateTime> GetFilter(string topic)
+        {
+            Dictionary<int, DateTime> filter;
+            return _filters.TryGetValue(topic, out filter) ? filter : null;
         }
 
         // Raise the MessageExpired event and release a message.

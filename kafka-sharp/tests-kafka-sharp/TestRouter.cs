@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Batching;
@@ -708,10 +709,24 @@ namespace tests_kafka_sharp
             _produceRouter.Acknowledge(acknowledgement);
 
             ev.WaitOne();
+
+            // Check counts
             Assert.AreEqual(6, rec);
             Assert.AreEqual(1, success);
             Assert.AreEqual(0, discarded);
             Assert.AreEqual(5, rerouted);
+
+            // Check logs
+            var warnings =_cluster.Logger as TestLogger;
+            var recov = warnings.WarningLog.Where(s => s.Contains("Recoverable")).ToArray();
+            var ignore = warnings.WarningLog.Where(s => s.Contains("Will ignore")).ToArray();
+            Assert.AreEqual(5, recov.Length);
+            Assert.AreEqual(5, ignore.Length);
+            for (int i = 1; i <= 5; ++i)
+            {
+                Assert.IsTrue(recov[i - 1].Contains("partition: " + i));
+                Assert.IsTrue(ignore[i - 1].Contains("partition: " + i));
+            }
         }
 
         [Test]
