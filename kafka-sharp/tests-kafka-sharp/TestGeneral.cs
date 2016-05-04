@@ -134,6 +134,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        [Ignore("Flaky")]
         public void TestMultipleProduceWithErrorsAndDiscard()
         {
             var logger = new TestLogger();
