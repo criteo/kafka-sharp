@@ -225,6 +225,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        [Ignore("Flaky")]
         public void TestBigShake()
         {
             var logger = new TestLogger();
