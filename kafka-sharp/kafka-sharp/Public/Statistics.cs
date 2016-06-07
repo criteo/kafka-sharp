@@ -46,6 +46,11 @@ namespace Kafka.Public
         long Discarded { get; }
 
         /// <summary>
+        /// Number of produce request that have entered the system
+        /// </summary>
+        long Entered { get; }
+
+        /// <summary>
         /// Number of produce request that have exited the system either successful, discard or expired.
         /// </summary>
         long Exited { get; }
@@ -107,6 +112,8 @@ namespace Kafka.Public
 
         void UpdateDiscarded();
 
+        void UpdateEntered();
+
         void UpdateExited(long nb);
 
         void UpdateExited();
@@ -137,6 +144,7 @@ namespace Kafka.Public
         private long _nodeDead;
         private long _expired;
         private long _discarded;
+        private long _entered;
         private long _exited;
         private long _received;
         private long _rawReceived;
@@ -160,6 +168,8 @@ namespace Kafka.Public
         public long Expired { get { return _expired; } }
 
         public long Discarded { get { return _discarded; } }
+
+        public long Entered { get { return _entered; } }
 
         public long Exited { get { return _exited; } }
 
@@ -186,7 +196,8 @@ namespace Kafka.Public
                 @"Messages successfully sent: {0} - Messages received: {8}
 Requests sent: {1} - Responses received: {2}
 Errors: {3} - Dead nodes: {4}
-Expired: {5} - Discarded: {6} - Exited: {7}
+Expired: {5} - Discarded: {6}
+Entered: {16} - Exited: {7}
 Raw produced: {9} - Raw produced bytes: {10}
 Raw received: {11} - Raw received bytes: {12}
 Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
@@ -195,7 +206,7 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
                 ResponseReceived, Errors, NodeDead,
                 Expired, Discarded, Exited, Received,
                 RawProduced, RawProducedBytes, RawReceived, RawReceivedBytes,
-                SocketBuffers, RequestsBuffers, MessageBuffers
+                SocketBuffers, RequestsBuffers, MessageBuffers, Entered
                 );
         }
 
@@ -232,6 +243,11 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
         public void UpdateDiscarded()
         {
             Interlocked.Increment(ref _discarded);
+        }
+
+        public void UpdateEntered()
+        {
+            Interlocked.Increment(ref _entered);
         }
 
         public void UpdateExited(long nb)

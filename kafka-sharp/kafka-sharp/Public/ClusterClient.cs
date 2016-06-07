@@ -357,8 +357,6 @@ namespace Kafka.Public
             _cluster.ConsumeRouter.StopConsume(topic, partition, offset);
         }
 
-        private long _sent;
-
         public bool Produce(string topic, object data)
         {
             return Produce(topic, null, data);
@@ -373,7 +371,7 @@ namespace Kafka.Public
         {
             if (_configuration.MaxBufferedMessages > 0)
             {
-                if (_sent - _cluster.PassedThrough >= _configuration.MaxBufferedMessages)
+                if (_cluster.Entered - _cluster.PassedThrough >= _configuration.MaxBufferedMessages)
                 {
                     switch (_configuration.OverflowStrategy)
                     {
@@ -381,15 +379,15 @@ namespace Kafka.Public
                             return false;
 
                         case OverflowStrategy.Block:
-                            SpinWait.SpinUntil(() => _sent - _cluster.PassedThrough < _configuration.MaxBufferedMessages);
+                            SpinWait.SpinUntil(() => _cluster.Entered - _cluster.PassedThrough < _configuration.MaxBufferedMessages);
                             break;
 
                         default:
                             throw new ArgumentOutOfRangeException();
                     }
                 }
-                Interlocked.Increment(ref _sent);
             }
+            _cluster.UpdateEntered();
             _cluster.ProduceRouter.Route(topic, new Message {Key = key, Value = data}, partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
             return true;
         }

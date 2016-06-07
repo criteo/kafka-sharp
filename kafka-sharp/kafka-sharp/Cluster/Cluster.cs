@@ -114,6 +114,7 @@ namespace Kafka.Cluster
         private bool _started; // Cluster is active
 
         private double _resolution = 1000.0;
+        private long _entered;
         private long _exited;
 
         public IStatistics Statistics { get; private set; }
@@ -124,6 +125,11 @@ namespace Kafka.Cluster
 
         public event Action<Exception> InternalError = _ => { };
         internal event Action<RoutingTable> RoutingTableChange = _ => { };
+
+        internal long Entered
+        {
+            get { return Interlocked.Read(ref _entered); }
+        }
 
         internal long PassedThrough
         {
@@ -225,6 +231,12 @@ namespace Kafka.Cluster
             pools.InitMessageBuffersPool(limit, configuration.SerializationConfig.MaxMessagePoolChunkSize);
 
             return pools;
+        }
+
+        internal void UpdateEntered()
+        {
+            Statistics.UpdateEntered();
+            Interlocked.Increment(ref _entered);
         }
 
         private void UpdateExited(long nb)
