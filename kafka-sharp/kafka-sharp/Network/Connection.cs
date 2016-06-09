@@ -410,7 +410,7 @@ namespace Kafka.Network
                         // stack trace using a simple Task. This should really not happen
                         // but you never know.
                         _recursiveOnSendCompleted = 0;
-                        Task.Factory.StartNew(() => OnSendCompleted(_socket, saea));
+                        Task.Run(() => OnSendCompleted(_socket, saea));
                         return;
                     }
                     OnSendCompleted(_socket, saea);
@@ -529,7 +529,7 @@ namespace Kafka.Network
                         // stack trace using a simple Task. This should really not happen
                         // but you never know.
                         connection._recursiveOnReceiveCompleted = 0;
-                        Task.Factory.StartNew(() => OnReceiveCompleted(sender, saea));
+                        Task.Run(() => OnReceiveCompleted(sender, saea));
                         return;
                     }
                     OnReceiveCompleted(sender, saea);

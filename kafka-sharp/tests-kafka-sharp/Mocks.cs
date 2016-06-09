@@ -359,7 +359,7 @@ namespace tests_kafka_sharp
     {
         public override Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
         {
-            Task.Factory.StartNew(() => OnReceiveError(new TransportException(TransportError.ReadError)));
+            Task.Run(() => OnReceiveError(new TransportException(TransportError.ReadError)));
             return Task.FromResult(true);
         }
     }

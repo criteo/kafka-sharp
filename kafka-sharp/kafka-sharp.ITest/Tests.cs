@@ -103,7 +103,7 @@ namespace Kafka.ITest
         {
             var shouldStop = new ManualResetEvent(false);
             var timeout = Task.Delay(TimeSpan.FromSeconds(durationInSec));
-            var task = Task.Factory.StartNew(
+            var task = Task.Run(
                 () =>
                 {
                     while (!shouldStop.WaitOne(0))
@@ -196,7 +196,7 @@ namespace Kafka.ITest
             var i = 0;
             var task1 = this.LaunchNewSendTask(cluster, 5, sent, () => Interlocked.Increment(ref i));
             var task2 = this.LaunchNewSendTask(cluster, 5, sent, () => Interlocked.Increment(ref i));
-            var task3 = Task.Factory.StartNew(
+            var task3 = Task.Run(
                 async () =>
                 {
                     await Task.Delay(TimeSpan.FromSeconds(2));
@@ -234,7 +234,7 @@ namespace Kafka.ITest
             var i = 0;
             var task1 = this.LaunchNewSendTask(cluster, 8, sent, () => Interlocked.Increment(ref i));
             var task2 = this.LaunchNewSendTask(cluster, 8, sent, () => Interlocked.Increment(ref i));
-            var task3 = Task.Factory.StartNew(
+            var task3 = Task.Run(
                 async () =>
                 {
                     await Task.Delay(TimeSpan.FromSeconds(1));
