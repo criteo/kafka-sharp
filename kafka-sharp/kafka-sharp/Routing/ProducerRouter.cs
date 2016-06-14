@@ -191,6 +191,8 @@ namespace Kafka.Routing
         private readonly Dictionary<string, Dictionary<int, DateTime>> _filters = new Dictionary<string, Dictionary<int, DateTime>>();
         private DateTime _filtersLastChecked;
 
+        private readonly Random _randomGenerator = new Random(Guid.NewGuid().GetHashCode());
+
         // The queue of produce messages waiting to be routed
         private readonly ConcurrentQueue<ProduceMessage> _produceMessages = new ConcurrentQueue<ProduceMessage>();
 
@@ -504,7 +506,7 @@ namespace Kafka.Routing
             PartitionSelector selector;
             if (!_partitioners.TryGetValue(topic, out selector))
             {
-                selector = new PartitionSelector(_configuration.NumberOfMessagesBeforeRoundRobin);
+                selector = new PartitionSelector(_configuration.NumberOfMessagesBeforeRoundRobin, _randomGenerator.Next());
                 _partitioners[topic] = selector;
             }
 

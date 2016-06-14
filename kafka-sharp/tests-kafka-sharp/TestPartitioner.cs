@@ -37,7 +37,6 @@ namespace tests_kafka_sharp
             }
         }
 
-
         [Test]
         public void TestRoundRobinPartitionAssignNoPartitionReturnsNone()
         {
@@ -72,6 +71,33 @@ namespace tests_kafka_sharp
 
             partition = partitioner.GetPartition(Partitions.Any, partitions, filter);
             Assert.AreEqual(1, partition.Id);
+        }
+
+        [Test]
+        [TestCase(0, 1)]
+        [TestCase(1, 1)]
+        [TestCase(1, 5)]
+        [TestCase(42, 1)]
+        [TestCase(42, 2)]
+        public void TestRoundRobinPartitionWithStartSeed(int startSeed, int delay)
+        {
+            var nodeMock = new NodeMock();
+            var partitions = new[]
+                {
+                    new Partition {Id = 0, Leader = nodeMock},
+                    new Partition {Id = 1, Leader = nodeMock},
+                    new Partition {Id = 2, Leader = nodeMock},
+                    new Partition {Id = 3, Leader = nodeMock},
+                    new Partition {Id = 4, Leader = nodeMock},
+                };
+            var partitioner = new PartitionSelector(delay, startSeed);
+            foreach (var partition in partitions)
+            {
+                for (var j = 0; j < delay; ++j)
+                {
+                    Assert.AreEqual((partition.Id + startSeed)%partitions.Length, partitioner.GetPartition(Partitions.Any, partitions).Id);
+                }
+            }
         }
     }
 }

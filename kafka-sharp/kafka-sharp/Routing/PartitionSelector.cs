@@ -15,9 +15,10 @@ namespace Kafka.Routing
         private readonly ulong _delay;
         private static readonly Dictionary<int, DateTime> EmptyBlackList = new Dictionary<int, DateTime>();
 
-        public PartitionSelector(int delay = 1)
+        public PartitionSelector(int delay = 1, int startSeed = 0)
         {
             _delay = delay <= 0 ? 1UL : (ulong) delay;
+            _next = Convert.ToUInt64(startSeed);
         }
 
         public Partition GetPartition(int partition, Partition[] partitions, Dictionary<int, DateTime> blacklist = null)
