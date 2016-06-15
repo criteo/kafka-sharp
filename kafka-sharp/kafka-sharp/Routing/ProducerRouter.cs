@@ -338,6 +338,10 @@ namespace Kafka.Routing
             }
             else
             {
+                _cluster.Logger.LogError(
+                    string.Format(
+                        "[Producer] Failed to route message, discarding message for [topic: {0} / partition: {1}]",
+                        message.Topic, message.Partition));
                 OnMessageDiscarded(message);
             }
         }
@@ -362,6 +366,10 @@ namespace Kafka.Routing
             }
             else
             {
+                _cluster.Logger.LogError(
+                    string.Format(
+                        "[Producer] Not able to re-enqueue, discarding message for [topic: {0} / partition: {1}] after {2} retry",
+                        message.Topic, message.Partition, message.Retried));
                 OnMessageDiscarded(message);
             }
         }
@@ -694,6 +702,10 @@ namespace Kafka.Routing
                     {
                         if (errPartitions.Contains(pm.Partition))
                         {
+                            _cluster.Logger.LogError(
+                                string.Format(
+                                    "[Producer] Irrecoverable error, discarding message for [topic: {0} / partition: {1}]",
+                                    pm.Topic, pm.Partition));
                             OnMessageDiscarded(pm);
                         }
                         else
@@ -769,6 +781,10 @@ namespace Kafka.Routing
         {
             if (_numberOfPostponedMessages >= _configuration.MaxPostponedMessages)
             {
+                _cluster.Logger.LogError(
+                    string.Format(
+                        "[Producer] Too many postponed messages, discarding message for [topic: {0} / partition: {1}]",
+                        produceMessage.Topic, produceMessage.RequiredPartition));
                 OnMessageDiscarded(produceMessage);
                 return;
             }
