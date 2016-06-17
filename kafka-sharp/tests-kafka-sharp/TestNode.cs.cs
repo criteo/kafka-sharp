@@ -71,9 +71,9 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
             int response = 0;
-            node.ResponseReceived += _ =>
+            node.ResponseReceived += (n, l) =>
             {
-                Assert.AreSame(node, _);
+                Assert.AreSame(node, n);
                 ++response;
             };
             var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
@@ -161,9 +161,9 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
             int response = 0;
-            node.ResponseReceived += _ =>
+            node.ResponseReceived += (n, l) =>
             {
-                Assert.AreSame(node, _);
+                Assert.AreSame(node, n);
                 ++response;
             };
             var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
@@ -288,9 +288,9 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
             int response = 0;
-            node.ResponseReceived += _ =>
+            node.ResponseReceived += (n, l) =>
             {
-                Assert.AreSame(node, _);
+                Assert.AreSame(node, n);
                 ++response;
             };
             var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
@@ -362,9 +362,9 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
             int response = 0;
-            node.ResponseReceived += _ =>
+            node.ResponseReceived += (n, l) =>
             {
-                Assert.AreSame(node, _);
+                Assert.AreSame(node, n);
                 ++response;
             };
             var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
@@ -481,12 +481,15 @@ namespace tests_kafka_sharp
         [Test]
         public void TestProduceWithNoErrors()
         {
-            var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerialization(new CommonResponse<ProducePartitionResponse>()),
+            double requestLatency = 0;
+            var expectedLatency = 3;
+            var node = new Node("Node", () => new EchoConnectionMock(false, expectedLatency), new ProduceSerialization(new CommonResponse<ProducePartitionResponse>()),
                                 new Configuration {ProduceBufferingTime = TimeSpan.FromMilliseconds(15)}, 1);
             var count = new CountdownEvent(2);
-            node.ResponseReceived += n =>
+            node.ResponseReceived += (n, l) =>
                 {
                     Assert.AreSame(node, n);
+                    requestLatency = l;
                     count.Signal();
                 };
             bool batch = false;
@@ -503,6 +506,7 @@ namespace tests_kafka_sharp
 
             count.Wait();
             Assert.IsTrue(batch);
+            Assert.GreaterOrEqual(requestLatency, expectedLatency);
         }
 
         [Test]

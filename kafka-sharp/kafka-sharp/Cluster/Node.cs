@@ -109,7 +109,7 @@ namespace Kafka.Cluster
         /// <summary>
         /// Some response has been received from the wire.
         /// </summary>
-        event Action<INode> ResponseReceived;
+        event Action<INode, double /* # request latency in ms*/> ResponseReceived;
 
         /// <summary>
         /// Some error occured on the underlying connection.
@@ -862,7 +862,6 @@ namespace Kafka.Cluster
                     break;
 
                 case ResponseType.Data:
-                    OnResponseReceived();
                     ConcurrentQueue<Pending> pendings;
                     if (!_pendings.TryGetValue(response.Connection, out pendings))
                     {
@@ -891,6 +890,9 @@ namespace Kafka.Cluster
                             CleanUpConnection(response.Connection);
                             return;
                         }
+
+                        var latencyMs = DateTime.UtcNow.Subtract(pending.TimeStamp).TotalMilliseconds;
+                        OnResponseReceived(latencyMs);
 
                         switch (pending.Request.RequestType)
                         {
@@ -1220,10 +1222,10 @@ namespace Kafka.Cluster
             ProduceBatchSent(this, count, size);
         }
 
-        public event Action<INode> ResponseReceived = n => { };
-        private void OnResponseReceived()
+        public event Action<INode, double> ResponseReceived = (n, l) => { };
+        private void OnResponseReceived(double latency)
         {
-            ResponseReceived(this);
+            ResponseReceived(this, latency);
         }
 
         public event Action<INode, long, long> FetchResponseReceived = (n, m, s) => { };

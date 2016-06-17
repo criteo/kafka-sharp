@@ -98,11 +98,16 @@ namespace Kafka.Public
         /// </summary>
         long MessageBuffers { get; }
 
+        /// <summary>
+        ///  The latency in ms of the latest request
+        /// </summary>
+        double LatestRequestLatency { get; }
+
         void UpdateSuccessfulSent(long nb);
 
         void UpdateRequestSent();
 
-        void UpdateResponseReceived();
+        void UpdateResponseReceived(double latencyMs);
 
         void UpdateErrors();
 
@@ -154,6 +159,7 @@ namespace Kafka.Public
         private long _socketBuffers;
         private long _requestsBuffers;
         private long _messageBuffers;
+        private double _latestRequestLatency;
 
         public long SuccessfulSent { get { return _successfulSent; } }
 
@@ -189,6 +195,7 @@ namespace Kafka.Public
 
         public long MessageBuffers { get { return _messageBuffers; } }
 
+        public double LatestRequestLatency { get { return _latestRequestLatency; } }
 
         public override string ToString()
         {
@@ -220,9 +227,10 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
             Interlocked.Increment(ref _requestSent);
         }
 
-        public void UpdateResponseReceived()
+        public void UpdateResponseReceived(double latencyMs)
         {
             Interlocked.Increment(ref _responseReceived);
+            Interlocked.Exchange(ref _latestRequestLatency, latencyMs);
         }
 
         public void UpdateErrors()

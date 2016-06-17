@@ -187,7 +187,7 @@ namespace tests_kafka_sharp
         public event Action<INode> RequestSent = n => { };
         public event Action<INode, long, long> ProduceBatchSent = (n, m, s) => { };
         public event Action<INode, long, long> FetchResponseReceived = (n, m, s) => { };
-        public event Action<INode> ResponseReceived = n => { };
+        public event Action<INode, double> ResponseReceived = (n, l) => { };
         public event Action<INode, Exception> ConnectionError = (n, e) => { };
         public event Action<INode, Exception> DecodeError = (n, e) => { };
         public event Action<INode> Dead = _ => { };
@@ -296,15 +296,17 @@ namespace tests_kafka_sharp
     {
         private readonly bool _forceErrors;
         private static int _count;
+        private readonly int _responseDelayMs;
 
         public static void Reset()
         {
             _count = 1;
         }
 
-        public EchoConnectionMock(bool forceErrors = false)
+        public EchoConnectionMock(bool forceErrors = false, int responseDelayMs = 0)
         {
             _forceErrors = forceErrors;
+            _responseDelayMs = responseDelayMs;
         }
 
         public override Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
@@ -329,6 +331,18 @@ namespace tests_kafka_sharp
             {
                 var response = new ReusableMemoryStream(null);
                 buffer.WriteTo(response);
+
+                if (_responseDelayMs > 0)
+                {
+                    var tcs = new TaskCompletionSource<bool>();
+                    new Timer(_ =>
+                    {
+                        OnResponse(correlationId, response);
+                        tcs.SetResult(true);
+                    }).Change(_responseDelayMs, -1);
+                    return tcs.Task;
+                }
+
                 OnResponse(correlationId, response);
             }
             return Task.FromResult(true);

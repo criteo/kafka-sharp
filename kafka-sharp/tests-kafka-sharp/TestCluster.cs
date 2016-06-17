@@ -251,7 +251,7 @@ namespace tests_kafka_sharp
         public async Task TestResponseReceived()
         {
             _cluster.Start();
-            _nodeMocks[0].Raise(n => n.ResponseReceived += null, _nodeMocks[0].Object);
+            _nodeMocks[0].Raise(n => n.ResponseReceived += null, _nodeMocks[0].Object, 0);
 
             await _cluster.Stop();
             Assert.AreEqual(0, _internalErrors);
