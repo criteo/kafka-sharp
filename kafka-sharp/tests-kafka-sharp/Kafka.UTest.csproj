@@ -34,7 +34,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Moq">
-      <HintPath>$(SolutionDir)\packages\Moq.4.0.10827\lib\NET40\Moq.dll</HintPath>
+      <HintPath>$(SolutionDir)\packages\Moq.4.5.3\lib\net45\Moq.dll</HintPath>
     </Reference>
     <Reference Include="nunit.framework">
       <HintPath>$(SolutionDir)\packages\NUnit.2.6.4\lib\nunit.framework.dll</HintPath>
