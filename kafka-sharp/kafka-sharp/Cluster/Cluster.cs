@@ -59,6 +59,10 @@ namespace Kafka.Cluster
         public void LogError(string message)
         {
         }
+
+        public void LogDebug(string message)
+        {
+        }
     }
 
     class Cluster : ICluster

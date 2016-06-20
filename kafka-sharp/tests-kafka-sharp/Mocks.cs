@@ -689,5 +689,9 @@ namespace tests_kafka_sharp
         {
             _error.Enqueue(message);
         }
+
+        public void LogDebug(string message)
+        {
+        }
     }
 }

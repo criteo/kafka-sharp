@@ -325,6 +325,11 @@ namespace Kafka.ITest
             {
                 Console.WriteLine(message);
             }
+
+            public void LogDebug(string message)
+            {
+                Console.WriteLine(message);
+            }
         }
     }
 }
