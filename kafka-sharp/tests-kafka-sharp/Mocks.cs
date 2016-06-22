@@ -195,6 +195,7 @@ namespace tests_kafka_sharp
         public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
         public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement;
         public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
+        public event Action<INode> NoMoreRequestSlot = _ => { };
         public event Action<string> MessageReceived = _ => { };
 
 

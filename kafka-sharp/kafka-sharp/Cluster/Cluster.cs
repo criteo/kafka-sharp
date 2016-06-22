@@ -271,6 +271,19 @@ namespace Kafka.Cluster
             return (h, p) => ObserveNode(nodeFactory(h, p));
         }
 
+        private void NodeMaxRequestReached(INode node)
+        {
+            // It is expected to reach the maximum capacity only when producing by burst
+            // (i.e. strategy block until messages are sent).
+            if (_configuration.ErrorStrategy == ErrorStrategy.Discard)
+            {
+                Logger.LogWarning(
+                    string.Format(
+                        "[Node] Maximum number of parallel request ({0}) to broker {1} reached.",
+                        _configuration.MaxInFlightRequests, node.Name));
+            }
+        }
+
         // Connect all the INode events.
         private INode ObserveNode(INode node)
         {
@@ -294,6 +307,7 @@ namespace Kafka.Cluster
             node.ProduceAcknowledgement += (n, ack) => ProduceRouter.Acknowledge(ack);
             node.FetchAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             node.OffsetAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
+            node.NoMoreRequestSlot += n => NodeMaxRequestReached(n);
             return node;
         }
 
