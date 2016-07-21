@@ -360,7 +360,7 @@ namespace Kafka.Routing
             }
 
             message.Partition = Partitions.None; // so that round robined msgs are re robined
-            if (++message.Retried <= _configuration.MaxRetry && Post(message))
+            if ((_configuration.MaxRetry < 0 || ++message.Retried <= _configuration.MaxRetry) && Post(message))
             {
                 MessageReEnqueued(message.Topic);
             }

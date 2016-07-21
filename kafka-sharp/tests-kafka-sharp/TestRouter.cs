@@ -741,6 +741,24 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestUnlimitedRetry()
+        {
+            SetUp(new Configuration
+            {
+                MaxRetry = -1
+            });
+
+            int discarded = 0;
+            _produceRouter.MessageDiscarded += (t, m) => discarded += 1;
+            var pm = ProduceMessage.New("test1p", Partitions.Any, new Message(), DateTime.UtcNow.AddMinutes(5));
+            _produceRouter.ReEnqueue(pm);
+            _produceRouter.ReEnqueue(pm);
+            pm.Retried = int.MaxValue;
+            _produceRouter.ReEnqueue(pm);
+            Assert.AreEqual(0, discarded);
+        }
+
+        [Test]
         public async Task TestExpiredMessagesAreNotRouted()
         {
             _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMilliseconds(-1));

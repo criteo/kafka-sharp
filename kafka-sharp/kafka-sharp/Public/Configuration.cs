@@ -94,6 +94,12 @@ namespace Kafka.Public
         public TimeSpan MessageTtl = TimeSpan.FromMinutes(1);
 
         /// <summary>
+        /// Maximum number of retry when sending messages in error.
+        /// -1 to have an unbounded number of retry (until reaching message TTL).
+        /// </summary>
+        public int MaxRetry = 3;
+
+        /// <summary>
         /// Period between each metadata autorefresh.
         /// </summary>
         public TimeSpan RefreshMetadataInterval = TimeSpan.FromMinutes(10);
@@ -231,11 +237,6 @@ namespace Kafka.Public
         /// Maximum number of postponed produce messages when no partition is available.
         /// </summary>
         public int MaxPostponedMessages = 1000;
-
-        /// <summary>
-        /// Maximum number of retry when sending messages in error
-        /// </summary>
-        public int MaxRetry = 3;
 
         /// <summary>
         /// Number of errors on a node before considering it dead
