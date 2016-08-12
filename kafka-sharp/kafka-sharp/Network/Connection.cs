@@ -7,6 +7,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using Kafka.Common;
+using Kafka.Public;
+#if NET_CORE
+using System.Threading;
+#endif
 
 namespace Kafka.Network
 {
@@ -132,11 +136,15 @@ namespace Kafka.Network
             return new RealSocketAsyncEventArgs();
         }
 
-        // Use old Begin/End API, this is much simpler than using Socket.Async
-        // and we do not need "performance" here.
         public Task ConnectAsync()
         {
+#if NET_CORE
+            return this.ConnectAsync(_endPoint); // same as before, it uses FromAsync() helper
+#else
+            // Use old Begin/End API, this is much simpler than using Socket.Async
+            // and we do not need "performance" here.
             return Task.Factory.FromAsync(BeginConnect, EndConnect, _endPoint, null);
+#endif
         }
 
         public bool SendAsync(ISocketAsyncEventArgs args)
@@ -239,7 +247,11 @@ namespace Kafka.Network
             int sendBufferSize = DefaultBufferSize,
             int receiveBufferSize = DefaultBufferSize)
             : this(
+#if NET_CORE
+                new IPEndPoint(Dns.GetHostAddressesAsync(host).Result[0], port),
+#else
                 new IPEndPoint(Dns.GetHostAddresses(host)[0], port),
+#endif
                 socketFactory, bufferPool, responsePool, sendBufferSize, receiveBufferSize)
         {
         }

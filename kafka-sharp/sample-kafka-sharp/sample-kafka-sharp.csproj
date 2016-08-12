@@ -66,6 +66,7 @@
   <ItemGroup>
     <None Include="App.config" />
     <None Include="packages.config" />
+    <None Include="sample-kafka-sharp.project.json" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\kafka-sharp\Kafka.csproj">

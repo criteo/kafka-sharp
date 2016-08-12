@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Configuration;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
@@ -459,7 +458,11 @@ namespace tests_kafka_sharp
                                 new Configuration{ClientRequestTimeoutMs = 1}, new TimeoutScheduler(1), 1);
             bool isDead = false;
             node.Dead += _ => isDead = true;
+#if NET_CORE
+            Assert.ThrowsAsync<TimeoutException>(async () => await node.FetchMetadata());
+#else
             Assert.Throws<TimeoutException>(async () => await node.FetchMetadata());
+#endif
             Assert.IsFalse(isDead);
         }
 
@@ -475,7 +478,11 @@ namespace tests_kafka_sharp
                     Assert.AreSame(node, n);
                     ex = e;
                 };
+#if NET_CORE
+            var thrown = Assert.ThrowsAsync<Exception>(async () => await node.FetchMetadata());
+#else
             var thrown = Assert.Throws<Exception>(async () => await node.FetchMetadata());
+#endif
             Assert.AreSame(thrown, ex);
         }
 
@@ -683,7 +690,11 @@ namespace tests_kafka_sharp
             var config = new Configuration { ProduceBatchSize = 1, ProduceBufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
                 new Node("[Failing node]", () => new SendFailingConnectionMock(), new DummySerialization(), config, 1);
+#if NET_CORE
+            Assert.ThrowsAsync<TransportException>(async () => await node.FetchMetadata());
+#else
             Assert.Throws<TransportException>(async () => await node.FetchMetadata());
+#endif
         }
 
         [Test]
@@ -692,7 +703,11 @@ namespace tests_kafka_sharp
             var config = new Configuration { ProduceBatchSize = 1, ProduceBufferingTime = TimeSpan.FromMilliseconds(15) };
             var node =
                 new Node("[Failing node]", () => new ReceiveFailingConnectionMock(), new DummySerialization(), config, 1);
+#if NET_CORE
+            Assert.ThrowsAsync<TransportException>(async () => await node.FetchMetadata());
+#else
             Assert.Throws<TransportException>(async () => await node.FetchMetadata());
+#endif
         }
 
         [Test]

@@ -340,7 +340,7 @@ namespace tests_kafka_sharp
                     {
                         OnResponse(correlationId, response);
                         tcs.SetResult(true);
-                    }).Change(_responseDelayMs, -1);
+                    }, null, _responseDelayMs, -1);
                     return tcs.Task;
                 }
 

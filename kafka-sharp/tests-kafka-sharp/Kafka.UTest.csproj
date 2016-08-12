@@ -95,6 +95,7 @@
     <Compile Include="TestRoutingTable.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Kafka.UTest.project.json" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

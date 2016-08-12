@@ -5,7 +5,7 @@
 
 // The original code has been stripped of all non used parts and adapted to our use.
 
-using System.IO;
+using System;
 
 namespace Kafka.Common
 {

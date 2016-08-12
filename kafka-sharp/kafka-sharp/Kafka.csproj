@@ -111,6 +111,7 @@
     <Compile Include="Routing\RoutingTable.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Kafka.project.json" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup />
