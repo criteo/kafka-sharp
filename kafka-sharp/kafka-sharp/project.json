@@ -1,5 +1,17 @@
 {
-  "buildOptions": {},
+  "configurations": {
+    "Debug": {
+      "buildOptions": {
+        "define": [ "DEBUG" ]
+      }
+    },
+    "Release": {
+      "buildOptions": {
+        "define": [ "RELEASE" ],
+        "optimize": true
+      }
+    }
+  },
   "frameworks": {
     "netstandard1.3": {
       "buildOptions": {
@@ -9,13 +21,13 @@
       },
       "dependencies": {
         "NETStandard.Library": "1.6.0",
-        "System.Threading.Tasks.Dataflow" : "4.6.0",
-        "System.Reactive" : "3.0.0",
-        "System.Reactive.Core" : "3.0.0",
-        "System.Reactive.Interfaces" : "3.0.0",
-        "System.Reactive.Linq" : "3.0.0",
-        "System.Reactive.PlatformServices" : "3.0.0",
-        "System.Net.NameResolution" : "4.0.0",
+        "System.Threading.Tasks.Dataflow": "4.6.0",
+        "System.Reactive": "3.0.0",
+        "System.Reactive.Core": "3.0.0",
+        "System.Reactive.Interfaces": "3.0.0",
+        "System.Reactive.Linq": "3.0.0",
+        "System.Reactive.PlatformServices": "3.0.0",
+        "System.Net.NameResolution": "4.0.0",
         "System.Net.Sockets": "4.1.0"
       }
     }
