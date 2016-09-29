@@ -38,7 +38,7 @@ using System.Runtime.InteropServices;
 // For testing purpose
 [assembly: InternalsVisibleTo("Kafka.UTest")]
 #if NET_CORE
-[assembly: InternalsVisibleTo("tests-kafka-sharp")] // dotnet core considers the directory name when building the assembly
+[assembly: InternalsVisibleTo("kafka-sharp.UTest")] // dotnet core considers the directory name when building the assembly
 #endif
 [assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]
 
