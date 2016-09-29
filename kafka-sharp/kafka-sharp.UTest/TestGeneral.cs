@@ -192,7 +192,8 @@ namespace tests_kafka_sharp
                 ProduceBatchSize = 10,
                 ProduceBufferingTime = TimeSpan.FromMilliseconds(15),
                 ErrorStrategy = ErrorStrategy.Retry,
-                MaxRetry = 42, // Need high value
+                MaxRetry = -1,
+                MaxSuccessiveNodeErrors = 10,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
             var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, false, true);
@@ -214,7 +215,9 @@ namespace tests_kafka_sharp
 
             SpinWait.SpinUntil(() => cluster.Statistics.Exited == 14);
             cluster.Dispose();
+
             var statistics = cluster.Statistics;
+
             Assert.AreEqual(14, statistics.Exited);
             Assert.GreaterOrEqual(statistics.SuccessfulSent, 1);
             Assert.GreaterOrEqual(statistics.Errors, 1);
