@@ -458,12 +458,20 @@ namespace tests_kafka_sharp
                                 new Configuration{ClientRequestTimeoutMs = 1}, new TimeoutScheduler(1), 1);
             bool isDead = false;
             node.Dead += _ => isDead = true;
+            var timeoutEvent = new ManualResetEvent(false);
+            node.RequestTimeout += n =>
+            {
+                Assert.AreSame(node, n);
+                timeoutEvent.Set();
+            };
 #if NET_CORE
             Assert.ThrowsAsync<TimeoutException>(async () => await node.FetchMetadata());
 #else
             Assert.Throws<TimeoutException>(async () => await node.FetchMetadata());
 #endif
             Assert.IsFalse(isDead);
+
+            timeoutEvent.WaitOne();
         }
 
         [Test]
@@ -633,7 +641,8 @@ namespace tests_kafka_sharp
                     MaxInFlightRequests = -1
                 },
                 new TimeoutScheduler(3), 1);
-            var ev = new ManualResetEvent(false);
+            var ackEvent = new ManualResetEvent(false);
+            var timeoutEvent = new ManualResetEvent(false);
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
                 .Returns(Success);
             connection.Setup(c => c.ConnectAsync()).Returns(Success);
@@ -643,7 +652,12 @@ namespace tests_kafka_sharp
                 Assert.AreSame(node, n);
                 Assert.AreEqual(default(CommonResponse<ProducePartitionResponse>), ack.ProduceResponse);
                 Assert.AreNotEqual(default(DateTime), ack.ReceiveDate);
-                ev.Set();
+                ackEvent.Set();
+            };
+            node.RequestTimeout += n =>
+            {
+                Assert.AreSame(node, n);
+                timeoutEvent.Set();
             };
 
             var exception = new Exception();
@@ -655,7 +669,7 @@ namespace tests_kafka_sharp
             };
 
             node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
-            ev.WaitOne();
+            WaitHandle.WaitAll(new [] { ackEvent, timeoutEvent });
 
             Assert.IsInstanceOf<TimeoutException>(exception);
         }

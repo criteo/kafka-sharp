@@ -132,6 +132,11 @@ namespace Kafka.Cluster
         event Action<INode> Connected;
 
         /// <summary>
+        /// No acknowledgement received for the request : time out
+        /// </summary>
+        event Action<INode> RequestTimeout;
+
+        /// <summary>
         /// An acknowledgement for a produce request has been received.
         /// </summary>
         event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement;
@@ -1140,6 +1145,7 @@ namespace Kafka.Cluster
                         _configuration.ClientRequestTimeoutMs)
                     {
                         // Time out!
+                        OnRequestTimeout();
                         HandleConnectionError(connection, new TimeoutException(string.Format("Request {0} from node {1} timed out!", pending.CorrelationId, Name)));
                     }
                 }
@@ -1272,6 +1278,12 @@ namespace Kafka.Cluster
         private void OnDead()
         {
             Dead(this);
+        }
+
+        public event Action<INode> RequestTimeout = n => { };
+        private void OnRequestTimeout()
+        {
+            RequestTimeout(this);
         }
 
         public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };

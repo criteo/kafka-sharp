@@ -26,6 +26,11 @@ namespace Kafka.Public
         long ResponseReceived { get; }
 
         /// <summary>
+        /// The number of connection time out encountered (Kafka cluster did not reply)
+        /// </summary>
+        long RequestTimeout { get; }
+
+        /// <summary>
         /// Number of hard errors encountered (network errors or decode errors)
         /// </summary>
         long Errors { get; }
@@ -109,6 +114,8 @@ namespace Kafka.Public
 
         void UpdateResponseReceived(double latencyMs);
 
+        void UpdateRequestTimeout();
+
         void UpdateErrors();
 
         void UpdateNodeDead();
@@ -145,6 +152,7 @@ namespace Kafka.Public
         private long _successfulSent;
         private long _requestSent;
         private long _responseReceived;
+        private long _requestTimeout;
         private long _errors;
         private long _nodeDead;
         private long _expired;
@@ -166,6 +174,8 @@ namespace Kafka.Public
         public long RequestSent { get { return _requestSent; } }
 
         public long ResponseReceived { get { return _responseReceived; } }
+
+        public long RequestTimeout { get { return _requestTimeout; } }
 
         public long Errors { get { return _errors; } }
 
@@ -199,22 +209,17 @@ namespace Kafka.Public
 
         public override string ToString()
         {
-            return string.Format(
-                @"Messages successfully sent: {0} - Messages received: {8}
-Requests sent: {1} - Responses received: {2}
-Errors: {3} - Dead nodes: {4}
-Expired: {5} - Discarded: {6}
-Entered: {16} - Exited: {7}
-Raw produced: {9} - Raw produced bytes: {10}
-Raw received: {11} - Raw received bytes: {12}
-Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
-",
-                SuccessfulSent, RequestSent,
-                ResponseReceived, Errors, NodeDead,
-                Expired, Discarded, Exited, Received,
-                RawProduced, RawProducedBytes, RawReceived, RawReceivedBytes,
-                SocketBuffers, RequestsBuffers, MessageBuffers, Entered
-                );
+            return string.Format(@"Messages successfully sent: {0} - Messages received: {8}
+                    Requests sent: {1} - Responses received: {2} - Requests time out: {17}
+                    Errors: {3} - Dead nodes: {4}
+                    Expired: {5} - Discarded: {6}
+                    Entered: {16} - Exited: {7}
+                    Raw produced: {9} - Raw produced bytes: {10}
+                    Raw received: {11} - Raw received bytes: {12}
+                    Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}",
+                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exited, Received, RawProduced,
+                RawProducedBytes, RawReceived, RawReceivedBytes, SocketBuffers, RequestsBuffers, MessageBuffers, Entered,
+                RequestTimeout);
         }
 
         public void UpdateSuccessfulSent(long nb)
@@ -231,6 +236,11 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
         {
             Interlocked.Increment(ref _responseReceived);
             Interlocked.Exchange(ref _latestRequestLatency, latencyMs);
+        }
+
+        public void UpdateRequestTimeout()
+        {
+            Interlocked.Increment(ref _requestTimeout);
         }
 
         public void UpdateErrors()

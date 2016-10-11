@@ -308,6 +308,7 @@ namespace Kafka.Cluster
             node.FetchAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             node.OffsetAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             node.NoMoreRequestSlot += n => NodeMaxRequestReached(n);
+            node.RequestTimeout += n => Statistics.UpdateRequestTimeout();
             return node;
         }
 

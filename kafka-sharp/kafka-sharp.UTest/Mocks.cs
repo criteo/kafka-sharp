@@ -192,6 +192,7 @@ namespace tests_kafka_sharp
         public event Action<INode, Exception> DecodeError = (n, e) => { };
         public event Action<INode> Dead = _ => { };
         public event Action<INode> Connected = _ => { };
+        public event Action<INode> RequestTimeout;
         public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
         public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement;
         public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
