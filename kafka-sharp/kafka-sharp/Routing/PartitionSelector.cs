@@ -7,45 +7,73 @@ using Kafka.Public;
 
 namespace Kafka.Routing
 {
-    // Select a partition from an array of Partition.
+    /// <summary>
+    /// Select a partition from an array of Partition.
+    /// </summary>
     internal class PartitionSelector
     {
-        private ulong _next;
-        private ulong _cursor = 1;
-        private readonly ulong _delay;
-        private static readonly Dictionary<int, DateTime> EmptyBlackList = new Dictionary<int, DateTime>();
+        private long _next;
+        private int _cursor;
+        private readonly int _delay;
+        private static readonly IReadOnlyDictionary<int, DateTime> EmptyBlackList = new Dictionary<int, DateTime>();
 
-        public PartitionSelector(int delay = 1)
+        public PartitionSelector(int delay = 1, int startSeed = 0)
         {
-            _delay = delay <= 0 ? 1UL : (ulong) delay;
+            _delay = delay <= 0 ? 1 : delay;
+            _next = startSeed <= 0 ? 0L : startSeed;
         }
 
-        public Partition GetPartition(int partition, Partition[] partitions, Dictionary<int, DateTime> blacklist = null)
+        public Partition GetPartition(int partitionId, Partition[] partitions, IReadOnlyDictionary<int, DateTime> blacklist = null)
         {
             blacklist = blacklist ?? EmptyBlackList;
-            switch (partition)
+
+            switch (partitionId)
             {
                 case Partitions.None:
                     return Partition.None;
 
                 case Partitions.Any:
                 case Partitions.All:
-                    var index = 0;
-                    while (index < partitions.Length)
+                    for (int retryCount = 0; retryCount < partitions.Length; retryCount++)
                     {
-                        var p = partitions[(int) (_cursor++%_delay == 0 ? _next++ : _next)%partitions.Length];
-                        if (!blacklist.ContainsKey(p.Id))
+                        var partition = GetActivePartition(partitions);
+
+                        if (blacklist.ContainsKey(partition.Id))
                         {
-                            return p;
+                            SelectNextPartition();
+                            continue;
                         }
-                        ++index;
+
+                        _cursor++;
+
+                        if (_cursor >= _delay)
+                        {
+                            // Round-robin threshold met, switch to next partition for the next call
+                            SelectNextPartition();
+                        }
+
+                        return partition;
                     }
+
                     return Partition.None;
 
                 default:
-                    var found = Array.BinarySearch(partitions, new Partition {Id = partition});
+                    var found = Array.BinarySearch(partitions, new Partition { Id = partitionId });
                     return found >= 0 ? partitions[found] : Partition.None;
             }
+        }
+
+        private Partition GetActivePartition(Partition[] partitions)
+        {
+            return partitions[_next % partitions.Length];
+        }
+
+        private void SelectNextPartition()
+        {
+            _next++;
+
+            // Reset the hit count for current partition
+            _cursor = 0;
         }
     }
 }

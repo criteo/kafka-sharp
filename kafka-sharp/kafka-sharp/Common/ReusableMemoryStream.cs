@@ -36,8 +36,8 @@ namespace Kafka.Common
 
         internal byte this[int index]
         {
-            get { return GetBuffer()[index]; }
-            set { GetBuffer()[index] = value; }
+            get { return this.GetBuffer()[index]; }
+            set { this.GetBuffer()[index] = value; }
         }
 
         public new void Dispose()
@@ -55,7 +55,7 @@ namespace Kafka.Common
 
         public void Serialize(MemoryStream toStream)
         {
-            byte[] array = GetBuffer();
+            byte[] array = this.GetBuffer();
             int length = (int) Length;
             toStream.Write(array, 0, length);
         }

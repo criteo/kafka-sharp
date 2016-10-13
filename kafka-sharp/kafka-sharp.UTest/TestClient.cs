@@ -582,6 +582,8 @@ namespace tests_kafka_sharp
             Assert.IsTrue(_client.Produce(Topic, ValueB));
             Assert.IsTrue(_client.Produce(Topic, ValueB));
             Assert.IsFalse(_client.Produce(Topic, ValueB));
+            Assert.AreEqual(2, _client.Statistics.Entered);
+            Assert.AreEqual(0, _client.Statistics.Exited);
         }
     }
 }

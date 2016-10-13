@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Kafka.Common;
 using Kafka.Protocol;
 
 namespace Kafka.Public
@@ -236,7 +237,7 @@ namespace Kafka.Public
         {
             // If fromStream.Position > int.MaxValue - length we're screwed but it means you're probably
             // doing something very wrong (like fetching huge amount of data per request from Kafka).
-            var output = _encoding.GetString(fromStream.GetBuffer(), (int) fromStream.Position, length);
+            var output = _encoding.GetString(fromStream.GetBuffer(), (int)fromStream.Position, length);
             fromStream.Position += length;
             return output;
         }

@@ -46,6 +46,11 @@ namespace Kafka.Public
         long Discarded { get; }
 
         /// <summary>
+        /// Number of produce request that have entered the system
+        /// </summary>
+        long Entered { get; }
+
+        /// <summary>
         /// Number of produce request that have exited the system either successful, discard or expired.
         /// </summary>
         long Exited { get; }
@@ -93,11 +98,16 @@ namespace Kafka.Public
         /// </summary>
         long MessageBuffers { get; }
 
+        /// <summary>
+        ///  The latency in ms of the latest request
+        /// </summary>
+        double LatestRequestLatency { get; }
+
         void UpdateSuccessfulSent(long nb);
 
         void UpdateRequestSent();
 
-        void UpdateResponseReceived();
+        void UpdateResponseReceived(double latencyMs);
 
         void UpdateErrors();
 
@@ -106,6 +116,8 @@ namespace Kafka.Public
         void UpdateExpired();
 
         void UpdateDiscarded();
+
+        void UpdateEntered();
 
         void UpdateExited(long nb);
 
@@ -137,6 +149,7 @@ namespace Kafka.Public
         private long _nodeDead;
         private long _expired;
         private long _discarded;
+        private long _entered;
         private long _exited;
         private long _received;
         private long _rawReceived;
@@ -146,6 +159,7 @@ namespace Kafka.Public
         private long _socketBuffers;
         private long _requestsBuffers;
         private long _messageBuffers;
+        private double _latestRequestLatency;
 
         public long SuccessfulSent { get { return _successfulSent; } }
 
@@ -160,6 +174,8 @@ namespace Kafka.Public
         public long Expired { get { return _expired; } }
 
         public long Discarded { get { return _discarded; } }
+
+        public long Entered { get { return _entered; } }
 
         public long Exited { get { return _exited; } }
 
@@ -179,6 +195,7 @@ namespace Kafka.Public
 
         public long MessageBuffers { get { return _messageBuffers; } }
 
+        public double LatestRequestLatency { get { return _latestRequestLatency; } }
 
         public override string ToString()
         {
@@ -186,7 +203,8 @@ namespace Kafka.Public
                 @"Messages successfully sent: {0} - Messages received: {8}
 Requests sent: {1} - Responses received: {2}
 Errors: {3} - Dead nodes: {4}
-Expired: {5} - Discarded: {6} - Exited: {7}
+Expired: {5} - Discarded: {6}
+Entered: {16} - Exited: {7}
 Raw produced: {9} - Raw produced bytes: {10}
 Raw received: {11} - Raw received bytes: {12}
 Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
@@ -195,7 +213,7 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
                 ResponseReceived, Errors, NodeDead,
                 Expired, Discarded, Exited, Received,
                 RawProduced, RawProducedBytes, RawReceived, RawReceivedBytes,
-                SocketBuffers, RequestsBuffers, MessageBuffers
+                SocketBuffers, RequestsBuffers, MessageBuffers, Entered
                 );
         }
 
@@ -209,9 +227,10 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
             Interlocked.Increment(ref _requestSent);
         }
 
-        public void UpdateResponseReceived()
+        public void UpdateResponseReceived(double latencyMs)
         {
             Interlocked.Increment(ref _responseReceived);
+            Interlocked.Exchange(ref _latestRequestLatency, latencyMs);
         }
 
         public void UpdateErrors()
@@ -232,6 +251,11 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
         public void UpdateDiscarded()
         {
             Interlocked.Increment(ref _discarded);
+        }
+
+        public void UpdateEntered()
+        {
+            Interlocked.Increment(ref _entered);
         }
 
         public void UpdateExited(long nb)

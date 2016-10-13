@@ -109,7 +109,7 @@ namespace Kafka.Cluster
         /// <summary>
         /// Some response has been received from the wire.
         /// </summary>
-        event Action<INode> ResponseReceived;
+        event Action<INode, double /* # request latency in ms*/> ResponseReceived;
 
         /// <summary>
         /// Some error occured on the underlying connection.
@@ -127,7 +127,7 @@ namespace Kafka.Cluster
         event Action<INode> Dead;
 
         /// <summary>
-        /// The ode successfuly connected to the underlying broker.
+        /// The node successfuly connected to the underlying broker.
         /// </summary>
         event Action<INode> Connected;
 
@@ -145,6 +145,12 @@ namespace Kafka.Cluster
         /// An acknowledgement for an offset request has been received.
         /// </summary>
         event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
+
+        /// <summary>
+        /// The node reached its maximum number of concurrent requests.
+        /// </summary>
+        event Action<INode> NoMoreRequestSlot;
+
     }
 
     /// <summary>
@@ -732,6 +738,17 @@ namespace Kafka.Cluster
                 return;
             }
 
+            if (!RequestSlotAvailable() && request.RequestType == RequestType.Produce)
+            {
+                OnNoMoreRequestSlot();
+                if (request.RequestType == RequestType.Produce)
+                {
+                    // Reroute incoming produce requests to reduce the load on slow nodes
+                    Drain(request, false);
+                    return;
+                }
+            }
+
             var connection = _connection;
             try
             {
@@ -814,22 +831,27 @@ namespace Kafka.Cluster
             }
         }
 
-        private static readonly Task SuccessTask = Task.FromResult(true);
-
         /// <summary>
         /// Check if we've reached the max number of pending requests allowed
         /// </summary>
         /// <returns></returns>
-        private Task ReadyToSendRequest()
+        private bool RequestSlotAvailable()
         {
             if (_configuration.MaxInFlightRequests > 0)
             {
-                return _pendingsCount < _configuration.MaxInFlightRequests ? SuccessTask : WaitSlot();
+                return _pendingsCount < _configuration.MaxInFlightRequests;
             }
-            return SuccessTask;
+            return true;
         }
 
-        private async Task WaitSlot()
+        private static readonly Task SuccessTask = Task.FromResult(true);
+
+        private Task ReadyToSendRequest()
+        {
+            return RequestSlotAvailable() ? SuccessTask : WaitRequestSlot();
+        }
+
+        private async Task WaitRequestSlot()
         {
             // Not the best way to do that but it's the simplest for now.
             // TODO: do a full event driven async wait
@@ -862,7 +884,6 @@ namespace Kafka.Cluster
                     break;
 
                 case ResponseType.Data:
-                    OnResponseReceived();
                     ConcurrentQueue<Pending> pendings;
                     if (!_pendings.TryGetValue(response.Connection, out pendings))
                     {
@@ -891,6 +912,9 @@ namespace Kafka.Cluster
                             CleanUpConnection(response.Connection);
                             return;
                         }
+
+                        var latencyMs = DateTime.UtcNow.Subtract(pending.TimeStamp).TotalMilliseconds;
+                        OnResponseReceived(latencyMs);
 
                         switch (pending.Request.RequestType)
                         {
@@ -1220,10 +1244,10 @@ namespace Kafka.Cluster
             ProduceBatchSent(this, count, size);
         }
 
-        public event Action<INode> ResponseReceived = n => { };
-        private void OnResponseReceived()
+        public event Action<INode, double> ResponseReceived = (n, l) => { };
+        private void OnResponseReceived(double latency)
         {
-            ResponseReceived(this);
+            ResponseReceived(this, latency);
         }
 
         public event Action<INode, long, long> FetchResponseReceived = (n, m, s) => { };
@@ -1272,6 +1296,12 @@ namespace Kafka.Cluster
         private void OnConnected()
         {
             Connected(this);
+        }
+
+        public event Action<INode> NoMoreRequestSlot = n => { };
+        private void OnNoMoreRequestSlot()
+        {
+            NoMoreRequestSlot(this);
         }
     }
 }

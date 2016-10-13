@@ -191,6 +191,8 @@ namespace Kafka.Routing
         private readonly Dictionary<string, Dictionary<int, DateTime>> _filters = new Dictionary<string, Dictionary<int, DateTime>>();
         private DateTime _filtersLastChecked;
 
+        private readonly Random _randomGenerator = new Random(Guid.NewGuid().GetHashCode());
+
         // The queue of produce messages waiting to be routed
         private readonly ConcurrentQueue<ProduceMessage> _produceMessages = new ConcurrentQueue<ProduceMessage>();
 
@@ -336,6 +338,10 @@ namespace Kafka.Routing
             }
             else
             {
+                _cluster.Logger.LogError(
+                    string.Format(
+                        "[Producer] Failed to route message, discarding message for [topic: {0} / partition: {1}]",
+                        message.Topic, message.Partition));
                 OnMessageDiscarded(message);
             }
         }
@@ -354,12 +360,16 @@ namespace Kafka.Routing
             }
 
             message.Partition = Partitions.None; // so that round robined msgs are re robined
-            if (++message.Retried <= _configuration.MaxRetry && Post(message))
+            if ((_configuration.MaxRetry < 0 || ++message.Retried <= _configuration.MaxRetry) && Post(message))
             {
                 MessageReEnqueued(message.Topic);
             }
             else
             {
+                _cluster.Logger.LogError(
+                    string.Format(
+                        "[Producer] Not able to re-enqueue, discarding message for [topic: {0} / partition: {1}] after {2} retry",
+                        message.Topic, message.Partition, message.Retried));
                 OnMessageDiscarded(message);
             }
         }
@@ -504,7 +514,7 @@ namespace Kafka.Routing
             PartitionSelector selector;
             if (!_partitioners.TryGetValue(topic, out selector))
             {
-                selector = new PartitionSelector(_configuration.NumberOfMessagesBeforeRoundRobin);
+                selector = new PartitionSelector(_configuration.NumberOfMessagesBeforeRoundRobin, _randomGenerator.Next());
                 _partitioners[topic] = selector;
             }
 
@@ -692,6 +702,10 @@ namespace Kafka.Routing
                     {
                         if (errPartitions.Contains(pm.Partition))
                         {
+                            _cluster.Logger.LogError(
+                                string.Format(
+                                    "[Producer] Irrecoverable error, discarding message for [topic: {0} / partition: {1}]",
+                                    pm.Topic, pm.Partition));
                             OnMessageDiscarded(pm);
                         }
                         else
@@ -767,6 +781,10 @@ namespace Kafka.Routing
         {
             if (_numberOfPostponedMessages >= _configuration.MaxPostponedMessages)
             {
+                _cluster.Logger.LogError(
+                    string.Format(
+                        "[Producer] Too many postponed messages, discarding message for [topic: {0} / partition: {1}]",
+                        produceMessage.Topic, produceMessage.RequiredPartition));
                 OnMessageDiscarded(produceMessage);
                 return;
             }

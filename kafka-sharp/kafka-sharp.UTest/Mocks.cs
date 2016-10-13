@@ -60,7 +60,7 @@ namespace tests_kafka_sharp
         public override int MaximumConcurrencyLevel { get { return 1; } }
     }
 
-    struct Void {}
+    struct Void { }
 
     static class TestData
     {
@@ -129,12 +129,12 @@ namespace tests_kafka_sharp
         {
             MessageReceived(message.Topic);
             var ack = new ProduceAcknowledgement
-                {
-                    OriginalBatch = new TestBatchByTopicByPartition(new[] {message}),
-                    ProduceResponse =
+            {
+                OriginalBatch = new TestBatchByTopicByPartition(new[] { message }),
+                ProduceResponse =
                         new CommonResponse<ProducePartitionResponse>()
-                            {
-                                TopicsResponse =
+                        {
+                            TopicsResponse =
                                     new[]
                                         {
                                             new TopicData<ProducePartitionResponse>
@@ -152,9 +152,9 @@ namespace tests_kafka_sharp
                                                             }
                                                 }
                                         }
-                            },
-                    ReceiveDate = DateTime.UtcNow
-                };
+                        },
+                ReceiveDate = DateTime.UtcNow
+            };
             ProduceAcknowledgement(this, ack);
             return true;
         }
@@ -187,7 +187,7 @@ namespace tests_kafka_sharp
         public event Action<INode> RequestSent = n => { };
         public event Action<INode, long, long> ProduceBatchSent = (n, m, s) => { };
         public event Action<INode, long, long> FetchResponseReceived = (n, m, s) => { };
-        public event Action<INode> ResponseReceived = n => { };
+        public event Action<INode, double> ResponseReceived = (n, l) => { };
         public event Action<INode, Exception> ConnectionError = (n, e) => { };
         public event Action<INode, Exception> DecodeError = (n, e) => { };
         public event Action<INode> Dead = _ => { };
@@ -195,6 +195,7 @@ namespace tests_kafka_sharp
         public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
         public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement;
         public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
+        public event Action<INode> NoMoreRequestSlot = _ => { };
         public event Action<string> MessageReceived = _ => { };
 
 
@@ -296,31 +297,35 @@ namespace tests_kafka_sharp
     {
         private readonly bool _forceErrors;
         private static int _count;
+        private readonly int _responseDelayMs;
 
         public static void Reset()
         {
             _count = 1;
         }
 
-        public EchoConnectionMock(bool forceErrors = false)
+        public EchoConnectionMock(bool forceErrors = false, int responseDelayMs = 0)
         {
             _forceErrors = forceErrors;
+            _responseDelayMs = responseDelayMs;
         }
 
         public override Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
         {
             if (_forceErrors)
             {
-                if (Interlocked.Increment(ref _count)%3 == 0)
+                var count = Interlocked.Increment(ref _count);
+
+                if (count % 3 == 0)
                 {
-                    OnReceiveError(new SocketException((int) SocketError.Interrupted));
+                    OnReceiveError(new SocketException((int)SocketError.Interrupted));
                     return Task.FromResult(true);
                 }
 
-                if (Interlocked.Increment(ref _count)%4 == 0)
+                if (count == 1 || count % 4 == 0)
                 {
                     var tcs = new TaskCompletionSource<Void>();
-                    tcs.SetException(new SocketException((int) SocketError.Interrupted));
+                    tcs.SetException(new SocketException((int)SocketError.Interrupted));
                     return tcs.Task;
                 }
             }
@@ -329,6 +334,18 @@ namespace tests_kafka_sharp
             {
                 var response = new ReusableMemoryStream(null);
                 buffer.WriteTo(response);
+
+                if (_responseDelayMs > 0)
+                {
+                    var tcs = new TaskCompletionSource<bool>();
+                    new Timer(_ =>
+                    {
+                        OnResponse(correlationId, response);
+                        tcs.SetResult(true);
+                    }, null, _responseDelayMs, -1);
+                    return tcs.Task;
+                }
+
                 OnResponse(correlationId, response);
             }
             return Task.FromResult(true);
@@ -359,7 +376,7 @@ namespace tests_kafka_sharp
     {
         public override Task SendAsync(int correlationId, ReusableMemoryStream buffer, bool acknowledge)
         {
-            Task.Factory.StartNew(() => OnReceiveError(new TransportException(TransportError.ReadError)));
+            Task.Run(() => OnReceiveError(new TransportException(TransportError.ReadError)));
             return Task.FromResult(true);
         }
     }
@@ -510,7 +527,7 @@ namespace tests_kafka_sharp
             ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             object o = _produceResponse;
-            return (CommonResponse<TPartitionResponse>) o;
+            return (CommonResponse<TPartitionResponse>)o;
         }
     }
 
@@ -607,9 +624,9 @@ namespace tests_kafka_sharp
                     TopicName = g.Key,
                     PartitionsData = g.Select(pg => new ProducePartitionResponse
                     {
-                        ErrorCode = _forceErrors && Interlocked.Increment(ref _count)%2 == 0
+                        ErrorCode = _forceErrors && Interlocked.Increment(ref _count) % 2 == 0
                             ? ErrorCode.LeaderNotAvailable
-                            : _forceErrors && Interlocked.Increment(ref _count)%3 == 0
+                            : _forceErrors && Interlocked.Increment(ref _count) % 3 == 0
                                 ? ErrorCode.MessageSizeTooLarge
                                 : _metadataResponse.TopicsMeta.Where(tm => tm.TopicName == g.Key)
                                     .Select(tm => tm.Partitions.First(p => p.Id == pg.Key).ErrorCode)
@@ -650,7 +667,7 @@ namespace tests_kafka_sharp
         {
             object o;
             _produceResponses.TryRemove(correlationId, out o);
-            return (CommonResponse<TPartitionResponse>) o;
+            return (CommonResponse<TPartitionResponse>)o;
         }
     }
 
@@ -688,6 +705,10 @@ namespace tests_kafka_sharp
         public void LogError(string message)
         {
             _error.Enqueue(message);
+        }
+
+        public void LogDebug(string message)
+        {
         }
     }
 }

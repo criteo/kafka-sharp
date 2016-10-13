@@ -6,8 +6,9 @@ using System.Collections.Generic;
 using System.IO.Compression;
 using Kafka.Common;
 using Kafka.Public;
+#if !NET_CORE
 using Snappy;
-
+#endif
 namespace Kafka.Protocol
 {
     using Serializers = Tuple<ISerializer, ISerializer>;
@@ -53,7 +54,7 @@ namespace Kafka.Protocol
         {
             BigEndianConverter.Write(stream, Partition);
             Basics.WriteSizeInBytes(stream, Messages,
-                new SerializationInfo {Serializers = extra as Serializers, CompressionCodec = CompressionCodec},
+                new SerializationInfo { Serializers = extra as Serializers, CompressionCodec = CompressionCodec },
                 SerializeMessages);
         }
 
@@ -63,7 +64,7 @@ namespace Kafka.Protocol
             {
                 stream.Write(Basics.Zero64, 0, 8); // producer puts a fake offset
                 Basics.WriteSizeInBytes(stream, message,
-                    new SerializationInfo {CompressionCodec = CompressionCodec.None, Serializers = serializers},
+                    new SerializationInfo { CompressionCodec = CompressionCodec.None, Serializers = serializers },
                     SerializeMessageWithCodec);
             }
         }
@@ -96,12 +97,16 @@ namespace Kafka.Protocol
                         }
                         else // Snappy
                         {
+#if NET_CORE
+                            throw new NotImplementedException();
+#else
                             compressed.SetLength(SnappyCodec.GetMaxCompressedLength((int) msgsetStream.Length));
                             {
                                 int size = SnappyCodec.Compress(msgsetStream.GetBuffer(), 0, (int) msgsetStream.Length,
                                     compressed.GetBuffer(), 0);
                                 compressed.SetLength(size);
                             }
+#endif
                         }
 
                         var m = new Message

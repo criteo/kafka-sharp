@@ -39,6 +39,12 @@ namespace sample_kafka_sharp
                 Console.ResetColor();
                 Console.WriteLine(message);
             }
+
+            public void LogDebug(string message)
+            {
+                LogHeader("DEBUG");
+                Console.WriteLine(message);
+            }
         }
 
         private static volatile bool _running = true;

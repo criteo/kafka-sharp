@@ -59,6 +59,10 @@ namespace Kafka.Cluster
         public void LogError(string message)
         {
         }
+
+        public void LogDebug(string message)
+        {
+        }
     }
 
     class Cluster : ICluster
@@ -114,6 +118,7 @@ namespace Kafka.Cluster
         private bool _started; // Cluster is active
 
         private double _resolution = 1000.0;
+        private long _entered;
         private long _exited;
 
         public IStatistics Statistics { get; private set; }
@@ -124,6 +129,11 @@ namespace Kafka.Cluster
 
         public event Action<Exception> InternalError = _ => { };
         internal event Action<RoutingTable> RoutingTableChange = _ => { };
+
+        internal long Entered
+        {
+            get { return Interlocked.Read(ref _entered); }
+        }
 
         internal long PassedThrough
         {
@@ -227,6 +237,12 @@ namespace Kafka.Cluster
             return pools;
         }
 
+        internal void UpdateEntered()
+        {
+            Statistics.UpdateEntered();
+            Interlocked.Increment(ref _entered);
+        }
+
         private void UpdateExited(long nb)
         {
             Statistics.UpdateExited(nb);
@@ -255,6 +271,19 @@ namespace Kafka.Cluster
             return (h, p) => ObserveNode(nodeFactory(h, p));
         }
 
+        private void NodeMaxRequestReached(INode node)
+        {
+            // It is expected to reach the maximum capacity only when producing by burst
+            // (i.e. strategy block until messages are sent).
+            if (_configuration.ErrorStrategy == ErrorStrategy.Discard)
+            {
+                Logger.LogWarning(
+                    string.Format(
+                        "[Node] Maximum number of parallel request ({0}) to broker {1} reached.",
+                        _configuration.MaxInFlightRequests, node.Name));
+            }
+        }
+
         // Connect all the INode events.
         private INode ObserveNode(INode node)
         {
@@ -262,7 +291,7 @@ namespace Kafka.Cluster
             node.ConnectionError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
             node.RequestSent += _ => Statistics.UpdateRequestSent();
-            node.ResponseReceived += _ => Statistics.UpdateResponseReceived();
+            node.ResponseReceived += (_, l) => Statistics.UpdateResponseReceived(l);
             node.ProduceBatchSent += (_, c, s) =>
             {
                 Statistics.UpdateRawProduced(c);
@@ -278,6 +307,7 @@ namespace Kafka.Cluster
             node.ProduceAcknowledgement += (n, ack) => ProduceRouter.Acknowledge(ack);
             node.FetchAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             node.OffsetAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
+            node.NoMoreRequestSlot += n => NodeMaxRequestReached(n);
             return node;
         }
 
