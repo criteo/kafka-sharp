@@ -51,39 +51,39 @@ namespace Kafka.Public
         long Discarded { get; }
 
         /// <summary>
-        /// Number of produce request that have entered the system
+        /// Number of produce requests that have entered the system
         /// </summary>
         long Entered { get; }
 
         /// <summary>
-        /// Number of produce request that have exited the system either successful, discard or expired.
+        /// Number of produce requests that have exited the system either successful, discard or expired.
         /// </summary>
         long Exited { get; }
 
         /// <summary>
-        /// Number of received messages.
+        /// Number of messages received by the consumer.
         /// </summary>
         long Received { get; }
 
         /// <summary>
-        /// Total number of received messages, including those that are filtered due to
-        /// offset out of range.
+        /// Number of messages received in latest request, including those that are
+        /// filtered due to offset out of range (i.e. consumer response size).
         /// </summary>
         long RawReceived { get; }
 
         /// <summary>
-        /// Total number of bytes received through Fetch responses.
+        /// Number of bytes received through latest Fetch responses (i.e. consumer response size).
         /// </summary>
         long RawReceivedBytes { get; }
 
         /// <summary>
-        /// Total number of messages sent over the wire in Produce request,
-        /// including messages sent multiple times through retries.
+        /// Number of messages sent over the wire in latest Produce request, including messages
+        /// sent multiple times through retries (i.e. producer batch size).
         /// </summary>
         long RawProduced { get; }
 
         /// <summary>
-        /// Total number of bytes sent through Produce requests.
+        /// Number of bytes sent through latest Produce requests (i.e. producer batch size).
         /// </summary>
         long RawProducedBytes { get; }
 
@@ -93,7 +93,7 @@ namespace Kafka.Public
         long SocketBuffers { get; }
 
         /// <summary>
-        ///  The number of allocated bufers to serialize requests.
+        ///  The number of allocated buffers to serialize requests.
         /// </summary>
         long RequestsBuffers { get; }
 
