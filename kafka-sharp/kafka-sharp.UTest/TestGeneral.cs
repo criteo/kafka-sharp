@@ -229,6 +229,7 @@ namespace tests_kafka_sharp
             Assert.GreaterOrEqual(logger.InformationLog.Count(), 3); // Fetch metadata feedback
             Assert.GreaterOrEqual(logger.ErrorLog.Count(), 1);
             Assert.AreEqual(0, logger.WarningLog.Count());
+            Assert.GreaterOrEqual(statistics.MessageRetry, 2);
         }
 
         [Test]

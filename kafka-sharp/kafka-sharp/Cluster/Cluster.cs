@@ -178,6 +178,9 @@ namespace Kafka.Cluster
                 UpdateExited(1);
             };
             RoutingTableChange += ProduceRouter.ChangeRoutingTable;
+            ProduceRouter.BrokerTimeoutError += Statistics.UpdateBrokerTimeoutError;
+            ProduceRouter.MessageReEnqueued += Statistics.UpdateMessageRetry;
+            ProduceRouter.MessagePostponed += Statistics.UpdateMessagePostponed;
 
             // Consumer init
             ConsumeRouter = consumerFactory != null ? consumerFactory() : new ConsumeRouter(this, configuration);
@@ -291,7 +294,7 @@ namespace Kafka.Cluster
             node.ConnectionError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
             node.RequestSent += _ => Statistics.UpdateRequestSent();
-            node.ResponseReceived += (_, l) => Statistics.UpdateResponseReceived(l);
+            node.ResponseReceived += (n, l) => Statistics.UpdateResponseReceived(GetNodeId(n), l);
             node.ProduceBatchSent += (_, c, s) =>
             {
                 Statistics.UpdateRawProduced(c);
@@ -308,7 +311,7 @@ namespace Kafka.Cluster
             node.FetchAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             node.OffsetAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             node.NoMoreRequestSlot += n => NodeMaxRequestReached(n);
-            node.RequestTimeout += n => Statistics.UpdateRequestTimeout();
+            node.RequestTimeout += n => Statistics.UpdateRequestTimeout(GetNodeId(n));
             return node;
         }
 
@@ -329,6 +332,12 @@ namespace Kafka.Cluster
         {
             BrokerMeta bm;
             return _nodes.TryGetValue(node, out bm) ? bm.ToString() : UnknownNode;
+        }
+
+        private int GetNodeId(INode node)
+        {
+            BrokerMeta bm;
+            return _nodes.TryGetValue(node, out bm) ? bm.Id : -1;
         }
 
         private void ProcessDecodeError(INode node, Exception exception)

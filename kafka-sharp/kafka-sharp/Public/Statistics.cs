@@ -108,13 +108,28 @@ namespace Kafka.Public
         /// </summary>
         double LatestRequestLatency { get; }
 
+        /// <summary>
+        ///  Number of partitions with timeout errors in produce request responses
+        /// </summary>
+        long BrokerTimeoutError { get; }
+
+        /// <summary>
+        /// Number of retries done to send a produce message
+        /// </summary>
+        long MessageRetry { get; }
+
+        /// <summary>
+        /// Number of messages that were postponed
+        /// </summary>
+        long MessagePostponed { get; }
+
         void UpdateSuccessfulSent(long nb);
 
         void UpdateRequestSent();
 
-        void UpdateResponseReceived(double latencyMs);
+        void UpdateResponseReceived(int nodeId, double latencyMs);
 
-        void UpdateRequestTimeout();
+        void UpdateRequestTimeout(int nodeId);
 
         void UpdateErrors();
 
@@ -145,6 +160,12 @@ namespace Kafka.Public
         void UpdateRequestsBuffers(long nb);
 
         void UpdateMessageBuffers(long nb);
+
+        void UpdateBrokerTimeoutError(string topic);
+
+        void UpdateMessageRetry(string topic);
+
+        void UpdateMessagePostponed(string topic);
     }
 
     public class Statistics : IStatistics
@@ -168,6 +189,9 @@ namespace Kafka.Public
         private long _requestsBuffers;
         private long _messageBuffers;
         private double _latestRequestLatency;
+        private long _brokerTimeoutError;
+        private long _messageRetry;
+        private long _messagePostponed;
 
         public long SuccessfulSent { get { return _successfulSent; } }
 
@@ -207,19 +231,27 @@ namespace Kafka.Public
 
         public double LatestRequestLatency { get { return _latestRequestLatency; } }
 
+        public long BrokerTimeoutError { get { return _brokerTimeoutError; } }
+
+        public long MessageRetry { get { return _messageRetry; } }
+
+        public long MessagePostponed { get { return _messagePostponed; } }
+
         public override string ToString()
         {
             return string.Format(@"Messages successfully sent: {0} - Messages received: {8}
-                    Requests sent: {1} - Responses received: {2} - Requests time out: {17}
+                    Requests sent: {1} - Responses received: {2}
+                    Requests time out: {17} - Broker time out error: {18}
                     Errors: {3} - Dead nodes: {4}
                     Expired: {5} - Discarded: {6}
                     Entered: {16} - Exited: {7}
                     Raw produced: {9} - Raw produced bytes: {10}
                     Raw received: {11} - Raw received bytes: {12}
-                    Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}",
+                    Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
+                    Message retry: {19} - Message postponed: {20}",
                 SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exited, Received, RawProduced,
                 RawProducedBytes, RawReceived, RawReceivedBytes, SocketBuffers, RequestsBuffers, MessageBuffers, Entered,
-                RequestTimeout);
+                RequestTimeout, BrokerTimeoutError, MessageRetry, MessagePostponed);
         }
 
         public void UpdateSuccessfulSent(long nb)
@@ -232,13 +264,13 @@ namespace Kafka.Public
             Interlocked.Increment(ref _requestSent);
         }
 
-        public void UpdateResponseReceived(double latencyMs)
+        public void UpdateResponseReceived(int nodeId, double latencyMs)
         {
             Interlocked.Increment(ref _responseReceived);
             Interlocked.Exchange(ref _latestRequestLatency, latencyMs);
         }
 
-        public void UpdateRequestTimeout()
+        public void UpdateRequestTimeout(int nodeId)
         {
             Interlocked.Increment(ref _requestTimeout);
         }
@@ -316,6 +348,21 @@ namespace Kafka.Public
         public void UpdateMessageBuffers(long nb)
         {
             Interlocked.Add(ref _messageBuffers, nb);
+        }
+
+        public void UpdateBrokerTimeoutError(string topic)
+        {
+            Interlocked.Increment(ref _brokerTimeoutError);
+        }
+
+        public void UpdateMessageRetry(string topic)
+        {
+            Interlocked.Increment(ref _messageRetry);
+        }
+
+        public void UpdateMessagePostponed(string topic)
+        {
+            Interlocked.Increment(ref _messagePostponed);
         }
     }
 }

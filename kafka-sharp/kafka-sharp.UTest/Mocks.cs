@@ -414,6 +414,9 @@ namespace tests_kafka_sharp
         public event Action<string, Message> MessageDiscarded;
         public event Action<string, int> MessagesAcknowledged = (t, c) => { };
         public event Action<RoutingTable> OnChangeRouting = _ => { };
+        public event Action<string> BrokerTimeoutError;
+        public event Action<string> MessageReEnqueued;
+        public event Action<string> MessagePostponed;
     }
 
     class DummySerialization : Node.ISerialization
