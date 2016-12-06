@@ -518,7 +518,7 @@ namespace Kafka.Cluster
         // Remove the node from current nodes and refresh the metadata.
         private void ProcessDeadNode(INode deadNode)
         {
-            Statistics.UpdateNodeDead();
+            Statistics.UpdateNodeDead(GetNodeId(deadNode));
             BrokerMeta m;
             if (!_nodes.TryGetValue(deadNode, out m))
             {

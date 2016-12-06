@@ -133,7 +133,7 @@ namespace Kafka.Public
 
         void UpdateErrors();
 
-        void UpdateNodeDead();
+        void UpdateNodeDead(int nodeId);
 
         void UpdateExpired();
 
@@ -280,7 +280,7 @@ namespace Kafka.Public
             Interlocked.Increment(ref _errors);
         }
 
-        public void UpdateNodeDead()
+        public void UpdateNodeDead(int nodeId)
         {
             Interlocked.Increment(ref _nodeDead);
         }
