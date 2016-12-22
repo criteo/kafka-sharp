@@ -140,7 +140,7 @@ namespace Kafka.ITest
         [TestCase(CompressionCodec.None)]
         [TestCase(CompressionCodec.Gzip)]
         [TestCase(CompressionCodec.Snappy)]
-        public async void TestMessagesRoundTrip(CompressionCodec codec)
+        public async Task TestMessagesRoundTrip(CompressionCodec codec)
         {
             commander.CreateTopic(topic, 3, 2);
             var consumer = commander.StartConsumer(topic);
@@ -161,7 +161,7 @@ namespace Kafka.ITest
 
         [Ignore("Takes too much time and random")]
         [Test]
-        public async void TestConcurrentMessagesRoundTrip()
+        public async Task TestConcurrentMessagesRoundTrip()
         {
             commander.CreateTopic(topic, 3, 2);
             var consumer = commander.StartConsumer(topic);
@@ -185,7 +185,7 @@ namespace Kafka.ITest
 
         [Ignore("Takes too much time and random")]
         [Test]
-        public async void TestBrokerDown()
+        public async Task TestBrokerDown()
         {
             commander.CreateTopic(topic, 3, 2);
             var consumer = commander.StartConsumer(topic);
@@ -219,7 +219,7 @@ namespace Kafka.ITest
 
         [Ignore("Takes too much time and random")]
         [Test]
-        public async void TestSeedBrokerDown()
+        public async Task TestSeedBrokerDown()
         {
             commander.CreateTopic(topic, 3, 2);
             var consumer = commander.StartConsumer(topic);
@@ -255,7 +255,7 @@ namespace Kafka.ITest
 
         [Ignore("Fails too often for now due to kafka# seed broker random choice strategy")]
         [Test]
-        public async void TestBadSeedBroker()
+        public async Task TestBadSeedBroker()
         {
             commander.CreateTopic(topic, 3, 2);
             var consumer = commander.StartConsumer(topic);
