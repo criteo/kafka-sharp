@@ -120,9 +120,7 @@ namespace Kafka.Public
 
             if (!Consumers.TryAdd(topic, this))
             {
-                throw new ArgumentException(
-                    string.Format("A KafkaConsumer already exists for [Topic: {0} TKey: {1} TValue: {2}]", topic,
-                        typeof(TKey).Name, typeof(TValue).Name));
+                throw new ArgumentException(string.Format("A KafkaConsumer already exists for [Topic: {0} TKey: {1} TValue: {2}]", topic, typeof(TKey).Name, typeof(TValue).Name));
             }
 
             _topic = topic;
@@ -141,85 +139,94 @@ namespace Kafka.Public
 
         public void ConsumeFromEarliest()
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _clusterClient.ConsumeFromEarliest(_topic);
         }
 
         public void ConsumeFromLatest()
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _clusterClient.ConsumeFromLatest(_topic);
         }
 
         public void ConsumeFromEarliest(int partition)
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _clusterClient.ConsumeFromEarliest(_topic, partition);
         }
 
         public void ConsumeFromLatest(int partition)
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _clusterClient.ConsumeFromLatest(_topic, partition);
         }
 
         public void Consume(int partition, long offset)
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _clusterClient.Consume(_topic, partition, offset);
         }
 
         public void StopConsume()
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _clusterClient.StopConsume(_topic);
         }
 
         public void StopConsume(int partition)
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _clusterClient.StopConsume(_topic, partition);
         }
 
         public void StopConsume(int partition, long offset)
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _clusterClient.StopConsume(_topic, partition, offset);
         }
 
         private void OnClusterMessage(RawKafkaRecord kr)
         {
-            if (CheckRecord(kr)) MessageReceived(ToRecord(kr));
+            if (CheckRecord(kr))
+                MessageReceived(ToRecord(kr));
         }
 
         private bool _disposed;
 
-        ~KafkaConsumer()
-        {
-            if (!_disposed)
-            {
-                Dispose();
-            }
-        }
-
         public void Dispose()
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
 
-            if (_clusterClient != null)
+            try
             {
-                _clusterClient.StopConsume(_topic);
-                _clusterClient.MessageReceived -= OnClusterMessage;
+                if (_clusterClient != null)
+                {
+                    _clusterClient.StopConsume(_topic);
+                    _clusterClient.MessageReceived -= OnClusterMessage;
+                }
+
+                if (_messagesSub != null ) _messagesSub.Dispose();
+                _messages.OnCompleted();
+
+                if (_topic != null)
+                {
+                    KafkaConsumer<TKey, TValue> dummy;
+                    Consumers.TryRemove(_topic, out dummy);
+                }
             }
-            if (_messagesSub != null ) _messagesSub.Dispose();
-            _messages.OnCompleted();
-            if (_topic != null)
+            finally
             {
-                KafkaConsumer<TKey, TValue> dummy;
-                Consumers.TryRemove(_topic, out dummy);
+                _disposed = true;
             }
-            _disposed = true;
-            GC.SuppressFinalize(this);
         }
     }
 }
