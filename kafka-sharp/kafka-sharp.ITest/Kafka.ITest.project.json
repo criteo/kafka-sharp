@@ -1,0 +1,12 @@
+﻿{
+  "runtimes": {
+    "win": {}
+  },
+  "frameworks": {
+    "net451": {}
+  },
+  "dependencies": {
+    "Newtonsoft.Json": "9.0.1",
+    "NUnit": "3.6.0"
+  }
+}

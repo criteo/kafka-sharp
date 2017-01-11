@@ -1,4 +1,15 @@
-{
-  "runtimes": { "win": {} },
-  "frameworks": { "net45": {} }
+﻿{
+  "runtimes": {
+    "win": {}
+  },
+  "frameworks": {
+    "net451": {}
+  },
+  "dependencies": {
+    "Snappy.NET": "1.1.1.8",
+    "System.Reactive.Core": "3.1.1",
+    "System.Reactive.Interfaces": "3.1.1",
+    "System.Reactive.Linq": "3.1.1",
+    "System.Threading.Tasks.Dataflow": "4.7.0"
+  }
 }

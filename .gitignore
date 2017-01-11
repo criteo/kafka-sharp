@@ -35,3 +35,5 @@ vagrant/files
 /Build.proj
 /src/Properties/AssemblyInfoGenerated.cs
 nuget/*.nupkg
+.vs/
+*.lock.json

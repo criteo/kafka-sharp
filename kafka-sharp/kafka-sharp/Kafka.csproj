@@ -1,18 +1,17 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="14.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{BB2EB756-2BBF-4895-A1F3-09D34375F64E}</ProjectGuid>
+    <ProjectGuid>{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Kafka</RootNamespace>
     <AssemblyName>Kafka</AssemblyName>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.5.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
-    <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\..\..\</SolutionDir>
-    <RestorePackages>true</RestorePackages>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -22,8 +21,6 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -34,34 +31,13 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Snappy.NET">
-      <HintPath>$(SolutionDir)\packages\Snappy.NET.1.1.1.8\lib\net45\Snappy.NET.dll</HintPath>
-      <Private>True</Private>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
-    <Reference Include="System.Reactive.Core">
-      <HintPath>$(SolutionDir)\packages\System.Reactive.Core.3.0.0\lib\net45\System.Reactive.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Reactive.Interfaces">
-      <HintPath>$(SolutionDir)\packages\System.Reactive.Interfaces.3.0.0\lib\net45\System.Reactive.Interfaces.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Reactive.Linq">
-      <HintPath>$(SolutionDir)\packages\System.Reactive.Linq.3.0.0\lib\net45\System.Reactive.Linq.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Reactive.PlatformServices">
-      <HintPath>$(SolutionDir)\packages\System.Reactive.PlatformServices.3.0.0\lib\net45\System.Reactive.PlatformServices.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Runtime" />
-    <Reference Include="System.Threading.Tasks" />
-    <Reference Include="System.Threading.Tasks.Dataflow">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>$(SolutionDir)\packages\Microsoft.Tpl.Dataflow.4.5.24\lib\portable-net45+win8+wpa81\System.Threading.Tasks.Dataflow.dll</HintPath>
-    </Reference>
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
@@ -69,32 +45,33 @@
     <Compile Include="Batching\BatchStrategy.cs" />
     <Compile Include="Batching\Grouping.cs" />
     <Compile Include="Cluster\Cluster.cs" />
+    <Compile Include="Cluster\Node.cs" />
     <Compile Include="Cluster\Pools.cs" />
     <Compile Include="Cluster\ProduceMessage.cs" />
     <Compile Include="Cluster\TimeoutScheduler.cs" />
     <Compile Include="Common\ActionBlockTaskScheduler.cs" />
+    <Compile Include="Common\BigEndianConverter.cs" />
+    <Compile Include="Common\Crc32.cs" />
+    <Compile Include="Common\MemoryStreamExtensions.cs" />
     <Compile Include="Common\Pool.cs" />
     <Compile Include="Common\ReusableMemoryStream.cs" />
     <Compile Include="Network\Connection.cs" />
-    <Compile Include="Common\Crc32.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Protocol\Basics.cs" />
     <Compile Include="Protocol\CommonRequest.cs" />
     <Compile Include="Protocol\CommonResponse.cs" />
     <Compile Include="Protocol\DefaultSerialization.cs" />
+    <Compile Include="Protocol\Errors.cs" />
     <Compile Include="Protocol\FetchRequest.cs" />
     <Compile Include="Protocol\FetchResponse.cs" />
-    <Compile Include="Protocol\ProtocolException.cs" />
-    <Compile Include="Protocol\Metadata.cs" />
-    <Compile Include="Cluster\Node.cs" />
-    <Compile Include="Common\BigEndianConverter.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Protocol\Errors.cs" />
     <Compile Include="Protocol\Message.cs" />
+    <Compile Include="Protocol\Metadata.cs" />
     <Compile Include="Protocol\MetadataResponse.cs" />
     <Compile Include="Protocol\OffsetRequest.cs" />
     <Compile Include="Protocol\OffsetResponse.cs" />
     <Compile Include="Protocol\ProduceRequest.cs" />
     <Compile Include="Protocol\ProduceResponse.cs" />
+    <Compile Include="Protocol\ProtocolException.cs" />
     <Compile Include="Protocol\TopicData.cs" />
     <Compile Include="Protocol\TopicRequest.cs" />
     <Compile Include="Public\ClusterClient.cs" />
@@ -110,22 +87,7 @@
     <Compile Include="Routing\ProducerRouter.cs" />
     <Compile Include="Routing\RoutingTable.cs" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="Kafka.project.json" />
-    <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup />
-  <Import Project="$(SolutionDir)\.cbs\moab.targets" Condition="Exists('$(SolutionDir)\.cbs\moab.targets')" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <Import Project="$(SolutionDir)\.cbs\Checks.targets" Condition="Exists('$(SolutionDir)\.cbs\Checks.targets')" />
-  <Import Project="$(CBS_DIR)\MSBuild\targets\Criteo.CSharp.targets" Condition="Exists('$(CBS_DIR)\MSBuild\targets\Criteo.CSharp.targets')" />
-  <Import Project="$(SolutionDir)\.nuget\NuGet.targets" Condition="Exists('$(SolutionDir)\.nuget\NuGet.targets')" />
-  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
-    <PropertyGroup>
-      <ErrorText>This project references NuGet package(s) that are missing on this computer. Enable NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
-    </PropertyGroup>
-    <Error Condition="!Exists('$(SolutionDir)\.nuget\NuGet.targets')" Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)\.nuget\NuGet.targets'))" />
-  </Target>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
