@@ -192,6 +192,7 @@ namespace tests_kafka_sharp
         public event Action<INode, Exception> DecodeError = (n, e) => { };
         public event Action<INode> Dead = _ => { };
         public event Action<INode> Connected = _ => { };
+        public event Action<INode> RequestTimeout;
         public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
         public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement;
         public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
@@ -413,6 +414,9 @@ namespace tests_kafka_sharp
         public event Action<string, Message> MessageDiscarded;
         public event Action<string, int> MessagesAcknowledged = (t, c) => { };
         public event Action<RoutingTable> OnChangeRouting = _ => { };
+        public event Action<string> BrokerTimeoutError;
+        public event Action<string> MessageReEnqueued;
+        public event Action<string> MessagePostponed;
     }
 
     class DummySerialization : Node.ISerialization

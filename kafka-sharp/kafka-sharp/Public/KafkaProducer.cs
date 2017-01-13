@@ -80,14 +80,15 @@ namespace Kafka.Public
         where TKey : class
         where TValue : class
     {
-        private static readonly ConcurrentDictionary<string, KafkaProducer<TKey, TValue>> Producers = new ConcurrentDictionary<string, KafkaProducer<TKey, TValue>>();
+        private static readonly ConcurrentDictionary<string, KafkaProducer<TKey, TValue>> Producers =
+            new ConcurrentDictionary<string, KafkaProducer<TKey, TValue>>();
 
         private readonly IClusterClient _clusterClient;
         private readonly string _topic;
         private readonly Subject<KafkaRecord<TKey, TValue>> _discarded = new Subject<KafkaRecord<TKey, TValue>>();
         private readonly Subject<KafkaRecord<TKey, TValue>> _expired = new Subject<KafkaRecord<TKey, TValue>>();
         private readonly IDisposable _discardedSub;
-        private readonly IDisposable _expiredSub ;
+        private readonly IDisposable _expiredSub;
 
         private bool CheckRecord(RawKafkaRecord kr)
         {
@@ -96,7 +97,7 @@ namespace Kafka.Public
 
         private static KafkaRecord<TKey, TValue> ToRecord(RawKafkaRecord kr)
         {
-            return new KafkaRecord<TKey, TValue> {Record = kr};
+            return new KafkaRecord<TKey, TValue> { Record = kr };
         }
 
         public KafkaProducer(string topic, IClusterClient clusterClient)
@@ -115,7 +116,7 @@ namespace Kafka.Public
             {
                 throw new ArgumentException(
                     string.Format("A KafkaProducer already exists for [Topic: {0} TKey: {1} TValue: {2}]", topic,
-                        typeof (TKey).Name, typeof (TValue).Name));
+                        typeof(TKey).Name, typeof(TValue).Name));
             }
 
             _clusterClient = clusterClient;
@@ -155,7 +156,8 @@ namespace Kafka.Public
 
         private void OnClusterMessageExpired(RawKafkaRecord kr)
         {
-            if (CheckRecord(kr)) MessageExpired(ToRecord(kr));
+            if (CheckRecord(kr))
+                MessageExpired(ToRecord(kr));
         }
 
         public IObservable<KafkaRecord<TKey, TValue>> ExpiredMessages
@@ -167,7 +169,8 @@ namespace Kafka.Public
 
         private void OnClusterMessageDiscarded(RawKafkaRecord kr)
         {
-            if (CheckRecord(kr)) MessageDiscarded(ToRecord(kr));
+            if (CheckRecord(kr))
+                MessageDiscarded(ToRecord(kr));
         }
 
         public IObservable<KafkaRecord<TKey, TValue>> DiscardedMessages
@@ -179,34 +182,35 @@ namespace Kafka.Public
 
         private bool _disposed;
 
-        ~KafkaProducer()
-        {
-            if (!_disposed)
-            {
-                Dispose();
-            }
-        }
-
         public void Dispose()
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
 
-            if (_discardedSub != null ) _discardedSub.Dispose();
-            _discarded.OnCompleted();
-            if ( _expiredSub != null ) _expiredSub.Dispose();
-            _expired.OnCompleted();
-            if (_clusterClient != null)
+            try
             {
-                _clusterClient.MessageDiscarded -= OnClusterMessageDiscarded;
-                _clusterClient.MessageExpired -= OnClusterMessageExpired;
+                if (_discardedSub != null ) _discardedSub.Dispose();
+                _discarded.OnCompleted();
+
+                if ( _expiredSub != null ) _expiredSub.Dispose();
+                _expired.OnCompleted();
+
+                if (_clusterClient != null)
+                {
+                    _clusterClient.MessageDiscarded -= OnClusterMessageDiscarded;
+                    _clusterClient.MessageExpired -= OnClusterMessageExpired;
+                }
+
+                if (_topic != null)
+                {
+                    KafkaProducer<TKey, TValue> dummy;
+                    Producers.TryRemove(_topic, out dummy);
+                }
             }
-            if (_topic != null)
+            finally
             {
-                KafkaProducer<TKey, TValue> dummy;
-                Producers.TryRemove(_topic, out dummy);
+                _disposed = true;
             }
-            _disposed = true;
-            GC.SuppressFinalize(this);
         }
     }
 }

@@ -26,6 +26,11 @@ namespace Kafka.Public
         long ResponseReceived { get; }
 
         /// <summary>
+        /// The number of connection time out encountered (Kafka cluster did not reply)
+        /// </summary>
+        long RequestTimeout { get; }
+
+        /// <summary>
         /// Number of hard errors encountered (network errors or decode errors)
         /// </summary>
         long Errors { get; }
@@ -46,39 +51,39 @@ namespace Kafka.Public
         long Discarded { get; }
 
         /// <summary>
-        /// Number of produce request that have entered the system
+        /// Number of produce requests that have entered the system
         /// </summary>
         long Entered { get; }
 
         /// <summary>
-        /// Number of produce request that have exited the system either successful, discard or expired.
+        /// Number of produce requests that have exited the system either successful, discard or expired.
         /// </summary>
         long Exited { get; }
 
         /// <summary>
-        /// Number of received messages.
+        /// Number of messages received by the consumer.
         /// </summary>
         long Received { get; }
 
         /// <summary>
-        /// Total number of received messages, including those that are filtered due to
-        /// offset out of range.
+        /// Number of messages received in latest request, including those that are
+        /// filtered due to offset out of range (i.e. consumer response size).
         /// </summary>
         long RawReceived { get; }
 
         /// <summary>
-        /// Total number of bytes received through Fetch responses.
+        /// Number of bytes received through latest Fetch responses (i.e. consumer response size).
         /// </summary>
         long RawReceivedBytes { get; }
 
         /// <summary>
-        /// Total number of messages sent over the wire in Produce request,
-        /// including messages sent multiple times through retries.
+        /// Number of messages sent over the wire in latest Produce request, including messages
+        /// sent multiple times through retries (i.e. producer batch size).
         /// </summary>
         long RawProduced { get; }
 
         /// <summary>
-        /// Total number of bytes sent through Produce requests.
+        /// Number of bytes sent through latest Produce requests (i.e. producer batch size).
         /// </summary>
         long RawProducedBytes { get; }
 
@@ -88,7 +93,7 @@ namespace Kafka.Public
         long SocketBuffers { get; }
 
         /// <summary>
-        ///  The number of allocated bufers to serialize requests.
+        ///  The number of allocated buffers to serialize requests.
         /// </summary>
         long RequestsBuffers { get; }
 
@@ -103,15 +108,32 @@ namespace Kafka.Public
         /// </summary>
         double LatestRequestLatency { get; }
 
+        /// <summary>
+        ///  Number of partitions with timeout errors in produce request responses
+        /// </summary>
+        long BrokerTimeoutError { get; }
+
+        /// <summary>
+        /// Number of retries done to send a produce message
+        /// </summary>
+        long MessageRetry { get; }
+
+        /// <summary>
+        /// Number of messages that were postponed
+        /// </summary>
+        long MessagePostponed { get; }
+
         void UpdateSuccessfulSent(long nb);
 
         void UpdateRequestSent();
 
-        void UpdateResponseReceived(double latencyMs);
+        void UpdateResponseReceived(int nodeId, double latencyMs);
+
+        void UpdateRequestTimeout(int nodeId);
 
         void UpdateErrors();
 
-        void UpdateNodeDead();
+        void UpdateNodeDead(int nodeId);
 
         void UpdateExpired();
 
@@ -138,6 +160,12 @@ namespace Kafka.Public
         void UpdateRequestsBuffers(long nb);
 
         void UpdateMessageBuffers(long nb);
+
+        void UpdateBrokerTimeoutError(string topic);
+
+        void UpdateMessageRetry(string topic);
+
+        void UpdateMessagePostponed(string topic);
     }
 
     public class Statistics : IStatistics
@@ -145,6 +173,7 @@ namespace Kafka.Public
         private long _successfulSent;
         private long _requestSent;
         private long _responseReceived;
+        private long _requestTimeout;
         private long _errors;
         private long _nodeDead;
         private long _expired;
@@ -160,12 +189,17 @@ namespace Kafka.Public
         private long _requestsBuffers;
         private long _messageBuffers;
         private double _latestRequestLatency;
+        private long _brokerTimeoutError;
+        private long _messageRetry;
+        private long _messagePostponed;
 
         public long SuccessfulSent { get { return _successfulSent; } }
 
         public long RequestSent { get { return _requestSent; } }
 
         public long ResponseReceived { get { return _responseReceived; } }
+
+        public long RequestTimeout { get { return _requestTimeout; } }
 
         public long Errors { get { return _errors; } }
 
@@ -197,24 +231,27 @@ namespace Kafka.Public
 
         public double LatestRequestLatency { get { return _latestRequestLatency; } }
 
+        public long BrokerTimeoutError { get { return _brokerTimeoutError; } }
+
+        public long MessageRetry { get { return _messageRetry; } }
+
+        public long MessagePostponed { get { return _messagePostponed; } }
+
         public override string ToString()
         {
-            return string.Format(
-                @"Messages successfully sent: {0} - Messages received: {8}
-Requests sent: {1} - Responses received: {2}
-Errors: {3} - Dead nodes: {4}
-Expired: {5} - Discarded: {6}
-Entered: {16} - Exited: {7}
-Raw produced: {9} - Raw produced bytes: {10}
-Raw received: {11} - Raw received bytes: {12}
-Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
-",
-                SuccessfulSent, RequestSent,
-                ResponseReceived, Errors, NodeDead,
-                Expired, Discarded, Exited, Received,
-                RawProduced, RawProducedBytes, RawReceived, RawReceivedBytes,
-                SocketBuffers, RequestsBuffers, MessageBuffers, Entered
-                );
+            return string.Format(@"Messages successfully sent: {0} - Messages received: {8}
+                    Requests sent: {1} - Responses received: {2}
+                    Requests time out: {17} - Broker time out error: {18}
+                    Errors: {3} - Dead nodes: {4}
+                    Expired: {5} - Discarded: {6}
+                    Entered: {16} - Exited: {7}
+                    Raw produced: {9} - Raw produced bytes: {10}
+                    Raw received: {11} - Raw received bytes: {12}
+                    Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
+                    Message retry: {19} - Message postponed: {20}",
+                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exited, Received, RawProduced,
+                RawProducedBytes, RawReceived, RawReceivedBytes, SocketBuffers, RequestsBuffers, MessageBuffers, Entered,
+                RequestTimeout, BrokerTimeoutError, MessageRetry, MessagePostponed);
         }
 
         public void UpdateSuccessfulSent(long nb)
@@ -227,10 +264,15 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
             Interlocked.Increment(ref _requestSent);
         }
 
-        public void UpdateResponseReceived(double latencyMs)
+        public void UpdateResponseReceived(int nodeId, double latencyMs)
         {
             Interlocked.Increment(ref _responseReceived);
             Interlocked.Exchange(ref _latestRequestLatency, latencyMs);
+        }
+
+        public void UpdateRequestTimeout(int nodeId)
+        {
+            Interlocked.Increment(ref _requestTimeout);
         }
 
         public void UpdateErrors()
@@ -238,7 +280,7 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
             Interlocked.Increment(ref _errors);
         }
 
-        public void UpdateNodeDead()
+        public void UpdateNodeDead(int nodeId)
         {
             Interlocked.Increment(ref _nodeDead);
         }
@@ -306,6 +348,21 @@ Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
         public void UpdateMessageBuffers(long nb)
         {
             Interlocked.Add(ref _messageBuffers, nb);
+        }
+
+        public void UpdateBrokerTimeoutError(string topic)
+        {
+            Interlocked.Increment(ref _brokerTimeoutError);
+        }
+
+        public void UpdateMessageRetry(string topic)
+        {
+            Interlocked.Increment(ref _messageRetry);
+        }
+
+        public void UpdateMessagePostponed(string topic)
+        {
+            Interlocked.Increment(ref _messagePostponed);
         }
     }
 }

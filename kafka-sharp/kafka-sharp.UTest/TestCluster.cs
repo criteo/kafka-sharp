@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.Contracts;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
 using Kafka.Network;
@@ -116,13 +114,14 @@ namespace tests_kafka_sharp
 
         private void AssertStatistics(IStatistics statistics, int successfulSent = 0, int requestSent = 0, int responseReceived = 0, int errors = 0,
             int nodeDead = 0, int expired = 0, int discarded = 0, int exit = 0, int received = 0,
-            int rawReceived = 0, int rawReceivedBytes = 0, int rawProduced = 0, int rawProducedBytes = 0)
+            int rawReceived = 0, int rawReceivedBytes = 0, int rawProduced = 0, int rawProducedBytes = 0, int requestTimeout = 0)
         {
             Assert.AreEqual(successfulSent, statistics.SuccessfulSent);
             Assert.AreEqual(requestSent, statistics.RequestSent);
             Assert.AreEqual(responseReceived, statistics.ResponseReceived);
             Assert.AreEqual(errors, statistics.Errors);
             Assert.AreEqual(nodeDead, statistics.NodeDead);
+            Assert.AreEqual(requestTimeout, statistics.RequestTimeout);
             Assert.AreEqual(expired, statistics.Expired);
             Assert.AreEqual(discarded, statistics.Discarded);
             Assert.AreEqual(exit, statistics.Exited);
@@ -312,6 +311,17 @@ namespace tests_kafka_sharp
             await _cluster.Stop();
             Assert.AreEqual(0, _internalErrors);
             AssertStatistics(_cluster.Statistics, errors: 4);
+        }
+
+        [Test]
+        public async Task TestRequestTimeout()
+        {
+            _cluster.Start();
+            _nodeMocks[0].Raise(n => n.RequestTimeout += null, _nodeMocks[0].Object);
+
+            await _cluster.Stop();
+            Assert.AreEqual(0, _internalErrors);
+            AssertStatistics(_cluster.Statistics, requestTimeout: 1);
         }
 
         [Test]

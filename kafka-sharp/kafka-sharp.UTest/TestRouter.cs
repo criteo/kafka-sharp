@@ -681,6 +681,8 @@ namespace tests_kafka_sharp
             int success = 0;
             int discarded = 0;
             int rerouted = 0;
+            int timeoutError = 0;
+
             _produceRouter.MessageReEnqueued += t =>
             {
                 Interlocked.Increment(ref rerouted);
@@ -705,6 +707,10 @@ namespace tests_kafka_sharp
                     ev.Set();
                 }
             };
+            _produceRouter.BrokerTimeoutError += (t) =>
+            {
+                Interlocked.Increment(ref timeoutError);
+            };
 
             _produceRouter.Acknowledge(acknowledgement);
 
@@ -715,6 +721,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, success);
             Assert.AreEqual(0, discarded);
             Assert.AreEqual(5, rerouted);
+            Assert.AreEqual(1, timeoutError);
 
             // Check logs
             var warnings =_cluster.Logger as TestLogger;

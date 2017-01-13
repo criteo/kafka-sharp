@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -178,6 +179,9 @@ namespace Kafka.Cluster
                 UpdateExited(1);
             };
             RoutingTableChange += ProduceRouter.ChangeRoutingTable;
+            ProduceRouter.BrokerTimeoutError += Statistics.UpdateBrokerTimeoutError;
+            ProduceRouter.MessageReEnqueued += Statistics.UpdateMessageRetry;
+            ProduceRouter.MessagePostponed += Statistics.UpdateMessagePostponed;
 
             // Consumer init
             ConsumeRouter = consumerFactory != null ? consumerFactory() : new ConsumeRouter(this, configuration);
@@ -256,14 +260,14 @@ namespace Kafka.Cluster
                 _agent.Post(new ClusterMessage
                 {
                     MessageType = MessageType.SeenTopic,
-                    MessageValue = new MessageValue {SeenTopic = topic}
+                    MessageValue = new MessageValue { SeenTopic = topic }
                 });
             }
         }
 
         private void RefreshMetadata()
         {
-            _agent.Post(new ClusterMessage {MessageType = MessageType.Metadata});
+            _agent.Post(new ClusterMessage { MessageType = MessageType.Metadata });
         }
 
         private NodeFactory DecorateFactory(NodeFactory nodeFactory)
@@ -291,7 +295,7 @@ namespace Kafka.Cluster
             node.ConnectionError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
             node.RequestSent += _ => Statistics.UpdateRequestSent();
-            node.ResponseReceived += (_, l) => Statistics.UpdateResponseReceived(l);
+            node.ResponseReceived += (n, l) => Statistics.UpdateResponseReceived(GetNodeId(n), l);
             node.ProduceBatchSent += (_, c, s) =>
             {
                 Statistics.UpdateRawProduced(c);
@@ -308,6 +312,7 @@ namespace Kafka.Cluster
             node.FetchAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             node.OffsetAcknowledgement += (n, r) => ConsumeRouter.Acknowledge(r);
             node.NoMoreRequestSlot += n => NodeMaxRequestReached(n);
+            node.RequestTimeout += n => Statistics.UpdateRequestTimeout(GetNodeId(n));
             return node;
         }
 
@@ -330,6 +335,12 @@ namespace Kafka.Cluster
             return _nodes.TryGetValue(node, out bm) ? bm.ToString() : UnknownNode;
         }
 
+        private int GetNodeId(INode node)
+        {
+            BrokerMeta bm;
+            return _nodes.TryGetValue(node, out bm) ? bm.Id : -1;
+        }
+
         private void ProcessDecodeError(INode node, Exception exception)
         {
             Statistics.UpdateErrors();
@@ -349,17 +360,17 @@ namespace Kafka.Cluster
                         Logger.LogWarning(string.Format("Failed to connect to {0}, retrying.", n));
                         break;
 
-                        // Brokers very often close their connexions unilateraly,
-                        // so we consider transport errors as "almost normal". "Real" errors
-                        // will be logged with the proper severity level in case of
-                        // dead nodes (see 'ProcessDeadNode')
+                    // Brokers very often close their connexions unilateraly,
+                    // so we consider transport errors as "almost normal". "Real" errors
+                    // will be logged with the proper severity level in case of
+                    // dead nodes (see 'ProcessDeadNode')
                     case TransportError.ReadError:
                     case TransportError.WriteError:
                         Logger.LogWarning(string.Format("Transport error to {0}: {1}", n, ex));
                         break;
 
-                        // We cannot get there, but just in case and because dumb
-                        // static checkers like Sonar are complaining:
+                    // We cannot get there, but just in case and because dumb
+                    // static checkers like Sonar are complaining:
                     default:
                         Logger.LogError("Unknown transport error");
                         InternalError(ex);
@@ -379,7 +390,7 @@ namespace Kafka.Cluster
 
         private void BuildNodesFromSeeds()
         {
-            foreach (var seed in _seeds.Split(new []{','}, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var seed in _seeds.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var hostPort = seed.Split(':');
                 var broker = new BrokerMeta { Host = hostPort[0], Port = int.Parse(hostPort[1]) };
@@ -393,13 +404,61 @@ namespace Kafka.Cluster
         {
             Logger.LogInformation("Bootstraping with " + _seeds);
             Logger.LogInformation(
-                string.Format("Configuration: {0} - {1} - {2} - max before overflow: {3} - produce batch size: {4} - client timeout: {5}",
+                string.Format("Configuration: {0} - {1} - {2} - max before overflow: {3} - produce batch size: {4} - client timeout: {5} ms",
                 _configuration.OverflowStrategy == OverflowStrategy.Block ? "blocking" : "discard",
                 _configuration.BatchStrategy == BatchStrategy.Global ? "global" : "by node",
                 _configuration.ErrorStrategy == ErrorStrategy.Discard ? "discard on error" : "retry on error",
-                _configuration.MaxBufferedMessages,
-                _configuration.ProduceBatchSize,
-                _configuration.ClientRequestTimeoutMs));
+                _configuration.MaxBufferedMessages.ToString(),
+                _configuration.ProduceBatchSize.ToString(),
+                _configuration.ClientRequestTimeoutMs.ToString()));
+
+            // log full configuration to make the difference between kafka drivers
+            Logger.LogInformation(
+                string.Format("               message Ttl: {0} s - max retry: {1} - refresh metadata interval {2} s",
+                _configuration.MessageTtl.TotalSeconds.ToString(),
+                _configuration.MaxRetry.ToString(),
+                _configuration.RefreshMetadataInterval.TotalSeconds.ToString()
+                ));
+            Logger.LogInformation(
+                string.Format("               min time between refresh metadata: {0} s - temporary ignore partition time: {1} s - produce buffering time: {2} ms",
+                _configuration.MinimumTimeBetweenRefreshMetadata.TotalSeconds.ToString(),
+                _configuration.TemporaryIgnorePartitionTime.TotalSeconds.ToString(),
+                _configuration.ProduceBufferingTime.TotalMilliseconds.ToString()
+                ));
+            Logger.LogInformation(
+                string.Format("               compression codec: {0} - receive buffer size: {1} - send buffer size: {2}",
+                _configuration.CompressionCodec == CompressionCodec.Gzip ? "gzip" :
+                    _configuration.CompressionCodec == CompressionCodec.Snappy ? "snappy" : "none",
+                _configuration.ReceiveBufferSize.ToString(),
+                _configuration.SendBufferSize.ToString()
+                ));
+            Logger.LogInformation(
+                string.Format("               require Acks: {0} - min in sync replicas: {1} - retry if not enough replicas after append: {2}",
+                _configuration.RequiredAcks == RequiredAcks.AllInSyncReplicas ? "all in sync replicas" :
+                    _configuration.RequiredAcks == RequiredAcks.Leader ? "leader" : "none",
+                _configuration.MinInSyncReplicas.ToString(),
+                _configuration.RetryIfNotEnoughReplicasAfterAppend ? "yes" : "no"
+                ));
+            Logger.LogInformation(
+                string.Format("               request time out: {0} ms - max in flight requests: {1} - max concurrency: {2}",
+                _configuration.RequestTimeoutMs.ToString(),
+                _configuration.MaxInFlightRequests.ToString(),
+                _configuration.MaximumConcurrency.ToString()
+                ));
+            Logger.LogInformation(
+                string.Format("               max postpone messages: {0} - max successive node errors: {1} - fetch max wait time: {2}",
+                _configuration.MaxPostponedMessages.ToString(),
+                _configuration.MaxSuccessiveNodeErrors.ToString(),
+                _configuration.FetchMaxWaitTime.ToString()
+                ));
+            Logger.LogInformation(
+                string.Format("               fetch min bytes: {0} - fetch message max bytes: {1} - consume batch size: {2}",
+                _configuration.FetchMinBytes.ToString(),
+                _configuration.FetchMessageMaxBytes.ToString(),
+                _configuration.ConsumeBatchSize.ToString()
+                ));
+
+
             RefreshMetadata();
             _refreshMetadataTimer = new Timer(
                 _ => RefreshMetadata(), null,
@@ -425,10 +484,10 @@ namespace Kafka.Cluster
         {
             var promise = new TaskCompletionSource<RoutingTable>();
             if (!_agent.Post(new ClusterMessage
-                {
-                    MessageType = MessageType.Metadata,
-                    MessageValue = new MessageValue {Promise = promise}
-                }))
+            {
+                MessageType = MessageType.Metadata,
+                MessageValue = new MessageValue { Promise = promise }
+            }))
             {
                 promise.SetCanceled();
             }
@@ -459,7 +518,7 @@ namespace Kafka.Cluster
         // Remove the node from current nodes and refresh the metadata.
         private void ProcessDeadNode(INode deadNode)
         {
-            Statistics.UpdateNodeDead();
+            Statistics.UpdateNodeDead(GetNodeId(deadNode));
             BrokerMeta m;
             if (!_nodes.TryGetValue(deadNode, out m))
             {
@@ -504,7 +563,7 @@ namespace Kafka.Cluster
 
                     // New topic seen
                     case MessageType.SeenTopic:
-                        var seen = new HashSet<string>(_seenTopics) {message.MessageValue.SeenTopic};
+                        var seen = new HashSet<string>(_seenTopics) { message.MessageValue.SeenTopic };
                         _seenTopics = seen;
                         break;
 
@@ -683,7 +742,7 @@ namespace Kafka.Cluster
                 routes[tm.TopicName] = tm.Partitions.Where(
                     _ => Error.IsPartitionOkForClients(_.ErrorCode)
                          && _.Leader >= 0)
-                    .Select(_ => new Partition {Id = _.Id, Leader = _nodesById[_.Leader], NbIsr = _.Isr.Length}).OrderBy(p => p).ToArray();
+                    .Select(_ => new Partition { Id = _.Id, Leader = _nodesById[_.Leader], NbIsr = _.Isr.Length }).OrderBy(p => p).ToArray();
             }
             _routingTable = new RoutingTable(routes);
         }

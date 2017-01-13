@@ -15,7 +15,7 @@ namespace Kafka.Common
     /// to quickly set up a TaskScheduler with limited concurrency while still using
     /// .NET Threadpool threads.
     /// </summary>
-    class ActionBlockTaskScheduler : TaskScheduler
+    public class ActionBlockTaskScheduler : TaskScheduler
     {
         private readonly int _dop;
         private readonly ActionBlock<Action> _pool;

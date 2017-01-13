@@ -100,6 +100,21 @@ namespace Kafka.Routing
         /// Raised when a bunch of messages has been successfully acknowledged.
         /// </summary>
         event Action<string /* topic */, int /* number */> MessagesAcknowledged;
+
+        /// <summary>
+        /// Raised when a timeout error is returned by the broker for a partition
+        /// </summary>
+        event Action<string /* topic */> BrokerTimeoutError;
+
+        /// <summary>
+        /// Raised when a message is reenqueued following a recoverable error
+        /// </summary>
+        event Action<string /* topic */> MessageReEnqueued;
+
+        /// <summary>
+        /// Raised when a message is postponed following a recoverable error.
+        /// </summary>
+        event Action<string /* topic */> MessagePostponed;
     }
 
     /// <summary>
@@ -218,23 +233,15 @@ namespace Kafka.Routing
         public event Action<string, Message> MessageExpired = (t, m) => { };
         public event Action<string, Message> MessageDiscarded = (t, m) => { };
         public event Action<string, int> MessagesAcknowledged = (t, c) => { };
-
+        public event Action<string> BrokerTimeoutError = _ => { };
+        public event Action<string> MessageReEnqueued = _ => { };
+        public event Action<string> MessagePostponed = _ => { };
         #endregion
 
         /// <summary>
         /// Raised when a message has been enqueued for routing.
         /// </summary>
         public event Action<string> MessageEnqueued = _ => { };
-
-        /// <summary>
-        /// Raised when a message is reenqueued following a recoverable error.
-        /// </summary>
-        public event Action<string> MessageReEnqueued = _ => { };
-
-        /// <summary>
-        /// Raised when a message is postponed following a recoverable error.
-        /// </summary>
-        public event Action<string> MessagePostponed = _ => { };
 
         /// <summary>
         /// Raised when we asked for new metadata.
@@ -656,6 +663,9 @@ namespace Kafka.Routing
                                 string.Format("Will ignore [topic: {0} / partition: {1}] for a time", tr.TopicName,
                                     p.Partition));
                             BlacklistPartition(tr.TopicName, p.Partition);
+
+                            if (p.ErrorCode == ErrorCode.RequestTimedOut)
+                                BrokerTimeoutError(tr.TopicName);
                         }
                     }
                     else
