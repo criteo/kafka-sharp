@@ -152,11 +152,9 @@ namespace tests_kafka_sharp
                 node.Setup(n => n.FetchMetadata()).Returns(failed.Task);
             }
             _cluster.Start();
-#if NET_CORE
+
             Assert.ThrowsAsync<TimeoutException>(async () => await _cluster.RequireNewRoutingTable());
-#else
-            Assert.Throws<TimeoutException>(async () => await _cluster.RequireNewRoutingTable());
-#endif
+            Assert.ThrowsAsync<TimeoutException>(async () => await _cluster.RequireNewRoutingTable());
             Assert.AreEqual(0, _internalErrors);
         }
 
