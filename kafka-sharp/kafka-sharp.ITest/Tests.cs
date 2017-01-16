@@ -13,19 +13,18 @@ using NUnit.Framework;
 namespace Kafka.ITest
 {
     [TestFixture]
+    [Ignore("Takes too much time and random")]
     public class Tests
     {
-        private string kafkaRootPath;
-
         private LocalKafkaCommander commander;
 
-        [TestFixtureSetUp]
+        [OneTimeSetUp]
         public void TestFixtureSetUp()
         {
-            /*this.kafkaRootPath = Path.Combine(
+            var kafkaRootPath = Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
                 @"..\..\..\..\kafka_2.10-0.8.2.1\bin\windows\");
-            this.commander = new LocalKafkaCommander(this.kafkaRootPath);
+            this.commander = new LocalKafkaCommander(kafkaRootPath);
 
             this.commander.StartZookeeper();
             Thread.Sleep(TimeSpan.FromSeconds(1));
@@ -39,20 +38,20 @@ namespace Kafka.ITest
                         commander.StartBroker(broker2) })
                 .Wait(TimeSpan.FromSeconds(30));
 
-            Thread.Sleep(TimeSpan.FromSeconds(2));*/
+            Thread.Sleep(TimeSpan.FromSeconds(2));
         }
 
-        [TestFixtureTearDown]
+        [OneTimeTearDown]
         public void TestFixtureTearDown()
         {
-            /*commander.StopBroker(broker0);
+            commander.StopBroker(broker0);
             commander.StopBroker(broker1);
             commander.StopBroker(broker2);
             this.commander.StopZookeeper();
 
             Thread.Sleep(TimeSpan.FromSeconds(2));
 
-            this.commander.Dispose();*/
+            this.commander.Dispose();
         }
 
         private static readonly Random Random = new Random();
