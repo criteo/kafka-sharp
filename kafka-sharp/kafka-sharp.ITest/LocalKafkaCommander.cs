@@ -328,7 +328,7 @@ zookeeper.connection.timeout.ms=6000
                 Process proc = Process.GetProcessById(pid);
                 proc.Kill();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Process already exited.
             }
