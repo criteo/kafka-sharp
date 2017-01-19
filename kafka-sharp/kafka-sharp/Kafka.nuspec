@@ -8,5 +8,12 @@
         <authors>Criteo</authors>
         <copyright>$copyright$</copyright>
         <projectUrl>https://github.com/criteo/kafka-sharp</projectUrl>
+        <dependencies>
+            <dependency id="Snappy.NET" version="1.1.1.8" />
+            <dependency id="System.Reactive.Core" version="3.1.1" />
+            <dependency id="System.Reactive.Interfaces" version="3.1.1" />
+            <dependency id="System.Reactive.Linq" version="3.1.1" />
+            <dependency id="System.Threading.Tasks.Dataflow" version="4.7.0" />
+        </dependencies>
     </metadata>
 </package>
