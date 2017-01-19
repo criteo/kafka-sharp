@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+    <metadata>
+        <id>kafka-sharp</id>
+        <version>$version$</version>
+        <summary>A C# Kafka driver</summary>
+        <description>A .NET implementation of the Apache Kafka client side protocol geared toward performance (both throughput and memory wise). It is especially suited for scenarios where applications are streaming a large number of messages across a fair number of topics.</description>
+        <authors>Criteo</authors>
+        <copyright>$copyright$</copyright>
+        <projectUrl>https://github.com/criteo/kafka-sharp</projectUrl>
+    </metadata>
+</package>
