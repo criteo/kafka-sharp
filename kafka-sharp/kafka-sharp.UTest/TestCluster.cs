@@ -6,6 +6,7 @@ using Kafka.Cluster;
 using Kafka.Network;
 using Kafka.Protocol;
 using Kafka.Public;
+using Kafka.Public.Loggers;
 using Kafka.Routing;
 using NUnit.Framework;
 using Cluster = Kafka.Cluster.Cluster;
@@ -52,7 +53,7 @@ namespace tests_kafka_sharp
                         TaskScheduler = new CurrentThreadTaskScheduler(),
                         MinimumTimeBetweenRefreshMetadata = TimeSpan.FromSeconds(0),
                         MinInSyncReplicas = 2
-                    }, new DevNullLogger(),
+                    }, new ConsoleLogger(),
                     nodeFactory: (h, p) => _nodeMocks[p - 1].Object,
                     producerFactory: () => _routerMock.Object, consumerFactory: () => _consumeMock.Object);
             _internalErrors = 0;

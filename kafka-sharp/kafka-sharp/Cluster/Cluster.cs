@@ -13,6 +13,7 @@ using System.Threading.Tasks.Dataflow;
 using Kafka.Network;
 using Kafka.Protocol;
 using Kafka.Public;
+using Kafka.Public.Loggers;
 using Kafka.Routing;
 
 namespace Kafka.Cluster
@@ -45,25 +46,6 @@ namespace Kafka.Cluster
         /// The logger used for feedback.
         /// </summary>
         ILogger Logger { get; }
-    }
-
-    class DevNullLogger : ILogger
-    {
-        public void LogInformation(string message)
-        {
-        }
-
-        public void LogWarning(string message)
-        {
-        }
-
-        public void LogError(string message)
-        {
-        }
-
-        public void LogDebug(string message)
-        {
-        }
     }
 
     class Cluster : ICluster
