@@ -53,8 +53,8 @@ namespace tests_kafka_sharp
                         MinimumTimeBetweenRefreshMetadata = TimeSpan.FromSeconds(0),
                         MinInSyncReplicas = 2
                     }, new DevNullLogger(),
-                    (h, p) => _nodeMocks[p - 1].Object,
-                    () => _routerMock.Object, () => _consumeMock.Object);
+                    nodeFactory: (h, p) => _nodeMocks[p - 1].Object,
+                    producerFactory: () => _routerMock.Object, consumerFactory: () => _consumeMock.Object);
             _internalErrors = 0;
             _cluster.InternalError += _ => ++_internalErrors;
         }
