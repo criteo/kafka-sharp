@@ -41,7 +41,7 @@ namespace Kafka.Routing
         /// Stop consuming a given topic / partition once the given offset is reached.
         /// </summary>
         /// <param name="topic">Topic to stop consuming from.</param>
-        /// <param name="partition">Topic to stop consuming from. -1 means all.</param>
+        /// <param name="partition">Partition to stop consuming from. -1 means all.</param>
         /// <param name="offset">Stop consuming once this offset is reached. Offsets.Now (aka -42) means now.</param>
         void StopConsume(string topic, int partition, long offset);
 

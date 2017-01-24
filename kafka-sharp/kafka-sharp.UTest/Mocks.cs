@@ -192,10 +192,10 @@ namespace tests_kafka_sharp
         public event Action<INode, Exception> DecodeError = (n, e) => { };
         public event Action<INode> Dead = _ => { };
         public event Action<INode> Connected = _ => { };
-        public event Action<INode> RequestTimeout;
+        public event Action<INode> RequestTimeout = _ => { };
         public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
-        public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement;
-        public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
+        public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement = (n, ack) => { };
+        public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement = (n, ack) => { };
         public event Action<INode> NoMoreRequestSlot = _ => { };
         public event Action<string> MessageReceived = _ => { };
 
@@ -409,14 +409,14 @@ namespace tests_kafka_sharp
             return Task.FromResult(new Void());
         }
 
-        public event Action<string> MessageRouted;
-        public event Action<string, Message> MessageExpired;
-        public event Action<string, Message> MessageDiscarded;
+        public event Action<string> MessageRouted = _ => { };
+        public event Action<string, Message> MessageExpired = (t, m) => { };
+        public event Action<string, Message> MessageDiscarded = (t, m) => { };
         public event Action<string, int> MessagesAcknowledged = (t, c) => { };
         public event Action<RoutingTable> OnChangeRouting = _ => { };
-        public event Action<string> BrokerTimeoutError;
-        public event Action<string> MessageReEnqueued;
-        public event Action<string> MessagePostponed;
+        public event Action<string> BrokerTimeoutError = _ => { };
+        public event Action<string> MessageReEnqueued = _ => { };
+        public event Action<string> MessagePostponed = _ => { };
     }
 
     class DummySerialization : Node.ISerialization
@@ -532,22 +532,6 @@ namespace tests_kafka_sharp
         {
             object o = _produceResponse;
             return (CommonResponse<TPartitionResponse>)o;
-        }
-    }
-
-    class BatchMock : IGrouping<string, ProduceMessage>
-    {
-        public string Key { get; internal set; }
-        internal ProduceMessage[] Messages;
-
-        public IEnumerator<ProduceMessage> GetEnumerator()
-        {
-            return Messages.AsEnumerable().GetEnumerator();
-        }
-
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
-        {
-            return Messages.GetEnumerator();
         }
     }
 

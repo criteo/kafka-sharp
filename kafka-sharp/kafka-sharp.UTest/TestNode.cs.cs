@@ -524,7 +524,6 @@ namespace tests_kafka_sharp
             var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerialization(new CommonResponse<ProducePartitionResponse>()),
                                 new Configuration { ProduceBufferingTime = TimeSpan.FromMilliseconds(15), RequiredAcks = RequiredAcks.None}, 1);
             var count = new CountdownEvent(2);
-            bool batch = false;
             ProduceAcknowledgement acknowledgement = new ProduceAcknowledgement();
             node.ProduceBatchSent += (n, c, s) =>
             {
