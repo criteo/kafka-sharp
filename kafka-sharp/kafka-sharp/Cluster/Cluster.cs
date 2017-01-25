@@ -471,6 +471,7 @@ namespace Kafka.Cluster
                 MessageValue = new MessageValue { Promise = promise }
             }))
             {
+                Logger.LogDebug("Agent failed to trigger metadata reload");
                 promise.SetCanceled();
             }
             return promise.Task;
@@ -664,6 +665,7 @@ namespace Kafka.Cluster
             }
             else
             {
+                Logger.LogDebug("ProcessFullMetadata: no need to refresh the routing table");
                 if (promise != null)
                 {
                     promise.SetResult(_routingTable);
