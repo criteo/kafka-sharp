@@ -610,7 +610,7 @@ namespace Kafka.Cluster
 
         private async Task ProcessFullMetadata(TaskCompletionSource<RoutingTable> promise)
         {
-            if (_routingTable == null || _routingTable.LastRefreshed + _configuration.MinimumTimeBetweenRefreshMetadata < DateTime.UtcNow)
+            if (_routingTable == null || _routingTable.LastRefreshed + _configuration.MinimumTimeBetweenRefreshMetadata <= DateTime.UtcNow)
             {
                 var node = ChooseRefreshNode();
                 try
