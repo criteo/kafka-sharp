@@ -159,11 +159,9 @@ namespace tests_kafka_sharp
             ev.WaitOne();
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
-            int response = 0;
             node.ResponseReceived += (n, l) =>
             {
                 Assert.AreSame(node, n);
-                ++response;
             };
             var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
             node.FetchAcknowledgement += (n, ack) =>
@@ -286,11 +284,9 @@ namespace tests_kafka_sharp
             ev.WaitOne();
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
-            int response = 0;
             node.ResponseReceived += (n, l) =>
             {
                 Assert.AreSame(node, n);
-                ++response;
             };
             var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
             node.OffsetAcknowledgement += (n, ack) =>
@@ -360,11 +356,9 @@ namespace tests_kafka_sharp
             ev.WaitOne();
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
-            int response = 0;
             node.ResponseReceived += (n, l) =>
             {
                 Assert.AreSame(node, n);
-                ++response;
             };
             var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
             node.OffsetAcknowledgement += (n, ack) =>
@@ -531,7 +525,6 @@ namespace tests_kafka_sharp
             var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerialization(new CommonResponse<ProducePartitionResponse>()),
                                 new Configuration { ProduceBufferingTime = TimeSpan.FromMilliseconds(15), RequiredAcks = RequiredAcks.None}, 1);
             var count = new CountdownEvent(2);
-            bool batch = false;
             ProduceAcknowledgement acknowledgement = new ProduceAcknowledgement();
             node.ProduceBatchSent += (n, c, s) =>
             {
@@ -661,10 +654,8 @@ namespace tests_kafka_sharp
             };
 
             var exception = new Exception();
-            int ex = 0;
             node.ConnectionError += (n, e) =>
             {
-                ++ex;
                 exception = e;
             };
 
@@ -688,7 +679,7 @@ namespace tests_kafka_sharp
             };
             try
             {
-                var m = await node.FetchMetadata();
+                await node.FetchMetadata();
                 Assert.IsFalse(true);
             }
             catch (Exception e)

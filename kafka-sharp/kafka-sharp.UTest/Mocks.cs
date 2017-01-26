@@ -535,22 +535,6 @@ namespace tests_kafka_sharp
         }
     }
 
-    class BatchMock : IGrouping<string, ProduceMessage>
-    {
-        public string Key { get; internal set; }
-        internal ProduceMessage[] Messages;
-
-        public IEnumerator<ProduceMessage> GetEnumerator()
-        {
-            return Messages.AsEnumerable().GetEnumerator();
-        }
-
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
-        {
-            return Messages.GetEnumerator();
-        }
-    }
-
     class TestBatchByTopicByPartition : IBatchByTopicByPartition<ProduceMessage>
     {
         private readonly BatchByTopicByPartition<ProduceMessage> _underlying;
