@@ -39,6 +39,9 @@ namespace Kafka.Batching
 
         private void Start(long window)
         {
+            if (_timeWindow == TimeSpan.FromMilliseconds(-1))
+                return;
+
             _timer = new Timer(_ => Tick(window), null, _timeWindow, TimeSpan.FromMilliseconds(-1));
         }
 
@@ -50,8 +53,11 @@ namespace Kafka.Batching
                 OnNewBatch(_count);
             }
             _count = 0;
-            _timer.Dispose();
-            Start(_window);
+            if (!_disposed && _timer != null)
+            {
+                _timer.Dispose();
+                Start(_window);
+            }
         }
 
         private void Tick(long id)
@@ -93,8 +99,11 @@ namespace Kafka.Batching
             {
                 _disposed = true;
                 SignalNewBatch();
-                _timer.Dispose();
-                _timer = null;
+                if (_timer != null)
+                {
+                    _timer.Dispose();
+                    _timer = null;
+                }
             }
         }
 
