@@ -5,6 +5,7 @@ using Kafka.Batching;
 using Kafka.Cluster;
 using Kafka.Protocol;
 using Kafka.Public;
+using Kafka.Public.Loggers;
 using Kafka.Routing;
 using Moq;
 using NUnit.Framework;

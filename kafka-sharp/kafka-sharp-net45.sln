@@ -3,11 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
 VisualStudioVersion = 14.0.25420.1
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "kafka-sharp", "kafka-sharp\Kafka.csproj", "{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kafka", "kafka-sharp\Kafka.csproj", "{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "kafka-sharp.ITest", "kafka-sharp.ITest\Kafka.ITest.csproj", "{D6985169-8CE9-43C0-AA43-7E123EB1688E}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "kafka-sharp.UTest", "kafka-sharp.UTest\Kafka.UTest.csproj", "{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kafka.UTest", "kafka-sharp.UTest\Kafka.UTest.csproj", "{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "sample-kafka-sharp", "sample-kafka-sharp\sample-kafka-sharp.csproj", "{322B004A-B8B1-4D33-9CC6-2BA67267A4F4}"
 EndProject
@@ -21,10 +19,6 @@ Global
 		{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D6985169-8CE9-43C0-AA43-7E123EB1688E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D6985169-8CE9-43C0-AA43-7E123EB1688E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D6985169-8CE9-43C0-AA43-7E123EB1688E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D6985169-8CE9-43C0-AA43-7E123EB1688E}.Release|Any CPU.Build.0 = Release|Any CPU
 		{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}.Release|Any CPU.ActiveCfg = Release|Any CPU

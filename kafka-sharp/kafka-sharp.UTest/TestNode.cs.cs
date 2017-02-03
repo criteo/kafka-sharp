@@ -159,11 +159,9 @@ namespace tests_kafka_sharp
             ev.WaitOne();
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
-            int response = 0;
             node.ResponseReceived += (n, l) =>
             {
                 Assert.AreSame(node, n);
-                ++response;
             };
             var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
             node.FetchAcknowledgement += (n, ack) =>
@@ -286,11 +284,9 @@ namespace tests_kafka_sharp
             ev.WaitOne();
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
-            int response = 0;
             node.ResponseReceived += (n, l) =>
             {
                 Assert.AreSame(node, n);
-                ++response;
             };
             var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
             node.OffsetAcknowledgement += (n, ack) =>
@@ -360,11 +356,9 @@ namespace tests_kafka_sharp
             ev.WaitOne();
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
-            int response = 0;
             node.ResponseReceived += (n, l) =>
             {
                 Assert.AreSame(node, n);
-                ++response;
             };
             var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
             node.OffsetAcknowledgement += (n, ack) =>
@@ -653,10 +647,8 @@ namespace tests_kafka_sharp
             };
 
             var exception = new Exception();
-            int ex = 0;
             node.ConnectionError += (n, e) =>
             {
-                ++ex;
                 exception = e;
             };
 
@@ -680,7 +672,7 @@ namespace tests_kafka_sharp
             };
             try
             {
-                var m = await node.FetchMetadata();
+                await node.FetchMetadata();
                 Assert.IsFalse(true);
             }
             catch (Exception e)

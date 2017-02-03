@@ -13,6 +13,7 @@ using System.Threading.Tasks.Dataflow;
 using Kafka.Network;
 using Kafka.Protocol;
 using Kafka.Public;
+using Kafka.Public.Loggers;
 using Kafka.Routing;
 
 namespace Kafka.Cluster
@@ -45,25 +46,6 @@ namespace Kafka.Cluster
         /// The logger used for feedback.
         /// </summary>
         ILogger Logger { get; }
-    }
-
-    class DevNullLogger : ILogger
-    {
-        public void LogInformation(string message)
-        {
-        }
-
-        public void LogWarning(string message)
-        {
-        }
-
-        public void LogError(string message)
-        {
-        }
-
-        public void LogDebug(string message)
-        {
-        }
     }
 
     class Cluster : ICluster
@@ -489,6 +471,7 @@ namespace Kafka.Cluster
                 MessageValue = new MessageValue { Promise = promise }
             }))
             {
+                Logger.LogDebug("Agent failed to trigger metadata reload");
                 promise.SetCanceled();
             }
             return promise.Task;
@@ -627,7 +610,7 @@ namespace Kafka.Cluster
 
         private async Task ProcessFullMetadata(TaskCompletionSource<RoutingTable> promise)
         {
-            if (_routingTable == null || _routingTable.LastRefreshed + _configuration.MinimumTimeBetweenRefreshMetadata < DateTime.UtcNow)
+            if (_routingTable == null || _routingTable.LastRefreshed + _configuration.MinimumTimeBetweenRefreshMetadata <= DateTime.UtcNow)
             {
                 var node = ChooseRefreshNode();
                 try
@@ -682,6 +665,7 @@ namespace Kafka.Cluster
             }
             else
             {
+                Logger.LogDebug("ProcessFullMetadata: no need to refresh the routing table");
                 if (promise != null)
                 {
                     promise.SetResult(_routingTable);
