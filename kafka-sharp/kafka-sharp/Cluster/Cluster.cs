@@ -584,9 +584,17 @@ namespace Kafka.Cluster
                 var topic = topicPromise.Item2;
                 Logger.LogInformation(string.Format("Fetching metadata for topic '{1}' from {0}...", node.Name, topic));
                 var response = await node.FetchMetadata(topic);
-                var tm = response.TopicsMeta.First(t => t.TopicName == topic);
-                Logger.LogInformation(TopicInfo(tm));
-                promise.SetResult(tm.Partitions.Select(p => p.Id).ToArray());
+                var topicMetadata = response.TopicsMeta.FirstOrDefault(t => t.TopicName == topic);
+                if (topicMetadata != null)
+                {
+                    Logger.LogInformation(TopicInfo(topicMetadata));
+                    promise.SetResult(topicMetadata.Partitions.Select(p => p.Id).ToArray());
+                }
+                else
+                {
+                    Logger.LogError(string.Format("Node {0} is not aware of any topic '{1}'", node.Name, topic));
+                    topicPromise.Item1.SetCanceled();
+                }
             }
             catch (OperationCanceledException ex)
             {

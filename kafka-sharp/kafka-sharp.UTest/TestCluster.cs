@@ -15,7 +15,7 @@ using Moq;
 namespace tests_kafka_sharp
 {
     [TestFixture]
-    class TestCluster
+    internal class TestCluster
     {
         private Mock<INode>[] _nodeMocks;
         private readonly Mock<IProduceRouter> _routerMock = new Mock<IProduceRouter>();
@@ -24,6 +24,7 @@ namespace tests_kafka_sharp
 
         private Cluster _cluster;
         private int _internalErrors;
+        private readonly Mock<ILogger> _logger = new Mock<ILogger>();
 
         [SetUp]
         public void Setup()
@@ -53,7 +54,7 @@ namespace tests_kafka_sharp
                         TaskScheduler = new CurrentThreadTaskScheduler(),
                         MinimumTimeBetweenRefreshMetadata = TimeSpan.FromSeconds(0),
                         MinInSyncReplicas = 2
-                    }, new ConsoleLogger(),
+                    }, _logger.Object,
                     nodeFactory: (h, p) => _nodeMocks[p - 1].Object,
                     producerFactory: () => _routerMock.Object, consumerFactory: () => _consumeMock.Object);
             _internalErrors = 0;
@@ -65,6 +66,7 @@ namespace tests_kafka_sharp
             var nodeMock = new Mock<INode>();
             nodeMock.Setup(n => n.Name).Returns("localhost:" + port);
             nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(TestData.TestMetadataResponse));
+            nodeMock.Setup(n => n.FetchMetadata(It.IsAny<string>())).Returns(Task.FromResult(TestData.TestMetadataResponse));
             nodeMock.Setup(n => n.Stop()).Returns(Task.FromResult(true));
             return nodeMock;
         }
@@ -499,13 +501,14 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestInternalErrorOnFetchAllPartitionsForTopic()
+        public void TestBehaviorOnFetchAllPartitionsForMissingTopic()
         {
+            const string missingTopic = "doesnotexist";
             _cluster.Start();
 
-            Assert.That(async () => await _cluster.RequireAllPartitionsForTopic("nonexistingTopic"), Throws.TypeOf<TaskCanceledException>());
+            Assert.That(async () => await _cluster.RequireAllPartitionsForTopic(missingTopic), Throws.TypeOf<TaskCanceledException>());
 
-            Assert.AreEqual(1, _internalErrors);
+            _logger.Verify(l => l.LogError(It.IsAny<string>()), Times.Once);
         }
 
         [Test]
