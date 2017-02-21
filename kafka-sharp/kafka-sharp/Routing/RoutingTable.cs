@@ -106,6 +106,19 @@ namespace Kafka.Routing
             return partitions ?? NullPartition;
         }
 
+        /// <summary>
+        /// Returns the leader for a given topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        public INode GetLeaderForPartition(string topic, int partition)
+        {
+            var partitions = GetPartitions(topic);
+            int index = Array.BinarySearch(partitions, new Partition { Id = partition });
+            return index >= 0 ? partitions[index].Leader : null;
+        }
+
         public DateTime LastRefreshed { get; internal set; }
     }
 }

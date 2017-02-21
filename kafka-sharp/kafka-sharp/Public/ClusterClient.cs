@@ -153,6 +153,24 @@ namespace Kafka.Public
         Task<int[]> GetPartitionforTopicAsync(string topic);
 
         /// <summary>
+        /// Send an offset request to a partition leader, restricted to a single topic and partition,
+        /// to obtain the earliest available offset for this topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        Task<long> GetEarliestOffset(string topic, int partition);
+
+        /// <summary>
+        /// Send an offset request to a partition leader, restricted to a single topic and partition,
+        /// to obtain the latest available offset for this topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        Task<long> GetLatestOffset(string topic, int partition);
+
+        /// <summary>
         /// Current statistics if the cluster.
         /// </summary>
         IStatistics Statistics { get; }
@@ -395,6 +413,16 @@ namespace Kafka.Public
         public Task<int[]> GetPartitionforTopicAsync(string topic)
         {
             return _cluster.RequireAllPartitionsForTopic(topic);
+        }
+
+        public Task<long> GetEarliestOffset(string topic, int partition)
+        {
+            return _cluster.GetEarliestOffset(topic, partition);
+        }
+
+        public Task<long> GetLatestOffset(string topic, int partition)
+        {
+            return _cluster.GetLatestOffset(topic, partition);
         }
 
         public Task Shutdown()

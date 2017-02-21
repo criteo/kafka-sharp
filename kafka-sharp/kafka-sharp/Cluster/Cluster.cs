@@ -38,6 +38,24 @@ namespace Kafka.Cluster
         Task<int[]> RequireAllPartitionsForTopic(string topic);
 
         /// <summary>
+        /// Send an offset request to node, restricted to a single topic and partition,
+        /// to obtain the earliest available offset for this topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        Task<long> GetEarliestOffset(string topic, int partition);
+
+        /// <summary>
+        /// Send an offset request to node, restricted to a single topic and partition,
+        /// to obtain the latest available offset for this topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        Task<long> GetLatestOffset(string topic, int partition);
+
+        /// <summary>
         /// Get the current statistics of the cluster.
         /// </summary>
         IStatistics Statistics { get; }
@@ -475,6 +493,18 @@ namespace Kafka.Cluster
                 promise.SetCanceled();
             }
             return promise.Task;
+        }
+
+        public async Task<long> GetEarliestOffset(string topic, int partition)
+        {
+            var rt = await RequireNewRoutingTable();
+            return await rt.GetLeaderForPartition(topic, partition).GetEarliestOffset(topic, partition);
+        }
+
+        public async Task<long> GetLatestOffset(string topic, int partition)
+        {
+            var rt = await RequireNewRoutingTable();
+            return await rt.GetLeaderForPartition(topic, partition).GetLatestOffset(topic, partition);
         }
 
         public Task<int[]> RequireAllPartitionsForTopic(string topic)
