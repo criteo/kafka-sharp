@@ -433,6 +433,116 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestEarliestOffset()
+        {
+            // Prepare
+            var serializer = new Mock<Node.ISerialization>();
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object, serializer.Object,
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
+            var ev = new ManualResetEvent(false);
+            var corrs = new Queue<int>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns((int c, ReusableMemoryStream d, bool a) =>
+                {
+                    corrs.Enqueue(c);
+                    return Success;
+                })
+                .Callback(() => ev.Set());
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var earliest = node.GetEarliestOffset("balbuzzard", 1);
+            ev.WaitOne();
+            Assert.AreEqual(1, corrs.Count);
+            int corr = corrs.Dequeue();
+
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
+                .Returns(new CommonResponse<OffsetPartitionResponse>
+                {
+                    TopicsResponse =
+                        new[]
+                        {
+                            new TopicData<OffsetPartitionResponse>
+                            {
+                                TopicName = "balbuzzard",
+                                PartitionsData =
+                                    new[]
+                                    {
+                                        new OffsetPartitionResponse
+                                        {
+                                            ErrorCode = ErrorCode.NoError,
+                                            Partition = 1,
+                                            Offsets = new [] {27L}
+                                        }
+                                    }
+                            }
+                        }
+                });
+
+            // Now send a response
+            connection.Raise(c => c.Response += null, connection.Object, corr, new ReusableMemoryStream(null));
+
+            earliest.Wait();
+
+            // Checks
+            Assert.AreEqual(27, earliest.Result);
+        }
+
+        [Test]
+        public void TestLatestOffset()
+        {
+            // Prepare
+            var serializer = new Mock<Node.ISerialization>();
+            var connection = new Mock<IConnection>();
+            var node = new Node("Node", () => connection.Object, serializer.Object,
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
+            var ev = new ManualResetEvent(false);
+            var corrs = new Queue<int>();
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns((int c, ReusableMemoryStream d, bool a) =>
+                {
+                    corrs.Enqueue(c);
+                    return Success;
+                })
+                .Callback(() => ev.Set());
+            connection.Setup(c => c.ConnectAsync()).Returns(Success);
+            var latest = node.GetLatestOffset("balbuzzard", 1);
+            ev.WaitOne();
+            Assert.AreEqual(1, corrs.Count);
+            int corr = corrs.Dequeue();
+
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
+                .Returns(new CommonResponse<OffsetPartitionResponse>
+                {
+                    TopicsResponse =
+                        new[]
+                        {
+                            new TopicData<OffsetPartitionResponse>
+                            {
+                                TopicName = "balbuzzard",
+                                PartitionsData =
+                                    new[]
+                                    {
+                                        new OffsetPartitionResponse
+                                        {
+                                            ErrorCode = ErrorCode.NoError,
+                                            Partition = 1,
+                                            Offsets = new [] {27L}
+                                        }
+                                    }
+                            }
+                        }
+                });
+
+            // Now send a response
+            connection.Raise(c => c.Response += null, connection.Object, corr, new ReusableMemoryStream(null));
+
+            latest.Wait();
+
+            // Checks
+            Assert.AreEqual(27, latest.Result);
+        }
+
+        [Test]
         public async Task TestFetchMetadata()
         {
             var node = new Node("Node", () => new EchoConnectionMock(), new MetadataSerialization(new MetadataResponse()),

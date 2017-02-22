@@ -38,6 +38,24 @@ namespace Kafka.Cluster
         Task<int[]> RequireAllPartitionsForTopic(string topic);
 
         /// <summary>
+        /// Send an offset request to node, restricted to a single topic and partition,
+        /// to obtain the earliest available offset for this topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        Task<long> GetEarliestOffset(string topic, int partition);
+
+        /// <summary>
+        /// Send an offset request to node, restricted to a single topic and partition,
+        /// to obtain the latest available offset for this topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        Task<long> GetLatestOffset(string topic, int partition);
+
+        /// <summary>
         /// Get the current statistics of the cluster.
         /// </summary>
         IStatistics Statistics { get; }
@@ -477,6 +495,18 @@ namespace Kafka.Cluster
             return promise.Task;
         }
 
+        public async Task<long> GetEarliestOffset(string topic, int partition)
+        {
+            var rt = await RequireNewRoutingTable();
+            return await rt.GetLeaderForPartition(topic, partition).GetEarliestOffset(topic, partition);
+        }
+
+        public async Task<long> GetLatestOffset(string topic, int partition)
+        {
+            var rt = await RequireNewRoutingTable();
+            return await rt.GetLeaderForPartition(topic, partition).GetLatestOffset(topic, partition);
+        }
+
         public Task<int[]> RequireAllPartitionsForTopic(string topic)
         {
             var promise = new TaskCompletionSource<int[]>();
@@ -584,9 +614,17 @@ namespace Kafka.Cluster
                 var topic = topicPromise.Item2;
                 Logger.LogInformation(string.Format("Fetching metadata for topic '{1}' from {0}...", node.Name, topic));
                 var response = await node.FetchMetadata(topic);
-                var tm = response.TopicsMeta.First(t => t.TopicName == topic);
-                Logger.LogInformation(TopicInfo(tm));
-                promise.SetResult(tm.Partitions.Select(p => p.Id).ToArray());
+                var topicMetadata = response.TopicsMeta.FirstOrDefault(t => t.TopicName == topic);
+                if (topicMetadata != null)
+                {
+                    Logger.LogInformation(TopicInfo(topicMetadata));
+                    promise.SetResult(topicMetadata.Partitions.Select(p => p.Id).ToArray());
+                }
+                else
+                {
+                    Logger.LogError(string.Format("Node {0} is not aware of any topic '{1}'", node.Name, topic));
+                    topicPromise.Item1.SetCanceled();
+                }
             }
             catch (OperationCanceledException ex)
             {

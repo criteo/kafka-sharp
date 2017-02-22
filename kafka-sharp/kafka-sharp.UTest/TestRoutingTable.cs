@@ -24,6 +24,24 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestGetNodeForPartition()
+        {
+            var node = new NodeMock();
+            var node2 = new NodeMock();
+            var node3 = new NodeMock();
+            var routes = new Dictionary<string, Partition[]>
+            {
+                {"test2p", new[] {new Partition {Id = 1, Leader = node}, new Partition {Id = 2, Leader = node2}, new Partition {Id = 3, Leader = node3}}},
+            };
+            var rt = new RoutingTable(routes);
+            Assert.AreSame(node, rt.GetLeaderForPartition("test2p", 1));
+            Assert.AreSame(node2, rt.GetLeaderForPartition("test2p", 2));
+            Assert.AreSame(node3, rt.GetLeaderForPartition("test2p", 3));
+            Assert.IsNull(rt.GetLeaderForPartition("test2p", 8));
+            Assert.IsNull(rt.GetLeaderForPartition("test2poulpe", 8423));
+        }
+
+        [Test]
         public void TestRoutingTableReturnsEmptyForAbsentTopic()
         {
             var node = new NodeMock();

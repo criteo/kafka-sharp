@@ -2,6 +2,7 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -84,6 +85,24 @@ namespace Kafka.Cluster
         /// <param name="topic">Topic to fetch metadata for.</param>
         /// <returns>Metadata for a single topic.</returns>
         Task<MetadataResponse> FetchMetadata(string topic);
+
+        /// <summary>
+        /// Send an offset request to node, restricted to a single topic and partition,
+        /// to obtain the earliest available offset for this topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        Task<long> GetEarliestOffset(string topic, int partition);
+
+        /// <summary>
+        /// Send an offset request to node, restricted to a single topic and partition,
+        /// to obtain the latest available offset for this topic / partition.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <returns></returns>
+        Task<long> GetLatestOffset(string topic, int partition);
 
         /// <summary>
         /// Stop all activities on the node (effectively marking it dead).
@@ -302,6 +321,12 @@ namespace Kafka.Cluster
             public TaskCompletionSource<MetadataResponse> Promise;
         }
 
+        internal struct OneOffsetRequest
+        {
+            public IBatchByTopic<OffsetMessage> OffsetBatchRequest;
+            public TaskCompletionSource<long> Promise;
+        }
+
         [StructLayout(LayoutKind.Explicit)]
         internal struct RequestValue
         {
@@ -316,6 +341,9 @@ namespace Kafka.Cluster
 
             [FieldOffset(0)]
             public MetadataRequest MetadataRequest;
+
+            [FieldOffset(0)]
+            public OneOffsetRequest OneOffsetRequest;
         }
 
         /// <summary>
@@ -323,10 +351,11 @@ namespace Kafka.Cluster
         /// </summary>
         internal enum RequestType
         {
-            Fetch,
-            Offset,
-            Produce,
+            BatchedFetch,
+            BatchedOffset,
+            BatchedProduce,
             Metadata,
+            SingleOffset,
         }
 
         internal struct Request
@@ -338,7 +367,7 @@ namespace Kafka.Cluster
             {
                 return new Request
                 {
-                    RequestType = RequestType.Fetch,
+                    RequestType = RequestType.BatchedFetch,
                     RequestValue = new RequestValue {FetchBatchRequest = value}
                 };
             }
@@ -347,7 +376,7 @@ namespace Kafka.Cluster
             {
                 return new Request
                 {
-                    RequestType = RequestType.Offset,
+                    RequestType = RequestType.BatchedOffset,
                     RequestValue = new RequestValue {OffsetBatchRequest = value}
                 };
             }
@@ -356,7 +385,7 @@ namespace Kafka.Cluster
             {
                 return new Request
                 {
-                    RequestType = RequestType.Produce,
+                    RequestType = RequestType.BatchedProduce,
                     RequestValue = new RequestValue {ProduceBatchRequest = value}
                 };
             }
@@ -367,6 +396,15 @@ namespace Kafka.Cluster
                 {
                     RequestType = RequestType.Metadata,
                     RequestValue = new RequestValue {MetadataRequest = value}
+                };
+            }
+
+            public static Request Create(OneOffsetRequest value)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.SingleOffset,
+                    RequestValue = new RequestValue { OneOffsetRequest = value }
                 };
             }
         }
@@ -556,6 +594,29 @@ namespace Kafka.Cluster
             return promise.Task;
         }
 
+        public Task<long> GetEarliestOffset(string topic, int partition)
+        {
+            return GetOffset(topic, partition, Offsets.Earliest);
+        }
+
+        public Task<long> GetLatestOffset(string topic, int partition)
+        {
+            return GetOffset(topic, partition, Offsets.Latest);
+        }
+
+        private Task<long> GetOffset(string topic, int partition, long firstOrLast)
+        {
+            var promise = new TaskCompletionSource<long>();
+            var batch = BatchByTopic<OffsetMessage>.New();
+            batch.Add(topic, new OffsetMessage {MaxNumberOfOffsets = 1, Partition = partition, Time = firstOrLast, Topic = topic});
+            if (!Post(Request.Create(new OneOffsetRequest { OffsetBatchRequest = batch, Promise = promise })))
+            {
+                promise.SetCanceled();
+            }
+
+            return promise.Task;
+        }
+
         private int _stopped;
 
         public async Task Stop()
@@ -692,17 +753,21 @@ namespace Kafka.Cluster
                 case RequestType.Metadata:
                     return _serialization.SerializeMetadataAllRequest(correlationId);
 
-                case RequestType.Produce:
+                case RequestType.BatchedProduce:
                     return _serialization.SerializeProduceBatch(correlationId,
                         request.RequestValue.ProduceBatchRequest);
 
-                case RequestType.Fetch:
+                case RequestType.BatchedFetch:
                     return _serialization.SerializeFetchBatch(correlationId,
                         request.RequestValue.FetchBatchRequest);
 
-                case RequestType.Offset:
+                case RequestType.BatchedOffset:
                     return _serialization.SerializeOffsetBatch(correlationId,
                         request.RequestValue.OffsetBatchRequest);
+
+                case RequestType.SingleOffset:
+                    return _serialization.SerializeOffsetBatch(correlationId,
+                        request.RequestValue.OneOffsetRequest.OffsetBatchRequest);
 
                 default: // Compiler requires a default case, even if all possible cases are already handled
                     throw new ArgumentOutOfRangeException("request", "Non valid RequestType enum value");
@@ -711,7 +776,7 @@ namespace Kafka.Cluster
 
         private bool CheckAckRequired(Request request)
         {
-            return _configuration.RequiredAcks != RequiredAcks.None || request.RequestType != RequestType.Produce;
+            return _configuration.RequiredAcks != RequiredAcks.None || request.RequestType != RequestType.BatchedProduce;
         }
 
         private void RepostOrDrain(Request request)
@@ -743,10 +808,10 @@ namespace Kafka.Cluster
                 return;
             }
 
-            if (!RequestSlotAvailable() && request.RequestType == RequestType.Produce)
+            if (!RequestSlotAvailable() && request.RequestType == RequestType.BatchedProduce)
             {
                 OnNoMoreRequestSlot();
-                if (request.RequestType == RequestType.Produce)
+                if (request.RequestType == RequestType.BatchedProduce)
                 {
                     // Reroute incoming produce requests to reduce the load on slow nodes
                     Drain(request, false);
@@ -800,7 +865,7 @@ namespace Kafka.Cluster
                     await connection.SendAsync(correlationId, data, acked);
                     Interlocked.Exchange(ref _successiveErrors, 0);
                     OnRequestSent();
-                    if (request.RequestType == RequestType.Produce)
+                    if (request.RequestType == RequestType.BatchedProduce)
                     {
                         OnProduceBatchSent(request.RequestValue.ProduceBatchRequest.Count, data.Length);
                     }
@@ -923,7 +988,7 @@ namespace Kafka.Cluster
 
                         switch (pending.Request.RequestType)
                         {
-                            case RequestType.Produce:
+                            case RequestType.BatchedProduce:
                                 ProcessProduceResponse(
                                     pending.CorrelationId,
                                     data,
@@ -938,14 +1003,21 @@ namespace Kafka.Cluster
                                     pending.Request.RequestValue.MetadataRequest);
                                 break;
 
-                            case RequestType.Fetch:
+                            case RequestType.SingleOffset:
+                                ProcessSingleOffsetResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.OneOffsetRequest);
+                                break;
+
+                            case RequestType.BatchedFetch:
                                 ProcessFetchResponse(
                                     pending.CorrelationId,
                                     data,
                                     pending.Request.RequestValue.FetchBatchRequest);
                                 break;
 
-                            case RequestType.Offset:
+                            case RequestType.BatchedOffset:
                                 ProcessOffsetResponse(
                                     pending.CorrelationId,
                                     data,
@@ -1085,6 +1157,23 @@ namespace Kafka.Cluster
             OnOffsetsReceived(response);
         }
 
+        private void ProcessSingleOffsetResponse(int correlationId, ReusableMemoryStream responseData,
+            OneOffsetRequest originalRequest)
+        {
+            try
+            {
+                var offsetResponse = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId, responseData);
+                var response = offsetResponse.TopicsResponse[0].PartitionsData.First();
+                originalRequest.Promise.SetResult(response.ErrorCode == ErrorCode.NoError ? response.Offsets[0] : -1);
+                originalRequest.OffsetBatchRequest.Dispose();
+            }
+            catch (Exception ex)
+            {
+                OnDecodeError(ex);
+                originalRequest.Promise.SetException(ex);
+            }
+        }
+
         /// <summary>
         /// Deserialize a Produce response and acknowledge it. We pass back the original
         /// request because in case of error the producer may try to resend the messages.
@@ -1209,8 +1298,21 @@ namespace Kafka.Cluster
                     }
                     break;
 
-                    // Reroute produce requests
-                case RequestType.Produce:
+                    // Cancel single offset requests
+                case RequestType.SingleOffset:
+                    if (exception != null)
+                    {
+                        request.RequestValue.OneOffsetRequest.Promise.SetException(exception);
+                    }
+                    else
+                    {
+                        request.RequestValue.OneOffsetRequest.Promise.SetCanceled();
+                    }
+                    break;
+
+
+                // Reroute produce requests
+                case RequestType.BatchedProduce:
                     var ack = new ProduceAcknowledgement
                         {
                             OriginalBatch = request.RequestValue.ProduceBatchRequest,
@@ -1220,7 +1322,7 @@ namespace Kafka.Cluster
                     break;
 
                     // Empty responses for Fetch / Offset requests
-                case RequestType.Fetch:
+                case RequestType.BatchedFetch:
                     OnMessagesReceived(new CommonAcknowledgement<FetchPartitionResponse>
                     {
                         Response = BuildEmptyFetchResponseFromOriginal(request.RequestValue.FetchBatchRequest),
@@ -1228,7 +1330,7 @@ namespace Kafka.Cluster
                     });
                     break;
 
-                case RequestType.Offset:
+                case RequestType.BatchedOffset:
                     OnOffsetsReceived(new CommonAcknowledgement<OffsetPartitionResponse>
                     {
                         Response = BuildEmptyOffsetResponseFromOriginal(request.RequestValue.OffsetBatchRequest),

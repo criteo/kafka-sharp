@@ -835,9 +835,7 @@ namespace Kafka.Routing
 
         private INode GetNodeForPartition(string topic, int partition)
         {
-            var partitions = _routingTable.GetPartitions(topic);
-            int index = Array.BinarySearch(partitions, new Partition { Id = partition });
-            return index >= 0 ? partitions[index].Leader : null;
+            return _routingTable.GetLeaderForPartition(topic, partition);
         }
     }
 }

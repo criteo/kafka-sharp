@@ -179,6 +179,16 @@ namespace tests_kafka_sharp
             return Task.FromResult(_response);
         }
 
+        public Task<long> GetEarliestOffset(string topic, int partition)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<long> GetLatestOffset(string topic, int partition)
+        {
+            throw new NotImplementedException();
+        }
+
         public Task Stop()
         {
             return Task.FromResult(new Void());
@@ -232,12 +242,22 @@ namespace tests_kafka_sharp
             return Task.FromResult(r);
         }
 
+        public Task<long> GetLatestOffset(string topic, int partition)
+        {
+            throw new NotImplementedException();
+        }
+
         public IStatistics Statistics
         {
             get { return new Statistics(); }
         }
 
         public Task<int[]> RequireAllPartitionsForTopic(string topic)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<long> GetEarliestOffset(string topic, int partition)
         {
             throw new NotImplementedException();
         }
