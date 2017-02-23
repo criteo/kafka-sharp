@@ -375,8 +375,8 @@ namespace Kafka.Routing
             {
                 _cluster.Logger.LogError(
                     string.Format(
-                        "[Producer] Not able to re-enqueue, discarding message for [topic: {0} / partition: {1}] after {2} retry",
-                        message.Topic, message.Partition, message.Retried));
+                        "[Producer] Not able to re-enqueue, discarding message for topic '{0}' after {1} retry",
+                        message.Topic, message.Retried));
                 OnMessageDiscarded(message);
             }
         }
