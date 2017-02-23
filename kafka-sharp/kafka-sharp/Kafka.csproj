@@ -57,6 +57,7 @@
     <Reference Include="System.Threading.Tasks.Dataflow">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>$(SolutionDir)\packages\Microsoft.Tpl.Dataflow.4.5.24\lib\portable-net45+win8+wpa81\System.Threading.Tasks.Dataflow.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
