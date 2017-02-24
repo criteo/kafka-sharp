@@ -58,8 +58,13 @@ namespace Kafka.Protocol
                 return;
             }
 
-            BigEndianConverter.Write(stream, (short) s.Length);
-            _stringSer.Serialize(s, stream);
+            var start = stream.Position;
+            BigEndianConverter.Write(stream, (short)0);
+            var length = _stringSer.Serialize(s, stream);
+            var current = stream.Position;
+            stream.Position = start;
+            BigEndianConverter.Write(stream, (short)length);
+            stream.Position = current;
         }
 
         public static ReusableMemoryStream WriteMessageLength(ReusableMemoryStream stream)

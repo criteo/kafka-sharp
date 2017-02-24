@@ -15,7 +15,7 @@ namespace tests_kafka_sharp
     class TestSerialization
     {
         private static readonly string TheKey = "The Key Opens the Door";
-        private static readonly string TheValue = "The quick brown fox jumps over the zealy god.";
+        private static readonly string TheValue = "The quick brown fox jumps over the zealy göd.";
         private static readonly string TheClientId = "ClientId";
         private static readonly byte[] Value = Encoding.UTF8.GetBytes(TheValue);
         private static readonly byte[] Key = Encoding.UTF8.GetBytes(TheKey);
@@ -24,8 +24,8 @@ namespace tests_kafka_sharp
         private static readonly Pool<ReusableMemoryStream> Pool =
             new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(Pool), (m, b) => { m.SetLength(0); });
 
-        private static readonly int FullMessageSize = 4 + 1 + 1 + 4 + TheKey.Length + 4 + TheValue.Length;
-        private static readonly int NullKeyMessageSize = 4 + 1 + 1 + 4 + 4 + TheValue.Length;
+        private static readonly int FullMessageSize = 4 + 1 + 1 + 4 + Key.Length + 4 + Value.Length;
+        private static readonly int NullKeyMessageSize = 4 + 1 + 1 + 4 + 4 + Value.Length;
 
         static void CompareArrays<T>(T[] expected, T[] compared, int offset)
         {
@@ -103,9 +103,9 @@ namespace tests_kafka_sharp
                 Assert.AreEqual(0, serialized.GetBuffer()[4]); // magic byte is 0
                 Assert.AreEqual(0, serialized.GetBuffer()[5]); // attributes is 0
                 serialized.Position = 6;
-                Assert.AreEqual(TheKey.Length, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(Key.Length, BigEndianConverter.ReadInt32(serialized));
                 CompareBuffers(Key, serialized);
-                Assert.AreEqual(TheValue.Length, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(Value.Length, BigEndianConverter.ReadInt32(serialized));
                 CompareBuffers(Value, serialized);
             }
 
@@ -118,7 +118,7 @@ namespace tests_kafka_sharp
                 Assert.AreEqual(0, serialized.GetBuffer()[5]); // attributes is 0
                 serialized.Position = 6;
                 Assert.AreEqual(-1, BigEndianConverter.ReadInt32(serialized));
-                Assert.AreEqual(TheValue.Length, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(Value.Length, BigEndianConverter.ReadInt32(serialized));
                 CompareBuffers(Value, serialized);
             }
         }
@@ -647,7 +647,7 @@ namespace tests_kafka_sharp
                 Basics.SerializeString(serialized, TheValue);
                 Assert.AreEqual(2 + Value.Length, serialized.Length);
                 serialized.Position = 0;
-                Assert.AreEqual(TheValue.Length, BigEndianConverter.ReadInt16(serialized));
+                Assert.AreEqual(Value.Length, BigEndianConverter.ReadInt16(serialized));
                 CompareArrays(Value, serialized.GetBuffer(), 2);
             }
 
