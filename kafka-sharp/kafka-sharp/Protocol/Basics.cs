@@ -20,9 +20,26 @@ namespace Kafka.Protocol
     {
         public static readonly byte[] MinusOne32 = { 0xff, 0xff, 0xff, 0xff };
         static readonly byte[] MinusOne16 = { 0xff, 0xff };
-        static readonly byte[] ApiVersion = { 0x00, 0x00 };
+        static readonly byte[] ApiVersion0 = { 0x00, 0x00 };
+        static readonly byte[] ApiVersion1 = { 0x00, 0x01 };
+        static readonly byte[] ApiVersion2 = { 0x00, 0x02 };
         public static readonly byte[] Zero64 = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
         public static readonly byte[] Zero32 = { 0x00, 0x00, 0x00, 0x00 };
+
+
+        public struct ApiVersion
+        {
+            public readonly byte[] Version;
+
+            public ApiVersion(byte[] versionArray)
+            {
+                Version = versionArray;
+            }
+
+            public static ApiVersion V0 = new ApiVersion(ApiVersion0);
+            public static ApiVersion V1 = new ApiVersion(ApiVersion1);
+            public static ApiVersion V2 = new ApiVersion(ApiVersion2);
+        }
 
         public enum ApiKey : short
         {
@@ -33,7 +50,37 @@ namespace Kafka.Protocol
             // Non-user facing control APIs 4-7
             OffsetCommitRequest = 8,
             OffsetFetchRequest = 9,
-            ConsumerMetadataRequest = 10
+            GroupCoordinatorRequest = 10,
+            JoinGroupRequest = 11,
+            HeartbeatRequest = 12,
+            LeaveGroupRequest = 13,
+            SyncGroupRequest = 14,
+            DescribeGroupsRequest = 15,
+            ListGroupsRequest = 16,
+        }
+
+        public static byte[] DeserializeBytes(ReusableMemoryStream stream)
+        {
+            var len = BigEndianConverter.ReadInt32(stream);
+            // per contract, null string is represented with -1 len.
+            if (len == -1)
+                return null;
+
+            var buffer = new byte[len];
+            stream.Read(buffer, 0, len);
+            return buffer;
+        }
+
+        public static void SerializeBytes(ReusableMemoryStream stream, byte[] b)
+        {
+            if (b == null)
+            {
+                stream.Write(MinusOne32, 0, 4);
+                return;
+            }
+
+            BigEndianConverter.Write(stream, b.Length);
+            stream.Write(b, 0, b.Length);
         }
 
         private static readonly StringDeserializer _stringDeser = new StringDeserializer();
@@ -169,11 +216,11 @@ namespace Kafka.Protocol
             WriteArraySize(stream, sizePosition, count);
         }
 
-        public static void WriteRequestHeader(ReusableMemoryStream stream, int correlationId, ApiKey requestType, byte[] clientId)
+        public static void WriteRequestHeader(ReusableMemoryStream stream, int correlationId, ApiKey requestType, ApiVersion version, byte[] clientId)
         {
             stream.Write(MinusOne32, 0, 4); // reserve space for message size
             BigEndianConverter.Write(stream, (short)requestType);
-            stream.Write(ApiVersion, 0, 2);
+            stream.Write(version.Version, 0, 2);
             BigEndianConverter.Write(stream, correlationId);
             BigEndianConverter.Write(stream, (short)clientId.Length);
             stream.Write(clientId, 0, clientId.Length);

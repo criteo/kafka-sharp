@@ -13,7 +13,7 @@ namespace Kafka.Protocol
 
         public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object noextra)
         {
-            return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.MetadataRequest, null);
+            return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.MetadataRequest, Basics.ApiVersion.V0, null);
         }
 
         public void SerializeBody(ReusableMemoryStream stream, object noextra)

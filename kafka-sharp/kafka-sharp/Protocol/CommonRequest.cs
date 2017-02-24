@@ -19,9 +19,9 @@ namespace Kafka.Protocol
     static class CommonRequest
     {
         public static ReusableMemoryStream Serialize<TRequest>(ReusableMemoryStream stream, TRequest request, int correlationId, byte[] clientId,
-            Basics.ApiKey apiKey, object extra) where TRequest : ISerializableRequest
+            Basics.ApiKey apiKey, Basics.ApiVersion apiVersion, object extra) where TRequest : ISerializableRequest
         {
-            Basics.WriteRequestHeader(stream, correlationId, apiKey, clientId);
+            Basics.WriteRequestHeader(stream, correlationId, apiKey, apiVersion, clientId);
             request.SerializeBody(stream, extra);
             Basics.WriteMessageLength(stream);
             stream.Position = 0;

@@ -684,6 +684,53 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void Test005_SerializeBytes()
+        {
+            // Non null byte[]
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                Basics.SerializeBytes(serialized, Value);
+                Assert.AreEqual(4 + Value.Length, serialized.Length);
+                serialized.Position = 0;
+                Assert.AreEqual(Value.Length, BigEndianConverter.ReadInt32(serialized));
+                CompareArrays(Value, serialized.GetBuffer(), 4);
+            }
+
+            // Null byte[]
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                Basics.SerializeBytes(serialized, null);
+                Assert.AreEqual(4, serialized.Length);
+                serialized.Position = 0;
+                Assert.AreEqual(-1, BigEndianConverter.ReadInt32(serialized));
+            }
+        }
+
+        [Test]
+        public void Test006_DeserializeBytes()
+        {
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                // Non null byte[]
+                BigEndianConverter.Write(serialized, Value.Length);
+                serialized.Write(Value, 0, Value.Length);
+                serialized.Position = 0;
+
+                CompareArrays(Value, Basics.DeserializeBytes(serialized), 0);
+
+                // Null byte[]
+                serialized.SetLength(0);
+                serialized.WriteByte(0xFF);
+                serialized.WriteByte(0xFF);
+                serialized.WriteByte(0xFF);
+                serialized.WriteByte(0xFF);
+                serialized.Position = 0;
+
+                Assert.IsNull(Basics.DeserializeBytes(serialized));
+            }
+        }
+
+        [Test]
         public void Test001_SerializeArray()
         {
             var array = new[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 109};
