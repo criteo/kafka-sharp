@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -38,6 +37,11 @@ namespace Kafka.Cluster
         Task<int[]> RequireAllPartitionsForTopic(string topic);
 
         /// <summary>
+        /// Ask for the partitions of given topics.
+        /// </summary>
+        Task<IDictionary<string, int[]>> RequireAllPartitionsForTopics(IEnumerable<string> topics);
+
+        /// <summary>
         /// Send an offset request to node, restricted to a single topic and partition,
         /// to obtain the earliest available offset for this topic / partition.
         /// </summary>
@@ -54,6 +58,13 @@ namespace Kafka.Cluster
         /// <param name="partition"></param>
         /// <returns></returns>
         Task<long> GetLatestOffset(string topic, int partition);
+
+        /// <summary>
+        /// Get the node responsible for managing the given group
+        /// </summary>
+        /// <param name="group"></param>
+        /// <returns></returns>
+        Task<INode> GetGroupCoordinator(string group);
 
         /// <summary>
         /// Get the current statistics of the cluster.
@@ -76,7 +87,8 @@ namespace Kafka.Cluster
             Metadata,
             TopicMetadata,
             NodeEvent,
-            SeenTopic
+            SeenTopic,
+            GroupCoordinator
         }
 
         [StructLayout(LayoutKind.Explicit)]
@@ -86,13 +98,16 @@ namespace Kafka.Cluster
             public TaskCompletionSource<RoutingTable> Promise;
 
             [FieldOffset(0)]
-            public Tuple<TaskCompletionSource<int[]>, string> TopicPromise;
+            public Tuple<TaskCompletionSource<IDictionary<string, int[]>>, IEnumerable<string>> TopicPromise;
 
             [FieldOffset(0)]
             public Action NodeEventProcessing;
 
             [FieldOffset(0)]
             public string SeenTopic;
+
+            [FieldOffset(0)]
+            public Tuple<TaskCompletionSource<INode>, string> CoordinatorPromise;
         }
 
         struct ClusterMessage
@@ -507,14 +522,41 @@ namespace Kafka.Cluster
             return await rt.GetLeaderForPartition(topic, partition).GetLatestOffset(topic, partition);
         }
 
-        public Task<int[]> RequireAllPartitionsForTopic(string topic)
+        public async Task<int[]> RequireAllPartitionsForTopic(string topic)
         {
-            var promise = new TaskCompletionSource<int[]>();
-            SignalSeenTopic(topic);
+            try
+            {
+                return (await RequireAllPartitionsForTopics(new[] { topic }))[topic];
+            }
+            catch (KeyNotFoundException)
+            {
+                Logger.LogError(string.Format("Topic {0} cannot be found.", topic));
+                throw;
+            }
+        }
+
+        public Task<IDictionary<string, int[]>> RequireAllPartitionsForTopics(IEnumerable<string> topics)
+        {
+            var promise = new TaskCompletionSource<IDictionary<string, int[]>>();
+            foreach (var topic in topics)
+            {
+                SignalSeenTopic(topic);
+            }
             _agent.Post(new ClusterMessage
             {
                 MessageType = MessageType.TopicMetadata,
-                MessageValue = new MessageValue { TopicPromise = Tuple.Create(promise, topic) }
+                MessageValue = new MessageValue { TopicPromise = Tuple.Create(promise, topics) }
+            });
+            return promise.Task;
+        }
+
+        public Task<INode> GetGroupCoordinator(string group)
+        {
+            var promise = new TaskCompletionSource<INode>();
+            _agent.Post(new ClusterMessage
+            {
+                MessageType = MessageType.GroupCoordinator,
+                MessageValue = new MessageValue { CoordinatorPromise = Tuple.Create(promise, group) }
             });
             return promise.Task;
         }
@@ -580,6 +622,11 @@ namespace Kafka.Cluster
                         _seenTopics = seen;
                         break;
 
+                    // Group coordinator
+                    case MessageType.GroupCoordinator:
+                        await ProcessGroupCoordinator(message.MessageValue.CoordinatorPromise);
+                        break;
+
                     default:
                         throw new ArgumentOutOfRangeException("message", "Invalid message type");
                 }
@@ -605,26 +652,22 @@ namespace Kafka.Cluster
             return _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
         }
 
-        private async Task ProcessTopicMetadata(Tuple<TaskCompletionSource<int[]>, string> topicPromise)
+        private async Task ProcessTopicMetadata(Tuple<TaskCompletionSource<IDictionary<string, int[]>>, IEnumerable<string>> topicPromise)
         {
             var node = ChooseRefreshNode();
             try
             {
                 var promise = topicPromise.Item1;
-                var topic = topicPromise.Item2;
-                Logger.LogInformation(string.Format("Fetching metadata for topic '{1}' from {0}...", node.Name, topic));
-                var response = await node.FetchMetadata(topic);
-                var topicMetadata = response.TopicsMeta.FirstOrDefault(t => t.TopicName == topic);
-                if (topicMetadata != null)
+                var topics = new HashSet<string>(topicPromise.Item2);
+                Logger.LogInformation(string.Format("Fetching metadata for topics '{1}' from {0}...", node.Name, string.Join(", ", topics)));
+                var response = await node.FetchMetadata(topics);
+                var result = new Dictionary<string, int[]>();
+                foreach (var tm in response.TopicsMeta.Where(t => topics.Contains(t.TopicName)))
                 {
-                    Logger.LogInformation(TopicInfo(topicMetadata));
-                    promise.SetResult(topicMetadata.Partitions.Select(p => p.Id).ToArray());
+                    result.Add(tm.TopicName, tm.Partitions.Select(p => p.Id).ToArray());
+                    Logger.LogInformation(TopicInfo(tm));
                 }
-                else
-                {
-                    Logger.LogError(string.Format("Node {0} is not aware of any topic '{1}'", node.Name, topic));
-                    topicPromise.Item1.SetCanceled();
-                }
+                promise.SetResult(result);
             }
             catch (OperationCanceledException ex)
             {
@@ -711,7 +754,59 @@ namespace Kafka.Cluster
             }
         }
 
-        private readonly HashSet<string> _tmpNewNodes = new HashSet<string>();
+        private async Task ProcessGroupCoordinator(Tuple<TaskCompletionSource<INode>, string> coordinatorPromise)
+        {
+            var node = ChooseRefreshNode();
+            try
+            {
+                var promise = coordinatorPromise.Item1;
+                var group = coordinatorPromise.Item2;
+                Logger.LogInformation(string.Format("Getting coordinator for consumer group '{1}' from {0}...",
+                    node.Name, group));
+                var response = await node.GetGroupCoordinator(group);
+                switch (response.ErrorCode)
+                {
+                    case ErrorCode.GroupAuthorizationFailed:
+                        throw new KafkaGroupCoordinatorAuthorizationException { GroupId = group };
+
+                    case ErrorCode.NoError:
+                        promise.SetResult(_nodesById[response.CoordinatorId]);
+                        break;
+
+                    default:
+                        promise.SetResult(null);
+                        break;
+                }
+            }
+            catch (OperationCanceledException ex)
+            {
+                coordinatorPromise.Item1.SetException(ex);
+            }
+            catch (TransportException ex)
+            {
+                coordinatorPromise.Item1.SetException(ex);
+            }
+            catch (TimeoutException ex)
+            {
+                Logger.LogError(string.Format("Timeout while fetching group coordinator from {0}!", node.Name));
+                coordinatorPromise.Item1.SetException(ex);
+            }
+            catch (KeyNotFoundException)
+            {
+                // Node not found, refresh metadata
+                RefreshMetadata();
+                coordinatorPromise.Item1.SetCanceled();
+            }
+            catch (Exception
+                ex)
+            {
+                coordinatorPromise.Item1.SetCanceled();
+                InternalError(ex);
+            }
+        }
+
+        private readonly
+            HashSet<string> _tmpNewNodes = new HashSet<string>();
         private readonly HashSet<int> _tmpNewNodeIds = new HashSet<int>();
 
         private void ResponseToTopology(MetadataResponse response)

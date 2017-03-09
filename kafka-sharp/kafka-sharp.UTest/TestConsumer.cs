@@ -26,6 +26,8 @@ namespace tests_kafka_sharp
         public void TestStart_AllPartition_OffsetUnknown(long offset)
         {
             var node = new Mock<INode>();
+            node.Setup(n => n.Fetch(It.IsAny<FetchMessage>())).Returns(true);
+            node.Setup(n => n.Offset(It.IsAny<OffsetMessage>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
                 .Returns(Task.FromResult(new[] {0, 1, 2}));
@@ -62,6 +64,8 @@ namespace tests_kafka_sharp
         public void TestStart_AllPartitions_KnownOffset()
         {
             var node = new Mock<INode>();
+            node.Setup(n => n.Fetch(It.IsAny<FetchMessage>())).Returns(true);
+            node.Setup(n => n.Offset(It.IsAny<OffsetMessage>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
                 .Returns(Task.FromResult(new[] {0, 1, 2}));
@@ -241,6 +245,7 @@ namespace tests_kafka_sharp
         [Test]
         [TestCase(OFFSET - 1)]
         [TestCase(Offsets.Now)]
+        [TestCase(OFFSET + 1)]
         public void TestStopConsumeBeforeFetchLoop(long offset)
         {
             var node = new Mock<INode>();
@@ -292,7 +297,14 @@ namespace tests_kafka_sharp
             });
 
             // Check
-            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Never());
+            if (offset < OFFSET)
+            {
+                node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Never());
+            }
+            else
+            {
+                node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Once);
+            }
         }
 
         [Test]
@@ -431,9 +443,396 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestStopAndStartConsume_SpecificOffsets()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+
+            var offsets = new List<long>();
+            consumer.MessageReceived += r => offsets.Add(r.Offset);
+
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+
+            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            {
+                Response = new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<FetchPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData = new[]
+                            {
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = PARTITION,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            consumer.StopConsume(TOPIC, PARTITION, OFFSET + 1); // Should correspond to OFFSET + 2
+
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2));
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET)), Times.Once);
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Once);
+
+            // Should be ignored
+            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            {
+                Response = new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<FetchPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData = new[]
+                            {
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = PARTITION,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET + 3, Message = new Message()},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            // No operation is pending, everything has been acknowledged, let's resume
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET + 1); // Should trigger fetch on OFFSET + 1 again
+
+            // Check
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(3));
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET)), Times.Once);
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Once);
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 1)), Times.Once);
+            Assert.That(offsets, Is.EquivalentTo(new[] { OFFSET, OFFSET + 1, OFFSET + 2 }));
+        }
+
+        [Test]
+        // Test restart on a stopped partition when there are no pending operation
+        // i.e. Restart is sent after Stop has been fully completed
+        public void TestResume_NoOperationPending()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+
+            var offsets = new List<long>();
+            consumer.MessageReceived += r => offsets.Add(r.Offset);
+
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+
+            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            {
+                Response = new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<FetchPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData = new[]
+                            {
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = PARTITION,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            consumer.StopConsume(TOPIC, PARTITION, Offsets.Now); // Should correspond to OFFSET + 2
+
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2));
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET)), Times.Once);
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Once);
+
+            // Should be ignored
+            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            {
+                Response = new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<FetchPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData = new[]
+                            {
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = PARTITION,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET + 3, Message = new Message()},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            // No operation is pending, everything has been acknowledged, let's resume
+            consumer.StartConsume(TOPIC, PARTITION, Offsets.Now); // Should trigger fetch on OFFSET + 3 again
+
+            // Check
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(3));
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Exactly(2));
+            Assert.That(offsets, Is.EquivalentTo(new[] { OFFSET, OFFSET + 1, OFFSET + 2 }));
+        }
+
+        [Test]
+        // Test restart on a stopped partition when there are still pending operations
+        // i.e. Restart is sent while previous stop operation is not fully completed
+        public void TestResume_FetchPending()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+
+            var offsets = new List<long>();
+            consumer.MessageReceived += r => offsets.Add(r.Offset);
+
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+
+            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            {
+                Response = new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<FetchPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData = new[]
+                            {
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = PARTITION,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
+                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            consumer.StopConsume(TOPIC, PARTITION, Offsets.Now); // Should correspond to OFFSET + 2
+
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2));
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET)), Times.Once);
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Once);
+
+            // Fetch operation is pending, let's resume
+            consumer.StartConsume(TOPIC, PARTITION, Offsets.Now); // Should not trigger anything
+
+            // No Fetch, we're still waiting fro previous Fetch to be acknowledged
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2));
+
+            // Should trigger new Fetch
+            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            {
+                Response = new CommonResponse<FetchPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<FetchPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData = new[]
+                            {
+                                new FetchPartitionResponse
+                                {
+                                    ErrorCode = ErrorCode.NoError,
+                                    Partition = PARTITION,
+                                    HighWatermarkOffset = 432515L,
+                                    Messages = new List<ResponseMessage>
+                                    {
+                                        new ResponseMessage {Offset = OFFSET + 3, Message = new Message()},
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            // Check
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(3));
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 4)), Times.Once);
+            Assert.That(offsets, Is.EquivalentTo(new[] { OFFSET, OFFSET + 1, OFFSET + 2, OFFSET + 3 }));
+        }
+
+        [Test]
+        // Test restart on a stopped partition when there are still list offset pending operations
+        // i.e. Restart is sent while previous stop operation is not fully completed and stop was sent
+        // while we were waiting for a list operation to complete
+        public void TestResume_OffsetPending()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+
+            consumer.StartConsume(TOPIC, PARTITION, Offsets.Latest);
+
+            consumer.StopConsume(TOPIC, PARTITION, Offsets.Now);
+
+            // Check no fetch has been sent
+            node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Once);
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Never());
+
+            // Offset operation is pending, let's resume
+            consumer.StartConsume(TOPIC, PARTITION, Offsets.Now);
+
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Never);
+
+            // Should trigger new Fetch
+            consumer.Acknowledge(new CommonAcknowledgement<OffsetPartitionResponse>
+            {
+                Response = new CommonResponse<OffsetPartitionResponse>
+                {
+                    TopicsResponse = new[]
+                    {
+                        new TopicData<OffsetPartitionResponse>
+                        {
+                            TopicName = TOPIC,
+                            PartitionsData =
+                                new[]
+                                {
+                                    new OffsetPartitionResponse
+                                    {
+                                        ErrorCode = ErrorCode.NoError,
+                                        Partition = PARTITION,
+                                        Offsets = new[] {OFFSET}
+                                    }
+                                }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            // Check
+            node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Once);
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET)), Times.Once);
+        }
+
+        [Test]
         public void TestOffsetResponseIsFollowedByFetchRequest_NoError()
         {
             var node = new Mock<INode>();
+            node.Setup(n => n.Fetch(It.IsAny<FetchMessage>())).Returns(true);
+            node.Setup(n => n.Offset(It.IsAny<OffsetMessage>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(() =>
@@ -513,6 +912,8 @@ namespace tests_kafka_sharp
         public void TestFetchResponseIsFollowedByFetchRequest_NoError()
         {
             var node = new Mock<INode>();
+            node.Setup(n => n.Fetch(It.IsAny<FetchMessage>())).Returns(true);
+            node.Setup(n => n.Offset(It.IsAny<OffsetMessage>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(() =>
@@ -641,13 +1042,14 @@ namespace tests_kafka_sharp
             var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             consumer.StopConsume(TOPIC, PARTITION, OFFSET + 1);
-            int messageReceivedRaised = 0;
+            var offsets = new List<long>();
+            var partitions = new List<int>();
+            var topics = new List<string>();
             consumer.MessageReceived += kr =>
             {
-                Assert.AreEqual(TOPIC, kr.Topic);
-                Assert.AreEqual(PARTITION, kr.Partition);
-                Assert.IsTrue(kr.Offset == OFFSET || kr.Offset == OFFSET + 1);
-                ++messageReceivedRaised;
+                offsets.Add(kr.Offset);
+                partitions.Add(kr.Partition);
+                topics.Add(kr.Topic);
             };
             consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
             {
@@ -679,7 +1081,10 @@ namespace tests_kafka_sharp
                 },
                 ReceivedDate = DateTime.UtcNow
             });
-            Assert.AreEqual(2, messageReceivedRaised);
+
+            Assert.That(offsets, Is.EquivalentTo(new[] { OFFSET, OFFSET + 1 }));
+            Assert.That(partitions, Is.EquivalentTo(new[] { PARTITION, PARTITION }));
+            Assert.That(topics, Is.EquivalentTo(new[] { TOPIC, TOPIC }));
         }
 
         [Test]
@@ -712,6 +1117,44 @@ namespace tests_kafka_sharp
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
 
             Assert.AreEqual(1, postponedRaised);
+        }
+
+        [Test]
+        public void TestPostponeIfNodeDead()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.SetupGet(c => c.Logger).Returns(new DevNullLogger());
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    () =>
+                        Task.FromResult(
+                            new RoutingTable(new Dictionary<string, Partition[]>
+                            {
+                                { TOPIC, new[] { new Partition { Id = PARTITION, Leader = node.Object }, } }
+                            })));
+
+            var configuration = new Configuration
+            {
+                TaskScheduler = new CurrentThreadTaskScheduler(),
+                BatchStrategy = BatchStrategy.Global,
+                ConsumeBatchSize = 1,
+                ConsumeBufferingTime = TimeSpan.FromMilliseconds(1000000)
+            };
+
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            string topic = "";
+            int partition = -1;
+            consumer.FetchPostponed += (t, p) =>
+            {
+                topic = t;
+                partition = p;
+            };
+
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+            
+            Assert.AreEqual(TOPIC, topic);
+            Assert.AreEqual(PARTITION, partition);
         }
     }
 }

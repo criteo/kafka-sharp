@@ -174,7 +174,7 @@ namespace tests_kafka_sharp
             return Task.FromResult(_response);
         }
 
-        public Task<MetadataResponse> FetchMetadata(string topic)
+        public Task<MetadataResponse> FetchMetadata(IEnumerable<string> topic)
         {
             return Task.FromResult(_response);
         }
@@ -185,6 +185,42 @@ namespace tests_kafka_sharp
         }
 
         public Task<long> GetLatestOffset(string topic, int partition)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<GroupCoordinatorResponse> GetGroupCoordinator(string groupId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<ErrorCode> Heartbeat(string groupId, int generationId, string memberId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<JoinConsumerGroupResponse> JoinConsumerGroup(string groupId, string memberId, int sessionTimeout, int rebalanceTimeout,
+            IEnumerable<string> subscription)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<SyncConsumerGroupResponse> SyncConsumerGroup(string groupId, string memberId, int generation, IEnumerable<ConsumerGroupAssignment> assignments)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<ErrorCode> LeaveGroup(string groupId, string memberId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<CommonResponse<PartitionCommitData>> Commit(string groupId, int generation, string memberId, long retentionTime, IEnumerable<TopicData<OffsetCommitPartitionData>> topicsData)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<CommonResponse<PartitionOffsetData>> FetchOffsets(string groupId, IEnumerable<TopicData<PartitionAssignment>> topicsData)
         {
             throw new NotImplementedException();
         }
@@ -247,12 +283,22 @@ namespace tests_kafka_sharp
             throw new NotImplementedException();
         }
 
+        public Task<INode> GetGroupCoordinator(string @group)
+        {
+            throw new NotImplementedException();
+        }
+
         public IStatistics Statistics
         {
             get { return new Statistics(); }
         }
 
         public Task<int[]> RequireAllPartitionsForTopic(string topic)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<IDictionary<string, int[]>> RequireAllPartitionsForTopics(IEnumerable<string> topic)
         {
             throw new NotImplementedException();
         }
@@ -461,6 +507,16 @@ namespace tests_kafka_sharp
             return new ReusableMemoryStream(null);
         }
 
+        public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data) where TResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
+        }
+
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
         {
             return new MetadataResponse();
@@ -499,6 +555,16 @@ namespace tests_kafka_sharp
         public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
             return new ReusableMemoryStream(null);
+        }
+
+        public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data) where TResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
         }
 
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
@@ -540,6 +606,16 @@ namespace tests_kafka_sharp
         public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
             return new ReusableMemoryStream(null);
+        }
+
+        public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data) where TResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
         }
 
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
@@ -658,6 +734,16 @@ namespace tests_kafka_sharp
         public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
         {
             return new ReusableMemoryStream(null);
+        }
+
+        public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data) where TResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
         }
 
         public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)

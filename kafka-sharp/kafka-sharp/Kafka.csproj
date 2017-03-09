@@ -70,6 +70,11 @@
     <Compile Include="Batching\BatchStrategy.cs" />
     <Compile Include="Batching\Grouping.cs" />
     <Compile Include="Cluster\Cluster.cs" />
+    <Compile Include="Protocol\ConsumerGroupRequests.cs" />
+    <Compile Include="Protocol\ConsumerGroupResponses.cs" />
+    <Compile Include="Protocol\GroupCoordinationRequests.cs" />
+    <Compile Include="Protocol\GroupCoordinationResponses.cs" />
+    <Compile Include="Public\Exceptions.cs" />
     <Compile Include="Public\Loggers\ConsoleLogger.cs" />
     <Compile Include="Public\Loggers\DevNullLogger.cs" />
     <Compile Include="Cluster\Pools.cs" />
@@ -108,6 +113,7 @@
     <Compile Include="Public\KafkaRecord.cs" />
     <Compile Include="Public\Serialization.cs" />
     <Compile Include="Public\Statistics.cs" />
+    <Compile Include="Routing\ConsumerGroup.cs" />
     <Compile Include="Routing\ConsumerRouter.cs" />
     <Compile Include="Routing\PartitionSelector.cs" />
     <Compile Include="Routing\ProducerRouter.cs" />

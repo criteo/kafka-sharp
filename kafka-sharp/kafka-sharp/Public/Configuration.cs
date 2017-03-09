@@ -287,4 +287,47 @@ namespace Kafka.Public
         /// </summary>
         public SerializationConfig SerializationConfig = new SerializationConfig();
     }
+
+    public enum Offset
+    {
+        Earliest = -2,
+        Lastest = -1
+    }
+
+    /// <summary>
+    /// A class used to configure one consumer group
+    /// </summary>
+    public class ConsumerGroupConfiguration
+    {
+        /// <summary>
+        /// Maximum time between two Heartbeat requests
+        /// </summary>
+        public int SessionTimeoutMs = 15000;
+
+        /// <summary>
+        /// Maximum time to rejoin when a rebalance occurs
+        /// </summary>
+        public int RebalanceTimeoutMs = 10000;
+
+        /// <summary>
+        /// If > 0, offsets will be autocommitted at this rate
+        /// </summary>
+        public int AutoCommitEveryMs = -1;
+
+        /// <summary>
+        /// Time to keep committed offsets on the broker side.
+        /// </summary>
+        public long OffsetRetentionTimeMs = -1;
+
+        /// <summary>
+        /// If no saved offset is found when joining a group, start consumeing from
+        /// this offset
+        /// </summary>
+        public Offset DefaultOffsetToReadFrom = Offset.Earliest;
+
+        /// <summary>
+        /// Time to wait before retrying to discover a coordinator
+        /// </summary>
+        public TimeSpan CoordinatorDiscoveryRetryTime = TimeSpan.FromMilliseconds(5000);
+    }
 }

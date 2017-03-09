@@ -9,6 +9,7 @@ are streaming a large number of messages across a fair number of topics.
 
 * Fully asynchronous batched Producer
 * Simple asynchronous event based Consumer
+* Consumer groups support
 * No Zookeeper dependency
 * Compression support (both Gzip and Snappy)
 * High configurability
@@ -24,6 +25,8 @@ to Produce and Consume operations.
 
 		cluster.MessageReceived += kafkaRecord => { /* do something */ };
 		cluster.ConsumeFromLatest("some_topic", somePartition);
+		// OR (for consumer group usage)
+		cluster.Subscribe("some group", new[] { "topic" }, new ConsumerGroupConfiguration);
 
 ## Producer
 
@@ -70,11 +73,15 @@ some messages are signaled through events.
 
 ## Consumer
 
-Only a simple Consumer is provided (currently no support for ConsumerGroup). You can discover topics and partitions
-and choose which ones to consume. Messages are received as a stream of events. The API is accessed either through
-`ClusterClient` (untyped API) or `KafkaConsumer` (typed API). For a given topic and a given partition you can start to
-consume from the latest offset, the earliest offset or any specific offset you chose. You can also
-start to consume all partitions from a given topic from the latest or the earliest offset.
+You can either consume messages as member of a consumer group or as a standalone simple consumer. In simple mode
+you can discover topics and partitions and choose which ones to consume. In consumer group mode you just start
+a subscription and let the protocol handle the partition attribution.
+
+Messages are received as a stream of events. The API is accessed either through
+`ClusterClient` (untyped API) or `KafkaConsumer` (typed API). When using a consumer group you can manage offsets
+via specifying an autcommit period or requiring commits directly (or mix both). In simple mode you can directly specify
+which offsets to start consuming from (including latest and earliest offsets). `Pause` and `Resume` methods are available
+in both mode to stop / resume consuimg from a topic.
 
 ### Deserialization
 
@@ -84,7 +91,7 @@ You can provide a deserializer for each topic so that messages are returned as o
 
 The client is configured via the `Configuration` class, by setting the following properties:
 
-		/// <summary>
+	/// <summary>
         /// Maximum amount a message can stay alive before being discard in case of repeated errors.
         /// </summary>
         public TimeSpan MessageTtl = TimeSpan.FromMinutes(1);
@@ -143,6 +150,18 @@ The client is configured via the `Configuration` class, by setting the following
         /// Acknowledgements required.
         /// </summary>
         public RequiredAcks RequiredAcks = RequiredAcks.AllInSyncReplicas;
+
+	/// <summary>
+        /// Minimum in sync replicas required to consider a partition as alive.
+        /// <= 0 means only leader is required.
+        /// </summary>
+        public int MinInSyncReplicas = -1;
+
+        /// <summary>
+        /// If you use MinInSyncReplicas and a broker replies with the NotEnoughReplicasAfterAppend error,
+        /// we will resend the messages if this value is true.
+        /// </summary>
+        public bool RetryIfNotEnoughReplicasAfterAppend = false;
 
         /// <summary>
         /// Kafka server side timeout for requests.
@@ -269,7 +288,9 @@ disposed when the messages have effectively been sent (you may take advantage of
 mechanism for keys/values).
 
 When consuming messages, the `FetchMessageMaxBytes` configuration option can help limit the maximum amount of
-data retrieved in consumer operations.
+data retrieved in consumer operations. Also the `MessageReceived` event is always emitted from one thread at a time
+and until the subscribers return the consumer will not perform any operation. You can take advantage of that
+to effectively throttle the consumer.
 
 
 ### Threading
@@ -279,7 +300,6 @@ your own TaskScheduler via the `TaskScheduler` configuration option. In any case
 all IO operations are non blocking and the driver never does blocking wait, so any concurrency configuration is only
 a hint on up to how many threads the driver may be using at a given time. If you don't provide your own TaskScheduler,
 the threads will be picked from the .NET ThreadPool. By default the driver will use at most 3 threads from the threadpool.
-
 
 ## Acknowledgements
 

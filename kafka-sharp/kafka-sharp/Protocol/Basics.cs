@@ -263,16 +263,6 @@ namespace Kafka.Protocol
             return array;
         }
 
-        public static byte[] DeserializeByteArray(ReusableMemoryStream stream)
-        {
-            var len = BigEndianConverter.ReadInt32(stream);
-            if (len == -1)
-                return null;
-            var buff = new byte[len];
-            stream.Read(buff, 0, len);
-            return buff;
-        }
-
         public static object DeserializeByteArray(ReusableMemoryStream stream, IDeserializer deserializer)
         {
             var len = BigEndianConverter.ReadInt32(stream);

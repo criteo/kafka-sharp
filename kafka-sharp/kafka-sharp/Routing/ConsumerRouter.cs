@@ -2,6 +2,7 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -38,12 +39,39 @@ namespace Kafka.Routing
         void StartConsume(string topic, int partition, long offset);
 
         /// <summary>
+        /// Start consuming from a consumer group subscription.
+        /// </summary>
+        /// <param name="group"></param>
+        /// <param name="topics"></param>
+        void StartConsumeSubscription(IConsumerGroup group, IEnumerable<string> topics);
+
+        /// <summary>
         /// Stop consuming a given topic / partition once the given offset is reached.
         /// </summary>
         /// <param name="topic">Topic to stop consuming from.</param>
         /// <param name="partition">Topic to stop consuming from. -1 means all.</param>
         /// <param name="offset">Stop consuming once this offset is reached. Offsets.Now (aka -42) means now.</param>
         void StopConsume(string topic, int partition, long offset);
+
+        /// <summary>
+        /// Commit offsets if linked to a consumer group.
+        /// This is a fire and forget commit: the consumer will commit offsets at the next
+        /// possible occasion. In particular if this is fired from inside a MessageReceived handler, commit
+        /// will occur just after returning from the handler.
+        /// Offsets commited are all the the offsets of the messages that have been sent through MessageReceived.
+        /// </summary>
+        void RequireCommit();
+
+        /// <summary>
+        /// Commit the given offset for the given offset/partition. This is a fined grained
+        /// asynchronous commit. When this method async returns, given offsets will have
+        /// effectively been committed.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <param name="offset"></param>
+        /// <returns></returns>
+        Task CommitAsync(string topic, int partition, long offset);
 
         /// <summary>
         /// Acknowledge a response from a fetch request.
@@ -76,8 +104,8 @@ namespace Kafka.Routing
         public const long Latest = -1; // From Kafka protocol
         public const long Earliest = -2; // From Kafka protocol
         public const long Now = -42;
-        public const long None = -42;
-        public const long Never = -42;
+        public const long None = -43;
+        public const long Never = -44;
     }
 
     /// <summary>
@@ -223,7 +251,10 @@ namespace Kafka.Routing
             CheckPostponed,
             CheckPostponedAfterRoutingTableChange,
             Start,
-            Stop
+            Stop,
+            StartSubscription,
+            Commit,
+            Heartbeat,
         }
 
         private struct ConsumerMessage
@@ -239,6 +270,14 @@ namespace Kafka.Routing
             public int Partition;
         }
 
+        class CommitMsg
+        {
+            public TaskCompletionSource<bool> CommitPromise;
+            public string Topic;
+            public long Offset;
+            public int Partition;
+        }
+
         [StructLayout(LayoutKind.Explicit)]
         struct ConsumerMessageValue
         {
@@ -249,15 +288,20 @@ namespace Kafka.Routing
             public CommonAcknowledgement<OffsetPartitionResponse> OffsetResponse;
 
             [FieldOffset(0)]
+            public IEnumerable<string> Subscription;
+
+            [FieldOffset(0)]
             public TopicOnOff Topic;
+
+            [FieldOffset(0)]
+            public CommitMsg CommitMsg;
         }
 
         #endregion
 
         private class PartitionState
         {
-            public long LastOffsetSeen;
-            public long NextOffsetExpected;
+            public long NextOffset;
             public long StopAt = Offsets.Never;
             public bool Active;
             public bool Postponed;
@@ -271,6 +315,12 @@ namespace Kafka.Routing
         private readonly ActionBlock<ConsumerMessage> _innerActor;
 
         private RoutingTable _routingTable = new RoutingTable();
+        private IEnumerable<string> _subscription;
+        private IDictionary<string, ISet<PartitionOffset>> _partitionAssignments = new Dictionary<string, ISet<PartitionOffset>>();
+        private IConsumerGroup _consumerGroup;
+        private Timer _heartbeatTimer;
+        private Timer _commitTimer;
+        private volatile bool _commitRequired;
 
         // Active when there are some postponed topic/partition, it checks regurlarly
         // if they can be fetched again
@@ -314,8 +364,24 @@ namespace Kafka.Routing
             }
             else
             {
-                _fetchBatchStrategy = new GlobalFetchBatchingStrategy(configuration, (n, b) => n.Post(b));
-                _offsetBatchStrategy = new GlobalOffsetBatchingStrategy(configuration, (n, b) => n.Post(b));
+                _fetchBatchStrategy = new GlobalFetchBatchingStrategy(configuration, (n, b) =>
+                {
+                    if (n.Post(b))
+                        return;
+                    foreach (var fm in b.SelectMany(g => g))
+                    {
+                        Postpone(fm.Topic, fm.Partition);
+                    }
+                });
+                _offsetBatchStrategy = new GlobalOffsetBatchingStrategy(configuration, (n, b) =>
+                {
+                    if (n.Post(b))
+                        return;
+                    foreach (var om in b.SelectMany(g => g))
+                    {
+                        Postpone(om.Topic, om.Partition);
+                    }
+                });
             }
         }
 
@@ -325,6 +391,16 @@ namespace Kafka.Routing
             await _innerActor.Completion;
             _fetchBatchStrategy.Dispose();
             _offsetBatchStrategy.Dispose();
+            if (_consumerGroup != null)
+            {
+                await CommitAll();
+                await _consumerGroup.LeaveGroup();
+                _heartbeatTimer.Dispose();
+                if (_commitTimer != null)
+                {
+                    _commitTimer.Dispose();
+                }
+            }
         }
 
         /// <summary>
@@ -379,6 +455,20 @@ namespace Kafka.Routing
                     {
                         Topic = new TopicOnOff {Topic = topic, Offset = offset, Partition = partition}
                     }
+            });
+        }
+
+        public void StartConsumeSubscription(IConsumerGroup group, IEnumerable<string> topics)
+        {
+            if (_consumerGroup != null)
+            {
+                throw new ArgumentException(string.Format("A subscription was already started for this consumer (using group id {0})", _consumerGroup.GroupId));
+            }
+            _consumerGroup = group;
+            _innerActor.Post(new ConsumerMessage
+            {
+                MessageType = ConsumerMessageType.StartSubscription,
+                MessageValue = new ConsumerMessageValue { Subscription = topics.ToArray() }
             });
         }
 
@@ -471,11 +561,72 @@ namespace Kafka.Routing
                     case ConsumerMessageType.CheckPostponedAfterRoutingTableChange:
                         CheckPostponed();
                         break;
+
+                    case ConsumerMessageType.StartSubscription:
+                        await HandleStartSubscription(message.MessageValue.Subscription);
+                        break;
+
+                    case ConsumerMessageType.Heartbeat:
+                        await HandleHeartbeat();
+                        break;
+
+                    case ConsumerMessageType.Commit:
+                        await CheckCommit(message.MessageValue.CommitMsg);
+                        break;
                 }
             }
             catch (Exception ex)
             {
                 InternalError(ex);
+            }
+        }
+
+        private async Task HandleStartSubscription(IEnumerable<string> subscription)
+        {
+            _subscription = subscription;
+
+            await JoinGroup();
+
+            _heartbeatTimer =
+                new Timer(_ => _innerActor.Post(new ConsumerMessage { MessageType = ConsumerMessageType.Heartbeat }),
+                    null, TimeSpan.FromMilliseconds(_consumerGroup.Configuration.SessionTimeoutMs / 2.0),
+                    TimeSpan.FromMilliseconds(_consumerGroup.Configuration.SessionTimeoutMs / 2.0));
+            if (_consumerGroup.Configuration.AutoCommitEveryMs > 0)
+            {
+                _commitTimer = new Timer(_ => RequireCommit(), null,
+                    TimeSpan.FromMilliseconds(_consumerGroup.Configuration.AutoCommitEveryMs),
+                    TimeSpan.FromMilliseconds(_consumerGroup.Configuration.AutoCommitEveryMs));
+            }
+        }
+
+        /// <summary>
+        /// (Re)join a consumer group, starting all new assigned partitions
+        /// </summary>
+        /// <returns></returns>
+        private async Task JoinGroup()
+        {
+            try
+            {
+                var joined = await _consumerGroup.Join(_subscription);
+
+                foreach (var assignment in joined.Assignments)
+                {
+                    foreach (var p in assignment.Value)
+                    {
+                        if (!IsAssigned(assignment.Key, p.Partition))
+                        {
+                            StartConsume(assignment.Key, p.Partition, p.Offset);
+                        }
+                    }
+                }
+
+                _partitionAssignments = joined.Assignments;
+            }
+            catch (Exception ex)
+            {
+                _cluster.Logger.LogError(string.Format("Some exception occured while trying to join group {0} - {1}",
+                    _consumerGroup.GroupId, ex));
+                _partitionAssignments = new Dictionary<string, ISet<PartitionOffset>>();
             }
         }
 
@@ -501,20 +652,26 @@ namespace Kafka.Routing
             }
             else
             {
-                while (partitions == null)
+                if (_consumerGroup != null)
                 {
-                    try
-                    {
-                        partitions = await _cluster.RequireAllPartitionsForTopic(topicOnOff.Topic);
-                    }
-                    catch
-                    {
-                        // Means the cluster is kind of dead, ignore and retry, there's not much else
-                        // to do anyway since we won't be able to send more fetch requests until
-                        // some node is available.
-                        // TODO: be verbose?
-                    }
+                    // (Re)start all assigned partitions
+                    partitions = _partitionAssignments[topicOnOff.Topic].Select(po => po.Partition).ToArray();
                 }
+                else
+                    while (partitions == null)
+                    {
+                        try
+                        {
+                            partitions = await _cluster.RequireAllPartitionsForTopic(topicOnOff.Topic);
+                        }
+                        catch
+                        {
+                            // Means the cluster is kind of dead, ignore and retry, there's not much else
+                            // to do anyway since we won't be able to send more fetch requests until
+                            // some node is available.
+                            // TODO: be verbose?
+                        }
+                    }
             }
 
             foreach (int partition in partitions)
@@ -526,25 +683,54 @@ namespace Kafka.Routing
                     states = new Dictionary<int, PartitionState>();
                     _partitionsStates[topicOnOff.Topic] = states;
                 }
-                var state = new PartitionState
+                PartitionState state;
+                if (!states.TryGetValue(partition, out state))
                 {
-                    LastOffsetSeen = Offsets.None,
-                    NextOffsetExpected = topicOnOff.Offset,
-                    Active = true,
-                    Postponed = false
-                };
-                states[partition] = state;
-
-                // Known offset => FetchRequest
-                if (topicOnOff.Offset >= 0)
-                {
-                    await Fetch(topicOnOff.Topic, partition, topicOnOff.Offset);
+                    state = new PartitionState { NextOffset = topicOnOff.Offset, Active = false, Postponed = false };
+                    states[partition] = state;
                 }
-                // Unknown offset => OffsetRequest
+
+                // Already active partitions are not (re)started
+                if (!state.Active)
+                {
+                    await HandleStartPartition(partition, state, topicOnOff);
+                }
+                else // But we change back their StopAt mark
+                {
+                    state.StopAt = Offsets.Never;
+                }
+            }
+        }
+
+        private async Task HandleStartPartition(int partition, PartitionState state, TopicOnOff startInfo)
+        {
+            // Activate partition
+            state.Active = true;
+            state.StopAt = Offsets.Never;
+
+            // Known offset => FetchRequest
+            if (startInfo.Offset >= 0)
+            {
+                state.NextOffset = startInfo.Offset;
+                await Fetch(startInfo.Topic, partition, startInfo.Offset);
+            }
+            // Restart from last known offset
+            else if (startInfo.Offset == Offsets.Now)
+            {
+                // last known offset was unknown => OffsetRequest
+                if (state.NextOffset < 0)
+                {
+                    await Offset(startInfo.Topic, partition, state.NextOffset);
+                }
                 else
                 {
-                    await Offset(topicOnOff.Topic, partition, topicOnOff.Offset);
+                    await Fetch(startInfo.Topic, partition, state.NextOffset);
                 }
+            }
+            // Unknown offset => OffsetRequest
+            else
+            {
+                await Offset(startInfo.Topic, partition, startInfo.Offset);
             }
         }
 
@@ -563,12 +749,22 @@ namespace Kafka.Routing
         /// <param name="topicOnOff"></param>
         private void HandleStop(TopicOnOff topicOnOff)
         {
+            if (!_partitionsStates.ContainsKey(topicOnOff.Topic))
+            {
+                return;
+            }
             foreach (
                 var partition in
                     topicOnOff.Partition == Partitions.All
                         ? _partitionsStates[topicOnOff.Topic].Keys
                         : Enumerable.Repeat(topicOnOff.Partition, 1))
             {
+                if (!IsAssigned(topicOnOff.Topic, partition))
+                {
+                    // Skip non assigned partitions in case of consumer group usage
+                    continue;
+                }
+
                 PartitionState state;
                 try
                 {
@@ -576,25 +772,176 @@ namespace Kafka.Routing
                 }
                 catch (Exception exception)
                 {
-                    // Topic / partition was probably not started
+                    // Topic / partition was probably never started
                     InternalError(exception);
                     continue;
                 }
 
-                if (topicOnOff.Offset == Offsets.Now ||
-                    (topicOnOff.Offset >= 0 && state.LastOffsetSeen > topicOnOff.Offset))
+                if (topicOnOff.Offset == Offsets.Now || (topicOnOff.Offset >= 0 && state.NextOffset > topicOnOff.Offset))
                 {
-                    state.Active = false;
-                    state.Postponed = false;
-                    continue;
+                    if (state.Postponed)
+                    {
+                        state.Postponed = false;
+                        state.Active = false;
+                    }
+                    else
+                    {
+                        state.StopAt = topicOnOff.Offset == Offsets.Now ? state.NextOffset - 1 : topicOnOff.Offset;
+                        if (state.StopAt < 0)
+                            state.StopAt = Offsets.Now;
+                    }
                 }
-
-                if (topicOnOff.Offset < 0)
+                else if (topicOnOff.Offset < 0)
                 {
-                    continue;
+                    // nothing to do
                 }
+                else
+                {
+                    state.StopAt = topicOnOff.Offset;
+                }
+            }
+        }
 
-                state.StopAt = topicOnOff.Offset;
+        private static readonly Task DoneTask = Task.FromResult(true);
+
+        private DateTime _lastHeartBeat;
+
+        private Task CheckHeartbeat()
+        {
+            if (_consumerGroup != null
+                && (DateTime.UtcNow - _lastHeartBeat).TotalMilliseconds
+                    > _consumerGroup.Configuration.SessionTimeoutMs / 2.0)
+            {
+                return HandleHeartbeat();
+            }
+            return DoneTask;
+        }
+
+        private Task CheckCommit(CommitMsg commit)
+        {
+            return commit != null ? CommitOne(commit) : _commitRequired ? CommitAll() : DoneTask;
+        }
+
+        private async Task CommitOne(CommitMsg commit)
+        {
+            try
+            {
+                await
+                    _consumerGroup.Commit(
+                        Enumerable.Repeat(
+                            new TopicData<OffsetCommitPartitionData>
+                            {
+                                TopicName = commit.Topic,
+                                PartitionsData =
+                                    Enumerable.Repeat(
+                                        new OffsetCommitPartitionData
+                                        {
+                                            Partition = commit.Partition,
+                                            Offset = commit.Offset,
+                                            Metadata = ""
+                                        }, 1)
+                            }, 1));
+                commit.CommitPromise.SetResult(true);
+            }
+            catch (Exception ex)
+            {
+                _cluster.Logger.LogError("Exception caught while trying to commit offsets. " + ex);
+                commit.CommitPromise.SetException(ex);
+            }
+        }
+
+        private async Task CommitAll()
+        {
+            try
+            {
+                await
+                    _consumerGroup.Commit(
+                        _partitionsStates.Select(
+                            tp =>
+                                new TopicData<OffsetCommitPartitionData>
+                                {
+                                    TopicName = tp.Key,
+                                    PartitionsData =
+                                        tp.Value.Where(ps => ps.Value.Active)
+                                            .Select(
+                                                ps =>
+                                                    new OffsetCommitPartitionData
+                                                    {
+                                                        Partition = ps.Key,
+                                                        Offset = ps.Value.NextOffset,
+                                                        Metadata = ""
+                                                    })
+                                }));
+            }
+            catch(Exception ex)
+            {
+                _cluster.Logger.LogError("Exception caught while trying to commit offsets. " + ex);
+            }
+            _commitRequired = false;
+        }
+
+        public void RequireCommit()
+        {
+            _commitRequired = true;
+            _innerActor.Post(new ConsumerMessage { MessageType = ConsumerMessageType.Commit });
+        }
+
+        public Task CommitAsync(string topic, int partition, long offset)
+        {
+            var promise = new TaskCompletionSource<bool>();
+            _innerActor.Post(new ConsumerMessage
+            {
+                MessageType = ConsumerMessageType.Commit,
+                MessageValue =
+                    new ConsumerMessageValue
+                    {
+                        CommitMsg =
+                            new CommitMsg
+                            {
+                                CommitPromise = promise,
+                                Offset = offset,
+                                Partition = partition,
+                                Topic = topic
+                            }
+                    }
+            });
+            return promise.Task;
+        }
+
+        // Send an heartbeat request. In case of errors, will start a
+        // join group procedure. If the error was RebalanceInProgress, will
+        // also commit offsets before rejoining.
+        private async Task HandleHeartbeat()
+        {
+            bool mustRejoin = false;
+            try
+            {
+                var result = await _consumerGroup.Heartbeat();
+                _lastHeartBeat = DateTime.UtcNow;
+                if (result != ErrorCode.NoError)
+                {
+                    _cluster.Logger.LogInformation(
+                        string.Format("Consumer group \"{0}\" rebalance required (heartbeat returned {1})",
+                            _consumerGroup.GroupId, result));
+                    mustRejoin = true;
+                    if (result == ErrorCode.RebalanceInProgress)
+                    {
+                        // Save offsets before rejoining
+                        await CommitAll();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                _cluster.Logger.LogError(
+                    string.Format("Consumer group \"{0}\" rebalance required (coordinator node dead).",
+                        _consumerGroup.GroupId));
+                mustRejoin = true;
+            }
+
+            if (mustRejoin)
+            {
+                await JoinGroup();
             }
         }
 
@@ -646,7 +993,8 @@ namespace Kafka.Routing
         private async Task HandleOffsetPartitionResponse(string topic, OffsetPartitionResponse partitionResponse)
         {
             var state = _partitionsStates[topic][partitionResponse.Partition];
-            if (!state.Active)
+
+            if (!CheckActivity(state, topic, partitionResponse.Partition))
             {
                 return;
             }
@@ -655,16 +1003,17 @@ namespace Kafka.Routing
             if (partitionResponse.Offsets.Length == 0)
             {
                 // there was an error, retry
-                await Offset(topic, partitionResponse.Partition, state.NextOffsetExpected);
+                await Offset(topic, partitionResponse.Partition, state.NextOffset);
             }
             else
             {
                 // start Fetch loop
                 var nextOffset = partitionResponse.Offsets[0];
-                if (state.StopAt < 0 || nextOffset <= state.StopAt)
+
+                if (state.StopAt == Offsets.Never || nextOffset <= state.StopAt)
                 {
-                    state.NextOffsetExpected = nextOffset;
-                    await Fetch(topic, partitionResponse.Partition, state.NextOffsetExpected);
+                    state.NextOffset = nextOffset;
+                    await Fetch(topic, partitionResponse.Partition, state.NextOffset);
                 }
                 else
                 {
@@ -678,6 +1027,16 @@ namespace Kafka.Routing
             return HandleResponse(fetchResponse, HandleFetchPartitionResponse, IsPartitionOkForClients);
         }
 
+        private bool CheckActivity(PartitionState state, string topic, int partition)
+        {
+            if (!IsAssigned(topic, partition))
+            {
+                state.Active = false;
+            }
+
+            return state.Active;
+        }
+
         /// <summary>
         /// Handle a partition response for a given topic: filter out of range messages
         /// (can happen when receiving compressed messages), update the partitions states for the
@@ -689,49 +1048,59 @@ namespace Kafka.Routing
         private async Task HandleFetchPartitionResponse(string topic, FetchPartitionResponse partitionResponse)
         {
             var state = _partitionsStates[topic][partitionResponse.Partition];
-            if (!state.Active)
-            {
-                return;
-            }
 
-            // Filter messages under required offset, this may happen when receiving
-            // compressed messages. The Kafka protocol specifies it's up to the client
-            // to filter out those messages. We also filter messages with offset greater
-            // than the required stop offset if set.
-            foreach (
-                var message in
+            if (CheckActivity(state, topic, partitionResponse.Partition))
+            {
+                // Filter messages under required offset, this may happen when receiving
+                // compressed messages. The Kafka protocol specifies it's up to the client
+                // to filter out those messages. We also filter messages with offset greater
+                // than the required stop offset if set.
+                long firstRequired = state.NextOffset;
+                foreach (var message in
                     partitionResponse.Messages.Where(
                         message =>
-                            message.Offset >= state.NextOffsetExpected &&
-                            (state.StopAt < 0 || message.Offset <= state.StopAt)))
-            {
-                state.LastOffsetSeen = message.Offset;
-                MessageReceived(new RawKafkaRecord
+                            message.Offset >= firstRequired
+                                && (state.StopAt < 0 || message.Offset <= state.StopAt)))
+                {
+                    MessageReceived(new RawKafkaRecord
                     {
                         Topic = topic,
                         Key = message.Message.Key,
                         Value = message.Message.Value,
                         Offset = message.Offset,
+                        Lag = partitionResponse.HighWatermarkOffset - message.Offset,
                         Partition = partitionResponse.Partition
                     });
+                    state.NextOffset = message.Offset + 1;
+
+                    await CheckHeartbeat();
+                    await CheckCommit(null);
+
+                    // Recheck status (may have changed if heartbeat triggered rebalance)
+                    // TODO: is it really useful to check for heartbeat/commit after each message ?
+                    // It's merely a defense versus bad message handler, maybe we don't care and
+                    // just better check only at the beginning of partition processing.
+                    if (!CheckActivity(state, topic, partitionResponse.Partition))
+                    {
+                        break;
+                    }
+                }
             }
 
             ResponseMessageListPool.Release(partitionResponse.Messages);
 
+            await CheckCommit(null);
+
             // Stop if we have seen the last required offset
             // TODO: what if we never see it?
-            if (state.StopAt != Offsets.Never && state.LastOffsetSeen >= state.StopAt)
+            if (!state.Active || (state.StopAt != Offsets.Never && state.NextOffset > state.StopAt))
             {
                 state.Active = false;
                 return;
             }
 
             // Loop fetch request
-            if (state.LastOffsetSeen >= Offsets.Some)
-            {
-                state.NextOffsetExpected = state.LastOffsetSeen + 1;
-            }
-            await Fetch(topic, partitionResponse.Partition, state.NextOffsetExpected);
+            await Fetch(topic, partitionResponse.Partition, state.NextOffset);
         }
 
         private async Task Fetch(string topic, int partition, long offset)
@@ -748,7 +1117,7 @@ namespace Kafka.Routing
         }
 
         // Code factorization for Fetch/Offset requests
-        private async Task NodeFetch(string topic, int partition, Action<INode> fetchAction)
+        private async Task NodeFetch(string topic, int partition, Func<INode, bool> fetchAction)
         {
             var leader = GetNodeForPartition(topic, partition);
             if (leader == null)
@@ -757,13 +1126,10 @@ namespace Kafka.Routing
                 leader = GetNodeForPartition(topic, partition);
             }
 
-            if (leader == null)
+            if (leader == null || !fetchAction(leader))
             {
                 Postpone(topic, partition);
-                return;
             }
-
-            fetchAction(leader);
         }
 
         private void Postpone(string topic, int partition)
@@ -798,26 +1164,34 @@ namespace Kafka.Routing
                         CheckStartTimer();
                         continue;
                     }
-                    if (kv2.Value.NextOffsetExpected >= 0)
+                    if (kv2.Value.NextOffset >= 0)
                     {
-                        _fetchBatchStrategy.Send(leader, new FetchMessage
+                        if (_fetchBatchStrategy.Send(leader,
+                            new FetchMessage
+                            {
+                                Topic = kv.Key,
+                                Partition = kv2.Key,
+                                Offset = kv2.Value.NextOffset
+                            }))
                         {
-                            Topic = kv.Key,
-                            Partition = kv2.Key,
-                            Offset = kv2.Value.NextOffsetExpected
-                        });
+                            kv2.Value.Postponed = false;
+                        }
                     }
                     else
                     {
-                        _offsetBatchStrategy.Send(leader, new OffsetMessage
+                        if (_offsetBatchStrategy.Send(leader,
+                            new OffsetMessage
+                            {
+                                Topic = kv.Key,
+                                Partition = kv2.Key,
+                                MaxNumberOfOffsets = 1,
+                                Time = kv2.Value.NextOffset
+                            }))
                         {
-                            Topic = kv.Key,
-                            Partition = kv2.Key,
-                            MaxNumberOfOffsets = 1,
-                            Time = kv2.Value.NextOffsetExpected
-                        });
+                            kv2.Value.Postponed = false;
+                        }
                     }
-                    kv2.Value.Postponed = false;
+                    
                 }
             }
         }
@@ -836,6 +1210,22 @@ namespace Kafka.Routing
         private INode GetNodeForPartition(string topic, int partition)
         {
             return _routingTable.GetLeaderForPartition(topic, partition);
+        }
+
+        bool IsAssigned(string topic, int partition)
+        {
+            if (_consumerGroup == null)
+            {
+                // No consumer group => partitions are always assigned to us
+                return true;
+            }
+
+            ISet<PartitionOffset> partitions;
+            if (_partitionAssignments.TryGetValue(topic, out partitions))
+            {
+                return partitions.Contains(new PartitionOffset { Partition = partition });
+            }
+            return false;
         }
     }
 }

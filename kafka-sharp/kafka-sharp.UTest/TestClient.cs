@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reactive.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -565,7 +566,7 @@ namespace tests_kafka_sharp
         public void TestGetAllPartitionsForTopic()
         {
             _client.GetPartitionforTopicAsync("toto");
-            _node.Verify(n => n.FetchMetadata("toto"));
+            _node.Verify(n => n.FetchMetadata(new [] { "toto"}));
         }
 
         [Test]
@@ -584,6 +585,26 @@ namespace tests_kafka_sharp
             Assert.IsFalse(_client.Produce(Topic, ValueB));
             Assert.AreEqual(2, _client.Statistics.Entered);
             Assert.AreEqual(0, _client.Statistics.Exited);
+        }
+
+        [Test]
+        public void TestPauseResume()
+        {
+            _client.Pause("tutu");
+            _client.Resume("titi");
+
+            _consumer.Verify(c => c.StopConsume("tutu", Partitions.All, Offsets.Now));
+            _consumer.Verify(c => c.StopConsume("tutu", Partitions.All, Offsets.Now));
+        }
+
+        [Test]
+        public void TestSubscription()
+        {
+            _client.Subscribe("group", new[] { "topic" }, new ConsumerGroupConfiguration());
+            
+            _consumer.Verify(
+                c => c.StartConsumeSubscription(It.IsAny<IConsumerGroup>(), It.Is<IEnumerable<string>>(l => l.Count() == 1 && l.Contains("topic"))),
+                Times.Once);
         }
     }
 }

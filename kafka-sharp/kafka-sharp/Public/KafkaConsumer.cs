@@ -3,8 +3,10 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Threading.Tasks;
 
 namespace Kafka.Public
 {
@@ -77,6 +79,48 @@ namespace Kafka.Public
         /// <param name="partition"></param>
         /// <param name="offset"></param>
         void StopConsume(int partition, long offset);
+
+        /// <summary>
+        /// Subscribe to a list of topics, using a given consumer group id.
+        /// </summary>
+        /// <param name="consumerGroupId"></param>
+        /// <param name="topics"></param>
+        /// <param name="configuration"></param>
+        void Subscribe(string consumerGroupId, IEnumerable<string> topics, ConsumerGroupConfiguration configuration);
+
+        /// <summary>
+        /// Stop consuming messages from the given topic, effective immediately.
+        /// This is the same as 'StopConsume'.
+        /// </summary>
+        /// <param name="topic"></param>
+        void Pause(string topic);
+
+        /// <summary>
+        /// Restart consuming from the given topic, starting from where it was stopped.
+        /// The topic must have been started first.
+        /// </summary>
+        /// <param name="topic"></param>
+        void Resume(string topic);
+
+        /// <summary>
+        /// Commit offsets if linked to a consumer group.
+        /// This is a fire and forget commit: the consumer will commit offsets at the next
+        /// possible occasion. In particular if this is fired from inside a MessageReceived handler, commit
+        /// will occur just after returning from the handler.
+        /// Offsets commited are all the the offsets of the messages that have been sent through MessageReceived.
+        /// </summary>
+        void RequireCommit();
+
+        /// <summary>
+        /// Commit the given offset for the given offset/partition. This is a fined grained
+        /// asynchronous commit. When this method async returns, given offsets will have
+        /// effectively been committed.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <param name="offset"></param>
+        /// <returns></returns>
+        Task CommitAsync(string topic, int partition, long offset);
     }
 
     /// <summary>
@@ -191,6 +235,45 @@ namespace Kafka.Public
             if (_disposed)
                 return;
             _clusterClient.StopConsume(_topic, partition, offset);
+        }
+
+        public void Subscribe(string consumerGroupId, IEnumerable<string> topics, ConsumerGroupConfiguration configuration)
+        {
+            if (_disposed)
+                return;
+            _clusterClient.Subscribe(consumerGroupId, topics, configuration);
+        }
+
+        public void Pause(string topic)
+        {
+            if (_disposed)
+                return;
+            _clusterClient.Pause(topic);
+        }
+
+        public void Resume(string topic)
+        {
+            if (_disposed)
+                return;
+            _clusterClient.Resume(topic);
+        }
+
+        public void RequireCommit()
+        {
+            if (_disposed)
+                return;
+            _clusterClient.RequireCommit();
+        }
+
+        public Task CommitAsync(string topic, int partition, long offset)
+        {
+            if (_disposed)
+            {
+                var tc = new TaskCompletionSource<bool>();
+                tc.SetCanceled();
+                return tc.Task;
+            }
+            return _clusterClient.CommitAsync(topic, partition, offset);
         }
 
         private void OnClusterMessage(RawKafkaRecord kr)

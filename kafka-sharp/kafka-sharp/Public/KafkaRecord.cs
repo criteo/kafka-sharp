@@ -58,6 +58,11 @@ namespace Kafka.Public
         }
 
         /// <summary>
+        /// The distance to the end of partition offset.
+        /// </summary>
+        public long Lag { get { return Record.Lag; } }
+
+        /// <summary>
         /// The partition the message belongs to inside its topic.
         /// </summary>
         public int Partition
@@ -93,6 +98,11 @@ namespace Kafka.Public
         /// to save the state of what you have read.
         /// </summary>
         public long Offset { get; internal set; }
+
+        /// <summary>
+        /// The distance to the end of partition offset.
+        /// </summary>
+        public long Lag { get; internal set; }
 
         /// <summary>
         /// The partition the message belongs to inside its topic.

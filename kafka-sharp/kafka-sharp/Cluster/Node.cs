@@ -2,7 +2,6 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,6 +19,8 @@ using Kafka.Routing;
 namespace Kafka.Cluster
 {
     using ConnectionFactory = Func<IConnection>;
+    using OffsetCommitResponse = CommonResponse<PartitionCommitData>;
+    using OffsetFetchResponse = CommonResponse<PartitionOffsetData>;
 
     /// <summary>
     /// Interface to the cluster nodes. Nodes are responsible for batching requests,
@@ -84,7 +85,7 @@ namespace Kafka.Cluster
         /// </summary>
         /// <param name="topic">Topic to fetch metadata for.</param>
         /// <returns>Metadata for a single topic.</returns>
-        Task<MetadataResponse> FetchMetadata(string topic);
+        Task<MetadataResponse> FetchMetadata(IEnumerable<string> topic);
 
         /// <summary>
         /// Send an offset request to node, restricted to a single topic and partition,
@@ -103,6 +104,71 @@ namespace Kafka.Cluster
         /// <param name="partition"></param>
         /// <returns></returns>
         Task<long> GetLatestOffset(string topic, int partition);
+
+        /// <summary>
+        /// Sends a GroupCoordinator request to the node, for the given group id.
+        /// </summary>
+        /// <param name="groupId"></param>
+        /// <returns></returns>
+        Task<GroupCoordinatorResponse> GetGroupCoordinator(string groupId);
+
+        /// <summary>
+        /// Sends a Heartbeat request to the node, using given group id, member id and generation.
+        /// </summary>
+        /// <param name="groupId"></param>
+        /// <param name="generationId"></param>
+        /// <param name="memberId"></param>
+        /// <returns></returns>
+        Task<ErrorCode> Heartbeat(string groupId, int generationId, string memberId);
+        
+        /// <summary>
+        /// Sends a JoinGroup request to the node useing the given consumer group id.
+        /// </summary>
+        /// <param name="groupId"></param>
+        /// <param name="memberId"></param>
+        /// <param name="sessionTimeout"></param>
+        /// <param name="rebalanceTimeout"></param>
+        /// <param name="subscription"></param>
+        /// <returns></returns>
+        Task<JoinConsumerGroupResponse> JoinConsumerGroup(string groupId, string memberId, int sessionTimeout,
+            int rebalanceTimeout, IEnumerable<string> subscription);
+
+        /// <summary>
+        /// Send a SyncGroup request to the node.
+        /// </summary>
+        /// <param name="groupId"></param>
+        /// <param name="memberId"></param>
+        /// <param name="generation"></param>
+        /// <param name="assignments"></param>
+        /// <returns></returns>
+        Task<SyncConsumerGroupResponse> SyncConsumerGroup(string groupId, string memberId, int generation, IEnumerable<ConsumerGroupAssignment> assignments);
+
+        /// <summary>
+        /// Send a LeaveGroup request for the given consumer group.
+        /// </summary>
+        /// <param name="groupId"></param>
+        /// <param name="memberId"></param>
+        /// <returns></returns>
+        Task<ErrorCode> LeaveGroup(string groupId, string memberId);
+
+        /// <summary>
+        /// Commit given offsets for the given topics / partitions.
+        /// </summary>
+        /// <param name="retentionTime"></param>
+        /// <param name="topicsData"></param>
+        /// <param name="groupId"></param>
+        /// <param name="generation"></param>
+        /// <param name="memberId"></param>
+        /// <returns></returns>
+        Task<OffsetCommitResponse> Commit(string groupId, int generation, string memberId, long retentionTime, IEnumerable<TopicData<OffsetCommitPartitionData>> topicsData);
+
+        /// <summary>
+        /// Fetch current offsets for the given topics / partitions.
+        /// </summary>
+        /// <param name="groupId"></param>
+        /// <param name="topicsData"></param>
+        /// <returns></returns>
+        Task<OffsetFetchResponse> FetchOffsets(string groupId, IEnumerable<TopicData<PartitionAssignment>> topicsData);
 
         /// <summary>
         /// Stop all activities on the node (effectively marking it dead).
@@ -204,6 +270,9 @@ namespace Kafka.Cluster
             ReusableMemoryStream SerializeMetadataAllRequest(int correlationId);
             ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch);
             ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch);
+            ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request);
+
+            TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data) where TResponse : IMemoryStreamSerializable, new();
 
             MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data);
             CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
@@ -299,6 +368,18 @@ namespace Kafka.Cluster
                 return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
             }
 
+            public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request)
+            {
+                return request.Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
+            }
+
+            public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data) where TResponse : IMemoryStreamSerializable, new()
+            {
+                var response = new TResponse();
+                response.Deserialize(data, null);
+                return response;
+            }
+
             public MetadataResponse DeserializeMetadataResponse(int notUsed, ReusableMemoryStream data)
             {
                 return MetadataResponse.Deserialize(data, null);
@@ -307,7 +388,9 @@ namespace Kafka.Cluster
             public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
                 ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
             {
-                return CommonResponse<TPartitionResponse>.Deserialize(data, _serializationConfig);
+                var response = new CommonResponse<TPartitionResponse>();
+                response.Deserialize(data, _serializationConfig);
+                return response;
             }
         }
 
@@ -315,16 +398,10 @@ namespace Kafka.Cluster
 
         #region Requests
 
-        internal struct MetadataRequest
+        internal struct Requested<TRequest, TPromised> where TRequest : class
         {
-            public string Topic;
-            public TaskCompletionSource<MetadataResponse> Promise;
-        }
-
-        internal struct OneOffsetRequest
-        {
-            public IBatchByTopic<OffsetMessage> OffsetBatchRequest;
-            public TaskCompletionSource<long> Promise;
+            public TRequest Request;
+            public TaskCompletionSource<TPromised> Promise;
         }
 
         [StructLayout(LayoutKind.Explicit)]
@@ -340,10 +417,31 @@ namespace Kafka.Cluster
             public IBatchByTopicByPartition<ProduceMessage> ProduceBatchRequest;
 
             [FieldOffset(0)]
-            public MetadataRequest MetadataRequest;
+            public Requested<IEnumerable<string>, MetadataResponse> MetadataRequest;
 
             [FieldOffset(0)]
-            public OneOffsetRequest OneOffsetRequest;
+            public Requested<IBatchByTopic<OffsetMessage>, long> OneOffsetRequest;
+
+            [FieldOffset(0)]
+            public Requested<GroupCoordinatorRequest, GroupCoordinatorResponse> GroupCoordinatorRequest;
+
+            [FieldOffset(0)]
+            public Requested<HeartbeatRequest, ErrorCode> HeartbeatRequest;
+
+            [FieldOffset(0)]
+            public Requested<LeaveGroupRequest, ErrorCode> LeaveGroupRequest;
+
+            [FieldOffset(0)]
+            public Requested<JoinConsumerGroupRequest, JoinConsumerGroupResponse> JoinConsumerGroupRequest;
+
+            [FieldOffset(0)]
+            public Requested<SyncConsumerGroupRequest, SyncConsumerGroupResponse> SyncConsumerGroupRequest;
+
+            [FieldOffset(0)]
+            public Requested<OffsetCommitRequest, OffsetCommitResponse> OffsetCommitRequest;
+
+            [FieldOffset(0)]
+            public Requested<OffsetFetchRequest, OffsetFetchResponse> OffsetFetchRequest;
         }
 
         /// <summary>
@@ -356,6 +454,13 @@ namespace Kafka.Cluster
             BatchedProduce,
             Metadata,
             SingleOffset,
+            GroupCoordinator,
+            OffsetCommit,
+            OffsetFetch,
+            Heartbeat,
+            JoinConsumerGroup,
+            SyncConsumerGroup,
+            LeaveGroup
         }
 
         internal struct Request
@@ -363,48 +468,208 @@ namespace Kafka.Cluster
             public RequestType RequestType;
             public RequestValue RequestValue;
 
-            public static Request Create(IBatchByTopic<FetchMessage> value)
+            public static Request CreateFetchRequest(IBatchByTopic<FetchMessage> value)
             {
                 return new Request
                 {
                     RequestType = RequestType.BatchedFetch,
-                    RequestValue = new RequestValue {FetchBatchRequest = value}
+                    RequestValue = new RequestValue { FetchBatchRequest = value }
                 };
             }
 
-            public static Request Create(IBatchByTopic<OffsetMessage> value)
+            public static Request CreateOffsetRequest(IBatchByTopic<OffsetMessage> value)
             {
                 return new Request
                 {
                     RequestType = RequestType.BatchedOffset,
-                    RequestValue = new RequestValue {OffsetBatchRequest = value}
+                    RequestValue = new RequestValue { OffsetBatchRequest = value }
                 };
             }
 
-            public static Request Create(IBatchByTopicByPartition<ProduceMessage> value)
+            public static Request CreateProduceRequest(IBatchByTopicByPartition<ProduceMessage> value)
             {
                 return new Request
                 {
                     RequestType = RequestType.BatchedProduce,
-                    RequestValue = new RequestValue {ProduceBatchRequest = value}
+                    RequestValue = new RequestValue { ProduceBatchRequest = value }
                 };
             }
 
-            public static Request Create(MetadataRequest value)
+            public static Request CreateMetadataRequest(Requested<IEnumerable<string>, MetadataResponse> value)
             {
                 return new Request
                 {
                     RequestType = RequestType.Metadata,
-                    RequestValue = new RequestValue {MetadataRequest = value}
+                    RequestValue = new RequestValue { MetadataRequest = value }
                 };
             }
 
-            public static Request Create(OneOffsetRequest value)
+            public static Request CreateOneOffsetRequest(Requested<IBatchByTopic<OffsetMessage>, long> value)
             {
                 return new Request
                 {
                     RequestType = RequestType.SingleOffset,
                     RequestValue = new RequestValue { OneOffsetRequest = value }
+                };
+            }
+
+            public static Request CreateGroupCoordinatorRequest(string groupId, TaskCompletionSource<GroupCoordinatorResponse> promise)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.GroupCoordinator,
+                    RequestValue =
+                        new RequestValue
+                        {
+                            GroupCoordinatorRequest =
+                                new Requested<GroupCoordinatorRequest, GroupCoordinatorResponse>
+                                {
+                                    Request = new GroupCoordinatorRequest { GroupId = groupId },
+                                    Promise = promise
+                                }
+                        }
+                };
+            }
+
+            public static Request CreateHeartbeatRequest(string groupId, int generationId, string memberId,
+                TaskCompletionSource<ErrorCode> promise)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.Heartbeat,
+                    RequestValue =
+                        new RequestValue
+                        {
+                            HeartbeatRequest =
+                                new Requested<HeartbeatRequest, ErrorCode>
+                                {
+                                    Request =
+                                        new HeartbeatRequest
+                                        {
+                                            GroupId = groupId,
+                                            MemberId = memberId,
+                                            GenerationId = generationId
+                                        },
+                                    Promise = promise
+                                }
+                        }
+                };
+            }
+
+            public static Request CreateLeaveGroupRequest(string groupId, string memberId,
+                TaskCompletionSource<ErrorCode> promise)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.LeaveGroup,
+                    RequestValue =
+                        new RequestValue
+                        {
+                            HeartbeatRequest =
+                                new Requested<HeartbeatRequest, ErrorCode>
+                                {
+                                    Request =
+                                        new HeartbeatRequest
+                                        {
+                                            GroupId = groupId,
+                                            MemberId = memberId
+                                        },
+                                    Promise = promise
+                                }
+                        }
+                };
+            }
+
+            public static Request CreateJoinGroupRequest(string groupId, string memberId, int sessionTimeout, int rebalanceTimeout,
+                IEnumerable<string> subscription, TaskCompletionSource<JoinConsumerGroupResponse> promise)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.JoinConsumerGroup,
+                    RequestValue = new RequestValue
+                    {
+                        JoinConsumerGroupRequest = new Requested<JoinConsumerGroupRequest, JoinConsumerGroupResponse>
+                        {
+                            Request = new JoinConsumerGroupRequest
+                            {
+                                GroupId = groupId,
+                                SessionTimeout = sessionTimeout,
+                                RebalanceTimeout = rebalanceTimeout,
+                                MemberId = memberId,
+                                Subscription = subscription
+                            },
+                            Promise = promise
+                        }
+                    }
+                };
+            }
+
+            public static Request CreateSyncGroupRequest(string groupId, string memberId, int generation,
+                IEnumerable<ConsumerGroupAssignment> assignments, TaskCompletionSource<SyncConsumerGroupResponse> promise)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.SyncConsumerGroup,
+                    RequestValue = new RequestValue
+                    {
+                        SyncConsumerGroupRequest = new Requested<SyncConsumerGroupRequest, SyncConsumerGroupResponse>
+                        {
+                            Request = new SyncConsumerGroupRequest
+                            {
+                                GroupId = groupId,
+                                MemberId = memberId,
+                                GenerationId = generation,
+                                GroupAssignment = assignments
+                            },
+                            Promise = promise
+                        }
+                    }
+                };
+            }
+
+            public static Request CreateOffsetCommitRequest(string consumerGroupId, int generation, string consumerId, long retentionTime,
+                IEnumerable<TopicData<OffsetCommitPartitionData>> commit, TaskCompletionSource<OffsetCommitResponse> promise)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.OffsetCommit,
+                    RequestValue =
+                        new RequestValue
+                        {
+                            OffsetCommitRequest =
+                                new Requested<OffsetCommitRequest, OffsetCommitResponse>
+                                {
+                                    Promise = promise,
+                                    Request = new OffsetCommitRequest
+                                    {
+                                        ConsumerGroupId = consumerGroupId,
+                                        ConsumerGroupGenerationId = generation,
+                                        ConsumerId = consumerId,
+                                        RetentionTime = retentionTime,
+                                        TopicsData = commit
+                                    }
+                                }
+                        }
+                };
+            }
+
+            public static Request CreateOffsetFetchRequest(string consumerGroupId, IEnumerable<TopicData<PartitionAssignment>> fetch,
+                TaskCompletionSource<OffsetFetchResponse> promise)
+            {
+                return new Request
+                {
+                    RequestType = RequestType.OffsetFetch,
+                    RequestValue =
+                        new RequestValue
+                        {
+                            OffsetFetchRequest =
+                                new Requested<OffsetFetchRequest, OffsetFetchResponse>
+                                {
+                                    Promise = promise,
+                                    Request =
+                                        new OffsetFetchRequest { ConsumerGroupId = consumerGroupId, TopicsData = fetch }
+                                }
+                        }
                 };
             }
         }
@@ -582,11 +847,11 @@ namespace Kafka.Cluster
             return FetchMetadata(null);
         }
 
-        public Task<MetadataResponse> FetchMetadata(string topic)
+        public Task<MetadataResponse> FetchMetadata(IEnumerable<string> topic)
         {
             var promise = new TaskCompletionSource<MetadataResponse>();
 
-            if (!Post(Request.Create(new MetadataRequest {Topic = topic, Promise = promise})))
+            if (!Post(Request.CreateMetadataRequest(new Requested<IEnumerable<string>, MetadataResponse> { Request = topic, Promise = promise })))
             {
                 promise.SetCanceled();
             }
@@ -609,11 +874,83 @@ namespace Kafka.Cluster
             var promise = new TaskCompletionSource<long>();
             var batch = BatchByTopic<OffsetMessage>.New();
             batch.Add(topic, new OffsetMessage {MaxNumberOfOffsets = 1, Partition = partition, Time = firstOrLast, Topic = topic});
-            if (!Post(Request.Create(new OneOffsetRequest { OffsetBatchRequest = batch, Promise = promise })))
+            if (!Post(Request.CreateOneOffsetRequest(new Requested<IBatchByTopic<OffsetMessage>, long> { Request = batch, Promise = promise })))
             {
                 promise.SetCanceled();
             }
 
+            return promise.Task;
+        }
+
+        public Task<GroupCoordinatorResponse> GetGroupCoordinator(string groupId)
+        {
+            var promise = new TaskCompletionSource<GroupCoordinatorResponse>();
+            if (!Post(Request.CreateGroupCoordinatorRequest(groupId, promise)))
+            {
+                promise.SetCanceled();
+            }
+            return promise.Task;
+        }
+
+        public Task<ErrorCode> Heartbeat(string groupId, int generationId, string memberId)
+        {
+            var promise = new TaskCompletionSource<ErrorCode>();
+            if (!Post(Request.CreateHeartbeatRequest(groupId, generationId, memberId, promise)))
+            {
+                promise.SetCanceled();
+            }
+            return promise.Task;
+        }
+
+        public Task<JoinConsumerGroupResponse> JoinConsumerGroup(string groupId, string memberId, int sessionTimeout,
+            int rebalanceTimeout, IEnumerable<string> subscription)
+        {
+            var promise = new TaskCompletionSource<JoinConsumerGroupResponse>();
+            if (!Post(Request.CreateJoinGroupRequest(groupId, memberId, sessionTimeout, rebalanceTimeout, subscription, promise)))
+            {
+                promise.SetCanceled();
+            }
+            return promise.Task;
+        }
+
+        public Task<SyncConsumerGroupResponse> SyncConsumerGroup(string groupId, string memberId, int generation,
+            IEnumerable<ConsumerGroupAssignment> assignments)
+        {
+            var promise = new TaskCompletionSource<SyncConsumerGroupResponse>();
+            if (!Post(Request.CreateSyncGroupRequest(groupId, memberId, generation, assignments, promise)))
+            {
+                promise.SetCanceled();
+            }
+            return promise.Task;
+        }
+
+        public Task<ErrorCode> LeaveGroup(string groupId, string memberId)
+        {
+            var promise = new TaskCompletionSource<ErrorCode>();
+            if (!Post(Request.CreateLeaveGroupRequest(groupId, memberId, promise)))
+            {
+                promise.SetCanceled();
+            }
+            return promise.Task;
+        }
+
+        public Task<OffsetCommitResponse> Commit(string groupId, int generation, string memberId, long retentionTime, IEnumerable<TopicData<OffsetCommitPartitionData>> topicsData)
+        {
+            var promise = new TaskCompletionSource<OffsetCommitResponse>();
+            if (!Post(Request.CreateOffsetCommitRequest(groupId, generation, memberId, retentionTime, topicsData, promise)))
+            {
+                promise.SetCanceled();
+            }
+            return promise.Task;
+        }
+
+        public Task<OffsetFetchResponse> FetchOffsets(string groupId, IEnumerable<TopicData<PartitionAssignment>> topicsData)
+        {
+            var promise = new TaskCompletionSource<OffsetFetchResponse>();
+            if (!Post(Request.CreateOffsetFetchRequest(groupId, topicsData, promise)))
+            {
+                promise.SetCanceled();
+            }
             return promise.Task;
         }
 
@@ -718,17 +1055,17 @@ namespace Kafka.Cluster
 
         public bool Post(IBatchByTopicByPartition<ProduceMessage> batch)
         {
-            return Post(Request.Create(batch));
+            return Post(Request.CreateProduceRequest(batch));
         }
 
         public bool Post(IBatchByTopic<FetchMessage> batch)
         {
-            return Post(Request.Create(batch));
+            return Post(Request.CreateFetchRequest(batch));
         }
 
         public bool Post(IBatchByTopic<OffsetMessage> batch)
         {
-            return Post(Request.Create(batch));
+            return Post(Request.CreateOffsetRequest(batch));
         }
 
         // Post a message to the underlying request actor
@@ -767,10 +1104,38 @@ namespace Kafka.Cluster
 
                 case RequestType.SingleOffset:
                     return _serialization.SerializeOffsetBatch(correlationId,
-                        request.RequestValue.OneOffsetRequest.OffsetBatchRequest);
+                        request.RequestValue.OneOffsetRequest.Request);
+
+                case RequestType.GroupCoordinator:
+                    return _serialization.SerializeRequest(correlationId,
+                        request.RequestValue.GroupCoordinatorRequest.Request);
+
+                case RequestType.Heartbeat:
+                    return _serialization.SerializeRequest(correlationId,
+                        request.RequestValue.HeartbeatRequest.Request);
+
+                case RequestType.LeaveGroup:
+                    return _serialization.SerializeRequest(correlationId,
+                        request.RequestValue.LeaveGroupRequest.Request);
+
+                case RequestType.JoinConsumerGroup:
+                    return _serialization.SerializeRequest(correlationId,
+                        request.RequestValue.JoinConsumerGroupRequest.Request);
+
+                case RequestType.SyncConsumerGroup:
+                    return _serialization.SerializeRequest(correlationId,
+                        request.RequestValue.SyncConsumerGroupRequest.Request);
+
+                case RequestType.OffsetCommit:
+                    return _serialization.SerializeRequest(correlationId,
+                        request.RequestValue.OffsetCommitRequest.Request);
+
+                case RequestType.OffsetFetch:
+                    return _serialization.SerializeRequest(correlationId,
+                        request.RequestValue.OffsetFetchRequest.Request);
 
                 default: // Compiler requires a default case, even if all possible cases are already handled
-                    throw new ArgumentOutOfRangeException("request", "Non valid RequestType enum value");
+                    throw new ArgumentOutOfRangeException("request", "Non valid RequestType enum value: " + request.RequestType);
             }
         }
 
@@ -1023,6 +1388,55 @@ namespace Kafka.Cluster
                                     data,
                                     pending.Request.RequestValue.OffsetBatchRequest);
                                 break;
+
+                            case RequestType.GroupCoordinator:
+                                ProcessPromiseResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.GroupCoordinatorRequest);
+                                break;
+
+                            case RequestType.JoinConsumerGroup:
+                                ProcessPromiseResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.JoinConsumerGroupRequest);
+                                break;
+
+                            case RequestType.SyncConsumerGroup:
+                                ProcessPromiseResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.SyncConsumerGroupRequest);
+                                break;
+
+                            case RequestType.OffsetCommit:
+                                ProcessPromiseResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.OffsetCommitRequest);
+                                break;
+
+                            case RequestType.OffsetFetch:
+                                ProcessPromiseResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.OffsetFetchRequest);
+                                break;
+
+                            case RequestType.Heartbeat:
+                                ProcessSimpleResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.HeartbeatRequest);
+                                break;
+
+                            case RequestType.LeaveGroup:
+                                ProcessSimpleResponse(
+                                    pending.CorrelationId,
+                                    data,
+                                    pending.Request.RequestValue.LeaveGroupRequest);
+                                break;
                         }
                     }
                     break;
@@ -1158,14 +1572,14 @@ namespace Kafka.Cluster
         }
 
         private void ProcessSingleOffsetResponse(int correlationId, ReusableMemoryStream responseData,
-            OneOffsetRequest originalRequest)
+            Requested<IBatchByTopic<OffsetMessage>, long>  originalRequest)
         {
             try
             {
                 var offsetResponse = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId, responseData);
                 var response = offsetResponse.TopicsResponse[0].PartitionsData.First();
                 originalRequest.Promise.SetResult(response.ErrorCode == ErrorCode.NoError ? response.Offsets[0] : -1);
-                originalRequest.OffsetBatchRequest.Dispose();
+                originalRequest.Request.Dispose();
             }
             catch (Exception ex)
             {
@@ -1204,12 +1618,46 @@ namespace Kafka.Cluster
         /// Deserialize a metadata response and signal the corresponding promise accordingly.
         /// </summary>
         private void ProcessMetadataResponse(int correlationId, ReusableMemoryStream responseData,
-            MetadataRequest originalRequest)
+            Requested<IEnumerable<string>, MetadataResponse> originalRequest)
         {
             try
             {
                 var metadataResponse = _serialization.DeserializeMetadataResponse(correlationId, responseData);
                 originalRequest.Promise.SetResult(metadataResponse);
+            }
+            catch (Exception ex)
+            {
+                OnDecodeError(ex);
+                originalRequest.Promise.SetException(ex);
+            }
+        }
+
+        private void ProcessPromiseResponse<TRequest, TResponse>(int correlationId, ReusableMemoryStream data,
+            Requested<TRequest, TResponse> request) 
+            where TRequest : class
+            where TResponse : IMemoryStreamSerializable, new()
+        {
+            try
+            {
+                var response = _serialization.DeserializeResponse<TResponse>(correlationId, data);
+                request.Promise.SetResult(response);
+            }
+            catch (Exception ex)
+            {
+                OnDecodeError(ex);
+                request.Promise.SetException(ex);
+            }
+        }
+
+        /// <summary>
+        /// Deserialize a group coordinator response and signal the corresponding promise accordingly.
+        /// </summary>
+        private void ProcessSimpleResponse<TRequest>(int correlationId, ReusableMemoryStream responseData,
+            Requested<TRequest, ErrorCode> originalRequest) where TRequest : class
+        {
+            try
+            {
+                originalRequest.Promise.SetResult(_serialization.DeserializeResponse<SimpleResponse>(correlationId, responseData).ErrorCode);
             }
             catch (Exception ex)
             {
@@ -1280,36 +1728,56 @@ namespace Kafka.Cluster
             }
         }
 
+        private void SignalCompletion<TData>(TaskCompletionSource<TData> promise, Exception exception)
+        {
+            if (exception != null)
+            {
+                promise.SetException(exception);
+            }
+            else
+            {
+                promise.SetCanceled();
+            }
+        }
+
         // "Cancel" a request. If wasSent is true that means the request
         // was actually sent on the connection.
         private void Drain(Request request, bool wasSent, Exception exception = null)
         {
             switch (request.RequestType)
             {
-                    // Cancel metadata requests
+                    // Cancel promised requests
                 case RequestType.Metadata:
-                    if (exception != null)
-                    {
-                        request.RequestValue.MetadataRequest.Promise.SetException(exception);
-                    }
-                    else
-                    {
-                        request.RequestValue.MetadataRequest.Promise.SetCanceled();
-                    }
+                    SignalCompletion(request.RequestValue.MetadataRequest.Promise, exception);
                     break;
 
-                    // Cancel single offset requests
+                case RequestType.GroupCoordinator:
+                    SignalCompletion(request.RequestValue.GroupCoordinatorRequest.Promise, exception);
+                    break;
+
+                case RequestType.Heartbeat:
+                    SignalCompletion(request.RequestValue.HeartbeatRequest.Promise, exception);
+                    break;
+
+                case RequestType.OffsetCommit:
+                    SignalCompletion(request.RequestValue.OffsetCommitRequest.Promise, exception);
+                    break;
+
                 case RequestType.SingleOffset:
-                    if (exception != null)
-                    {
-                        request.RequestValue.OneOffsetRequest.Promise.SetException(exception);
-                    }
-                    else
-                    {
-                        request.RequestValue.OneOffsetRequest.Promise.SetCanceled();
-                    }
+                    SignalCompletion(request.RequestValue.OneOffsetRequest.Promise, exception);
                     break;
 
+                case RequestType.LeaveGroup:
+                    SignalCompletion(request.RequestValue.LeaveGroupRequest.Promise, exception);
+                    break;
+
+                case RequestType.JoinConsumerGroup:
+                    SignalCompletion(request.RequestValue.SyncConsumerGroupRequest.Promise, exception);
+                    break;
+
+                case RequestType.SyncConsumerGroup:
+                    SignalCompletion(request.RequestValue.SyncConsumerGroupRequest.Promise, exception);
+                    break;
 
                 // Reroute produce requests
                 case RequestType.BatchedProduce:

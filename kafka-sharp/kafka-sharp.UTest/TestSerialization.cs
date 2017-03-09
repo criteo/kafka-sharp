@@ -78,7 +78,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestSerializeOneMessageIMemorySerializable()
         {
-            var message = new Message {Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value)};
+            var message = new Message { Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value) };
             TestSerializeOneMessageCommon(message);
         }
 
@@ -153,11 +153,8 @@ namespace tests_kafka_sharp
                 {
                     Partition = 42,
                     CompressionCodec = CompressionCodec.None,
-                    Messages = new[]
-                    {
-                        new Message {Key = Key, Value = Value},
-                        new Message {Key = Key, Value = Value}
-                    }
+                    Messages =
+                        new[] { new Message { Key = Key, Value = Value }, new Message { Key = Key, Value = Value } }
                 };
                 set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized.Position = 0;
@@ -188,11 +185,8 @@ namespace tests_kafka_sharp
                 {
                     Partition = 42,
                     CompressionCodec = codec,
-                    Messages = new[]
-                    {
-                        new Message {Key = Key, Value = Value},
-                        new Message {Key = Key, Value = Value}
-                    }
+                    Messages =
+                        new[] { new Message { Key = Key, Value = Value }, new Message { Key = Key, Value = Value } }
                 };
                 set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized.Position = 0;
@@ -209,7 +203,8 @@ namespace tests_kafka_sharp
                 serialized.Position += 5;
                 Assert.AreEqual(attr, serialized.ReadByte()); // attributes
                 Assert.AreEqual(-1, BigEndianConverter.ReadInt32(serialized)); // No key => size = -1
-                Assert.AreEqual(serialized.Length - valuePos, BigEndianConverter.ReadInt32(serialized)); // check rest of message length match
+                Assert.AreEqual(serialized.Length - valuePos, BigEndianConverter.ReadInt32(serialized));
+                // check rest of message length match
             }
         }
 
@@ -228,16 +223,14 @@ namespace tests_kafka_sharp
                 {
                     Partition = 42,
                     CompressionCodec = codec,
-                    Messages = new[]
-                    {
-                        new Message {Key = Key, Value = Value},
-                        new Message {Key = Key, Value = Value}
-                    }
+                    Messages =
+                        new[] { new Message { Key = Key, Value = Value }, new Message { Key = Key, Value = Value } }
                 };
                 set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized.Position = 4;
 
-                var deserialized = FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.ByteArrayDeserializers);
+                var deserialized = FetchPartitionResponse.DeserializeMessageSet(serialized,
+                    SerializationConfig.ByteArrayDeserializers);
                 Assert.AreEqual(2, deserialized.Count);
                 foreach (var msg in deserialized)
                 {
@@ -248,15 +241,11 @@ namespace tests_kafka_sharp
             }
         }
 
-        private static void CheckHeader(
-            Basics.ApiKey apiKey,
-            short apiVersion,
-            int correlationId,
-            string clientId,
+        private static void CheckHeader(Basics.ApiKey apiKey, short apiVersion, int correlationId, string clientId,
             ReusableMemoryStream stream)
         {
             Assert.AreEqual(stream.Length - 4, BigEndianConverter.ReadInt32(stream)); // Size
-            Assert.AreEqual((short)apiKey, BigEndianConverter.ReadInt16(stream));
+            Assert.AreEqual((short) apiKey, BigEndianConverter.ReadInt16(stream));
             Assert.AreEqual(apiVersion, BigEndianConverter.ReadInt16(stream));
             Assert.AreEqual(correlationId, BigEndianConverter.ReadInt32(stream));
             Assert.AreEqual(clientId, Basics.DeserializeString(stream));
@@ -265,10 +254,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestSerializeMetadataRequest()
         {
-            var meta = new TopicRequest
-            {
-                Topics = new[] { "poulpe", "banana" }
-            };
+            var meta = new TopicRequest { Topics = new[] { "poulpe", "banana" } };
             using (var serialized = meta.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
             {
                 CheckHeader(Basics.ApiKey.MetadataRequest, 0, 61, TheClientId, serialized);
@@ -277,10 +263,7 @@ namespace tests_kafka_sharp
                 Assert.AreEqual("banana", Basics.DeserializeString(serialized));
             }
 
-            meta = new TopicRequest
-            {
-                Topics = null
-            };
+            meta = new TopicRequest { Topics = null };
             using (var serialized = meta.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
             {
                 CheckHeader(Basics.ApiKey.MetadataRequest, 0, 61, TheClientId, serialized);
@@ -297,8 +280,8 @@ namespace tests_kafka_sharp
                 BrokersMeta =
                     new[]
                     {
-                        new BrokerMeta {Host = "Host", Id = 100, Port = 18909},
-                        new BrokerMeta {Host = "tsoH", Id = 28, Port = 1}
+                        new BrokerMeta { Host = "Host", Id = 100, Port = 18909 },
+                        new BrokerMeta { Host = "tsoH", Id = 28, Port = 1 }
                     },
                 TopicsMeta =
                     new[]
@@ -315,7 +298,7 @@ namespace tests_kafka_sharp
                                         ErrorCode = ErrorCode.LeaderNotAvailable,
                                         Id = 0,
                                         Leader = -1,
-                                        Replicas = new[] {100},
+                                        Replicas = new[] { 100 },
                                         Isr = new int[0]
                                     }
                                 }
@@ -359,7 +342,7 @@ namespace tests_kafka_sharp
                         {
                             TopicName = "topic1",
                             PartitionsData =
-                                new[] {new FetchPartitionData {FetchOffset = 1, MaxBytes = 333, Partition = 42}}
+                                new[] { new FetchPartitionData { FetchOffset = 1, MaxBytes = 333, Partition = 42 } }
                         },
                         new TopicData<FetchPartitionData>
                         {
@@ -367,8 +350,8 @@ namespace tests_kafka_sharp
                             PartitionsData =
                                 new[]
                                 {
-                                    new FetchPartitionData {FetchOffset = 1, MaxBytes = 333, Partition = 43},
-                                    new FetchPartitionData {FetchOffset = 2, MaxBytes = 89, Partition = 44}
+                                    new FetchPartitionData { FetchOffset = 1, MaxBytes = 333, Partition = 43 },
+                                    new FetchPartitionData { FetchOffset = 2, MaxBytes = 89, Partition = 44 }
                                 }
                         }
                     }
@@ -411,25 +394,24 @@ namespace tests_kafka_sharp
             {
                 Timeout = 1223,
                 RequiredAcks = 1,
-                TopicsData = new[]
-                {
-                    new TopicData<PartitionData>
+                TopicsData =
+                    new[]
                     {
-                        TopicName = "barbu",
-                        PartitionsData = new[]
+                        new TopicData<PartitionData>
                         {
-                            new PartitionData
-                            {
-                                Partition = 22,
-                                CompressionCodec = CompressionCodec.None,
-                                Messages = new[]
+                            TopicName = "barbu",
+                            PartitionsData =
+                                new[]
                                 {
-                                    new Message {Value = TheValue}
-                                },
-                            }
-                        }
-                    },
-                }
+                                    new PartitionData
+                                    {
+                                        Partition = 22,
+                                        CompressionCodec = CompressionCodec.None,
+                                        Messages = new[] { new Message { Value = TheValue } },
+                                    }
+                                }
+                        },
+                    }
             };
             var config = new SerializationConfig();
             config.SetSerializersForTopic("barbu", new StringSerializer(), new StringSerializer());
@@ -443,7 +425,8 @@ namespace tests_kafka_sharp
                 Assert.AreEqual("barbu", Basics.DeserializeString(serialized));
                 Assert.AreEqual(1, BigEndianConverter.ReadInt32(serialized)); // 1 partition data
                 Assert.AreEqual(22, BigEndianConverter.ReadInt32(serialized));
-                var msgs = FetchPartitionResponse.DeserializeMessageSet(serialized, config.GetDeserializersForTopic("barbu"));
+                var msgs = FetchPartitionResponse.DeserializeMessageSet(serialized,
+                    config.GetDeserializersForTopic("barbu"));
                 Assert.AreEqual(1, msgs.Count);
                 //Assert.AreEqual(TheValue, Encoding.UTF8.GetString(msgs[0].Message.Value));
                 Assert.AreEqual(TheValue, msgs[0].Message.Value as string);
@@ -455,22 +438,17 @@ namespace tests_kafka_sharp
         {
             var offset = new OffsetRequest
             {
-                TopicsData = new[]
-                {
-                    new TopicData<OffsetPartitionData>
+                TopicsData =
+                    new[]
                     {
-                        TopicName = "boloss",
-                        PartitionsData = new[]
+                        new TopicData<OffsetPartitionData>
                         {
-                            new OffsetPartitionData
-                            {
-                                MaxNumberOfOffsets = 3,
-                                Partition = 123,
-                                Time = 21341
-                            }
+                            TopicName = "boloss",
+                            PartitionsData =
+                                new[]
+                                { new OffsetPartitionData { MaxNumberOfOffsets = 3, Partition = 123, Time = 21341 } }
                         }
                     }
-                }
             };
 
             using (var serialized = offset.Serialize(new ReusableMemoryStream(null), 1235, ClientId, null))
@@ -493,7 +471,8 @@ namespace tests_kafka_sharp
             where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             serialized.Position = 0;
-            var response = CommonResponse<TPartitionResponse>.Deserialize(serialized, extra);
+            var response = new CommonResponse<TPartitionResponse>();
+            response.Deserialize(serialized, extra);
             Assert.AreEqual(expected.TopicsResponse.Length, response.TopicsResponse.Length);
             foreach (var ztr in expected.TopicsResponse.Zip(response.TopicsResponse, Tuple.Create))
             {
@@ -511,29 +490,32 @@ namespace tests_kafka_sharp
         {
             var response = new CommonResponse<ProducePartitionResponse>
             {
-                TopicsResponse = new[]
-                {
-                    new TopicData<ProducePartitionResponse>
+                TopicsResponse =
+                    new[]
                     {
-                        TopicName = "topic",
-                        PartitionsData = new[]
+                        new TopicData<ProducePartitionResponse>
                         {
-                            new ProducePartitionResponse
-                            {
-                                ErrorCode = ErrorCode.InvalidMessage,
-                                Offset = 2312,
-                                Partition = 34
-                            }
+                            TopicName = "topic",
+                            PartitionsData =
+                                new[]
+                                {
+                                    new ProducePartitionResponse
+                                    {
+                                        ErrorCode = ErrorCode.InvalidMessage,
+                                        Offset = 2312,
+                                        Partition = 34
+                                    }
+                                }
                         }
                     }
-                }
             };
 
             using (var serialized = new ReusableMemoryStream(null))
             {
                 Basics.WriteArray(serialized, response.TopicsResponse);
 
-                TestCommonResponse(serialized, null, response, (p1, p2) => p1.Partition == p2.Partition && p1.Offset == p2.Offset && p1.ErrorCode == p2.ErrorCode);
+                TestCommonResponse(serialized, null, response,
+                    (p1, p2) => p1.Partition == p2.Partition && p1.Offset == p2.Offset && p1.ErrorCode == p2.ErrorCode);
             }
         }
 
@@ -542,19 +524,24 @@ namespace tests_kafka_sharp
         {
             var response = new CommonResponse<OffsetPartitionResponse>
             {
-                TopicsResponse = new []
-                {
-                    new TopicData<OffsetPartitionResponse>
+                TopicsResponse =
+                    new[]
                     {
-                        TopicName = "yoleeroy",
-                        PartitionsData = new[]{new OffsetPartitionResponse
+                        new TopicData<OffsetPartitionResponse>
                         {
-                            ErrorCode = ErrorCode.BrokerNotAvailable,
-                            Partition = 32,
-                            Offsets = new []{1L, 142L}
-                        }}
+                            TopicName = "yoleeroy",
+                            PartitionsData =
+                                new[]
+                                {
+                                    new OffsetPartitionResponse
+                                    {
+                                        ErrorCode = ErrorCode.BrokerNotAvailable,
+                                        Partition = 32,
+                                        Offsets = new[] { 1L, 142L }
+                                    }
+                                }
+                        }
                     }
-                }
             };
 
             using (var serialized = new ReusableMemoryStream(null))
@@ -579,34 +566,33 @@ namespace tests_kafka_sharp
         {
             var response = new CommonResponse<FetchPartitionResponse>
             {
-                TopicsResponse = new []
-                {
-                    new TopicData<FetchPartitionResponse>
+                TopicsResponse =
+                    new[]
                     {
-                        TopicName = "Buffy_contre_les_zombies",
-                        PartitionsData = new[]
+                        new TopicData<FetchPartitionResponse>
                         {
-                            new FetchPartitionResponse
-                            {
-                                ErrorCode = ErrorCode.NoError,
-                                HighWatermarkOffset = 714,
-                                Partition = 999999,
-                                Messages = new List<ResponseMessage>
+                            TopicName = "Buffy_contre_les_zombies",
+                            PartitionsData =
+                                new[]
                                 {
-                                    new ResponseMessage
+                                    new FetchPartitionResponse
                                     {
-                                        Offset = 44,
-                                        Message = new Message
-                                        {
-                                            Key = Key,
-                                            Value = Value
-                                        }
+                                        ErrorCode = ErrorCode.NoError,
+                                        HighWatermarkOffset = 714,
+                                        Partition = 999999,
+                                        Messages =
+                                            new List<ResponseMessage>
+                                            {
+                                                new ResponseMessage
+                                                {
+                                                    Offset = 44,
+                                                    Message = new Message { Key = Key, Value = Value }
+                                                }
+                                            }
                                     }
                                 }
-                            }
                         }
                     }
-                }
             };
 
             using (var serialized = new ReusableMemoryStream(null))
@@ -624,7 +610,8 @@ namespace tests_kafka_sharp
                     {
                         Assert.AreEqual(zipped.Item1.Offset, zipped.Item2.Offset);
                         CollectionAssert.AreEqual(zipped.Item1.Message.Key as byte[], zipped.Item2.Message.Key as byte[]);
-                        CollectionAssert.AreEqual(zipped.Item1.Message.Value as byte[], zipped.Item2.Message.Value as byte[]);
+                        CollectionAssert.AreEqual(zipped.Item1.Message.Value as byte[],
+                            zipped.Item2.Message.Value as byte[]);
                     }
 
                     return true;
@@ -733,7 +720,7 @@ namespace tests_kafka_sharp
         [Test]
         public void Test001_SerializeArray()
         {
-            var array = new[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 109};
+            var array = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 109 };
             using (var serialized = new ReusableMemoryStream(null))
             {
                 Basics.WriteArray(serialized, array, BigEndianConverter.Write);
@@ -794,9 +781,9 @@ namespace tests_kafka_sharp
                 Assert.AreEqual(n2, BigEndianConverter.ReadInt32(s));
 
 
-                var n3 = (((long) b0 << 56) |
-                          ((long) b1 << 48 | ((long) b2 << 40) | ((long) b3 << 32) | ((long) b4 << 24) |
-                           ((long) b5 << 16) | ((long) b6 << 8) | b7));
+                var n3 = (((long) b0 << 56)
+                    | ((long) b1 << 48 | ((long) b2 << 40) | ((long) b3 << 32) | ((long) b4 << 24) | ((long) b5 << 16)
+                        | ((long) b6 << 8) | b7));
                 s.Position = 0;
                 BigEndianConverter.Write(s, n3);
                 Assert.AreEqual(b0, s[0]);
@@ -824,8 +811,10 @@ namespace tests_kafka_sharp
         {
             using (var stream = new MemoryStream())
             {
-                Assert.That(() => ByteArraySerialization.DefaultSerializer.Serialize("toto", stream), Throws.TypeOf<ArgumentException>());
-                Assert.That(() => ByteArraySerialization.DefaultSerializer.Serialize(Value, stream), Is.EqualTo(Value.Length));
+                Assert.That(() => ByteArraySerialization.DefaultSerializer.Serialize("toto", stream),
+                    Throws.TypeOf<ArgumentException>());
+                Assert.That(() => ByteArraySerialization.DefaultSerializer.Serialize(Value, stream),
+                    Is.EqualTo(Value.Length));
                 Assert.That(stream.Length, Is.EqualTo(Value.Length));
                 CompareArrays(Value, stream.GetBuffer(), 0);
 
@@ -866,11 +855,13 @@ namespace tests_kafka_sharp
 
             var s = config.GetSerializersForTopic("topicnotfound");
             Assert.That(s,
-                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultSerializer, ByteArraySerialization.DefaultSerializer)));
+                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultSerializer,
+                    ByteArraySerialization.DefaultSerializer)));
 
             var d = config.GetDeserializersForTopic("topicnotfound");
             Assert.That(d,
-                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultDeserializer, ByteArraySerialization.DefaultDeserializer)));
+                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultDeserializer,
+                    ByteArraySerialization.DefaultDeserializer)));
 
             config.SetSerializersForTopic("topicnotfound", ser, ser);
             config.SetDeserializersForTopic("topicnotfound", deser, deser);
@@ -916,22 +907,22 @@ namespace tests_kafka_sharp
 
             var s = config.GetSerializersForTopic("topicnotfound");
             Assert.That(s,
-                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultSerializer, ByteArraySerialization.DefaultSerializer)));
+                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultSerializer,
+                    ByteArraySerialization.DefaultSerializer)));
 
             var d = config.GetDeserializersForTopic("topicnotfound");
             Assert.That(d,
-                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultDeserializer, ByteArraySerialization.DefaultDeserializer)));
+                Is.EqualTo(Tuple.Create(ByteArraySerialization.DefaultDeserializer,
+                    ByteArraySerialization.DefaultDeserializer)));
 
             config.SetDefaultSerializers(ser, ser);
             config.SetDefaultDeserializers(deser, deser);
 
             s = config.GetSerializersForTopic("topicnotfound");
-            Assert.That(s,
-                Is.EqualTo(Tuple.Create(ser, ser)));
+            Assert.That(s, Is.EqualTo(Tuple.Create(ser, ser)));
 
             d = config.GetDeserializersForTopic("topicnotfound");
-            Assert.That(d,
-                Is.EqualTo(Tuple.Create(deser, deser)));
+            Assert.That(d, Is.EqualTo(Tuple.Create(deser, deser)));
         }
 
         [Test]
@@ -943,16 +934,17 @@ namespace tests_kafka_sharp
                 {
                     Partition = 42,
                     CompressionCodec = CompressionCodec.None,
-                    Messages = new[]
-                    {
-                        new Message {Key = Key, Value = Value}
-                    }
+                    Messages = new[] { new Message { Key = Key, Value = Value } }
                 };
                 set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized[24] = 8; // set non supported magic byte
                 serialized.Position = 4;
 
-                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.ByteArrayDeserializers), Throws.InstanceOf<UnsupportedMagicByteVersion>());
+                Assert.That(
+                    () =>
+                        FetchPartitionResponse.DeserializeMessageSet(serialized,
+                            SerializationConfig.ByteArrayDeserializers),
+                    Throws.InstanceOf<UnsupportedMagicByteVersion>());
             }
         }
 
@@ -965,16 +957,16 @@ namespace tests_kafka_sharp
                 {
                     Partition = 42,
                     CompressionCodec = CompressionCodec.None,
-                    Messages = new[]
-                    {
-                        new Message {Key = Key, Value = Value}
-                    }
+                    Messages = new[] { new Message { Key = Key, Value = Value } }
                 };
                 set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
                 serialized[20] = 8; // change crc
                 serialized.Position = 4;
 
-                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.ByteArrayDeserializers), Throws.InstanceOf<CrcException>());
+                Assert.That(
+                    () =>
+                        FetchPartitionResponse.DeserializeMessageSet(serialized,
+                            SerializationConfig.ByteArrayDeserializers), Throws.InstanceOf<CrcException>());
             }
         }
 
@@ -987,10 +979,7 @@ namespace tests_kafka_sharp
                 {
                     Partition = 42,
                     CompressionCodec = CompressionCodec.Gzip,
-                    Messages = new[]
-                    {
-                        new Message {Key = Key, Value = Value}
-                    }
+                    Messages = new[] { new Message { Key = Key, Value = Value } }
                 };
                 set.Serialize(serialized, SerializationConfig.ByteArraySerializers);
 
@@ -1004,9 +993,379 @@ namespace tests_kafka_sharp
 
                 // go
                 serialized.Position = 4;
-                Assert.That(() => FetchPartitionResponse.DeserializeMessageSet(serialized, SerializationConfig.ByteArrayDeserializers), Throws.InstanceOf<UncompressException>());
+                Assert.That(
+                    () =>
+                        FetchPartitionResponse.DeserializeMessageSet(serialized,
+                            SerializationConfig.ByteArrayDeserializers), Throws.InstanceOf<UncompressException>());
+            }
+        }
+
+        [Test]
+        public void TestSerializeJoinConsumerGroupRequest()
+        {
+            var join = new JoinConsumerGroupRequest
+            {
+                GroupId = "testgroup",
+                MemberId = "member",
+                RebalanceTimeout = 42,
+                SessionTimeout = 49,
+                Subscription = new[] { "topic1", "topic2" }
+            };
+
+            using (var serialized = join.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
+            {
+                CheckHeader(Basics.ApiKey.JoinGroupRequest, 1, 61, TheClientId, serialized);
+                Assert.AreEqual("testgroup", Basics.DeserializeString(serialized));
+                Assert.AreEqual(49, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(42, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual("member", Basics.DeserializeString(serialized));
+                Assert.AreEqual("consumer", Basics.DeserializeString(serialized));
+                Assert.AreEqual(1, BigEndianConverter.ReadInt32(serialized)); // size 1 array
+                Assert.AreEqual("kafka-sharp-consumer", Basics.DeserializeString(serialized));
+                Assert.AreEqual(serialized.Length - (serialized.Position + 4), BigEndianConverter.ReadInt32(serialized));
+                // Protocol metadata "opaque" bytes
+                Assert.AreEqual(0, BigEndianConverter.ReadInt16(serialized));
+                Assert.AreEqual(2, BigEndianConverter.ReadInt32(serialized)); // size 2 array
+                Assert.AreEqual("topic1", Basics.DeserializeString(serialized));
+                Assert.AreEqual("topic2", Basics.DeserializeString(serialized));
+                Assert.IsNull(Basics.DeserializeBytes(serialized));
+            }
+        }
+
+        [Test]
+        public void TestDeserializeJoinConsumerGroupResponse()
+        {
+            var groupResponse = new JoinConsumerGroupResponse
+            {
+                ErrorCode = ErrorCode.NoError,
+                GenerationId = 421,
+                GroupMembers = new[] { new GroupMember { MemberId = "member", Metadata = new ConsumerGroupProtocolMetadata() }, },
+                GroupProtocol = "protocol",
+                LeaderId = "toto",
+                MemberId = "member"
+            };
+
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                groupResponse.Serialize(serialized, null);
+                Assert.AreEqual(56, serialized.Length); // TODO: better check that serialization is correct?
+
+                serialized.Position = 0;
+                var joinResp = new JoinConsumerGroupResponse();
+                joinResp.Deserialize(serialized, null);
+                Assert.AreEqual(ErrorCode.NoError, joinResp.ErrorCode);
+                Assert.AreEqual(421, joinResp.GenerationId);
+                Assert.AreEqual("protocol", joinResp.GroupProtocol);
+                Assert.AreEqual("toto", joinResp.LeaderId);
+                Assert.AreEqual("member", joinResp.MemberId);
+                Assert.AreEqual(1, joinResp.GroupMembers.Length);
+                Assert.AreEqual("member", joinResp.GroupMembers[0].MemberId);
+                Assert.AreEqual(0, joinResp.GroupMembers[0].Metadata.Version);
+                CollectionAssert.IsEmpty(joinResp.GroupMembers[0].Metadata.Subscription);
+                Assert.IsNull(joinResp.GroupMembers[0].Metadata.UserData);
+            }
+        }
+
+        [Test]
+        public void TestSerializeSyncConsumerGroupRequest()
+        {
+            var sync = new SyncConsumerGroupRequest
+            {
+                GroupId = "testgroup",
+                MemberId = "member",
+                GenerationId = 42,
+                GroupAssignment =
+                    new[]
+                    {
+                        new ConsumerGroupAssignment
+                        {
+                            MemberId = "member",
+                            MemberAssignment =
+                                new ConsumerGroupMemberAssignment
+                                {
+                                    Version = 678,
+                                    UserData = null,
+                                    PartitionAssignments =
+                                        new[]
+                                        {
+                                            new TopicData<PartitionAssignment>
+                                            {
+                                                TopicName = "topic",
+                                                PartitionsData =
+                                                    new[]
+                                                    {
+                                                        new PartitionAssignment { Partition = 727 },
+                                                        new PartitionAssignment { Partition = 728 }
+                                                    }
+                                            }
+                                        }
+                                }
+                        }
+                    }
+            };
+
+            using (var serialized = sync.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
+            {
+                CheckHeader(Basics.ApiKey.SyncGroupRequest, 0, 61, TheClientId, serialized);
+                Assert.AreEqual("testgroup", Basics.DeserializeString(serialized));
+                Assert.AreEqual(42, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual("member", Basics.DeserializeString(serialized));
+                Assert.AreEqual(1, BigEndianConverter.ReadInt32(serialized)); // size 1 array
+                Assert.AreEqual("member", Basics.DeserializeString(serialized));
+                Assert.AreEqual(serialized.Length - (serialized.Position + 4), BigEndianConverter.ReadInt32(serialized));
+                // Member assignment "opaque" bytes
+                Assert.AreEqual(678, BigEndianConverter.ReadInt16(serialized));
+                Assert.AreEqual(1, BigEndianConverter.ReadInt32(serialized)); // size 1 array
+                Assert.AreEqual("topic", Basics.DeserializeString(serialized));
+                Assert.AreEqual(2, BigEndianConverter.ReadInt32(serialized)); // size 2 array
+                Assert.AreEqual(727, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(728, BigEndianConverter.ReadInt32(serialized));
+                Assert.IsNull(Basics.DeserializeBytes(serialized));
+            }
+        }
+
+        [Test]
+        public void TestDeserializeSyncConsumerGroupResponse()
+        {
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                BigEndianConverter.Write(serialized, (short) ErrorCode.NoError);
+                Basics.WriteSizeInBytes(serialized, stream =>
+                {
+                    BigEndianConverter.Write(stream, (short) 48);
+                    BigEndianConverter.Write(stream, 1);
+                    Basics.SerializeString(stream, "topic");
+                    BigEndianConverter.Write(stream, 2);
+                    BigEndianConverter.Write(stream, 1);
+                    BigEndianConverter.Write(stream, 7);
+                    Basics.SerializeBytes(stream, null);
+                });
+
+                serialized.Position = 0;
+                var syncResp = new SyncConsumerGroupResponse();
+                syncResp.Deserialize(serialized, null);
+                Assert.AreEqual(ErrorCode.NoError, syncResp.ErrorCode);
+                Assert.AreEqual(48, syncResp.MemberAssignment.Version);
+                Assert.IsNull(syncResp.MemberAssignment.UserData);
+                var array = syncResp.MemberAssignment.PartitionAssignments.ToArray();
+                Assert.AreEqual(1, array.Length);
+                Assert.AreEqual("topic", array[0].TopicName);
+                var p = array[0].PartitionsData.ToArray();
+                Assert.AreEqual(2, p.Length);
+                Assert.AreEqual(1, p[0].Partition);
+                Assert.AreEqual(7, p[1].Partition);
+            }
+        }
+
+        [Test]
+        public void TestDeserializeSyncConsumerGroupResponseEmptyAssignment()
+        {
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                BigEndianConverter.Write(serialized, (short)ErrorCode.NoError);
+                BigEndianConverter.Write(serialized, 0);
+
+                serialized.Position = 0;
+                var syncResp = new SyncConsumerGroupResponse();
+                syncResp.Deserialize(serialized, null);
+                Assert.AreEqual(ErrorCode.NoError, syncResp.ErrorCode);
+                Assert.IsEmpty(syncResp.MemberAssignment.PartitionAssignments);
+            }
+        }
+
+        [Test]
+        public void TestSerializeLeaveGroupRequest()
+        {
+            var leave = new LeaveGroupRequest { GroupId = "group", MemberId = "member" };
+            using (var serialized = leave.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
+            {
+                CheckHeader(Basics.ApiKey.LeaveGroupRequest, 0, 61, TheClientId, serialized);
+                Assert.AreEqual("group", Basics.DeserializeString(serialized));
+                Assert.AreEqual("member", Basics.DeserializeString(serialized));
+            }
+        }
+
+        [Test]
+        public void TestSerializeHeartbeatGroupRequest()
+        {
+            var heartbeat = new HeartbeatRequest() { GroupId = "group", MemberId = "member", GenerationId = 32 };
+            using (var serialized = heartbeat.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
+            {
+                CheckHeader(Basics.ApiKey.HeartbeatRequest, 0, 61, TheClientId, serialized);
+                Assert.AreEqual("group", Basics.DeserializeString(serialized));
+                Assert.AreEqual(32, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual("member", Basics.DeserializeString(serialized));
+            }
+        }
+
+        [Test]
+        public void TestDeserializeSimpleResponse()
+        {
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                BigEndianConverter.Write(serialized, (short) ErrorCode.GroupAuthorizationFailed);
+
+                serialized.Position = 0;
+                var resp = new SimpleResponse();
+                resp.Deserialize(serialized, null);
+                Assert.AreEqual(ErrorCode.GroupAuthorizationFailed, resp.ErrorCode);
+            }
+        }
+
+        [Test]
+        public void TestSerializeCoordinatorRequest()
+        {
+            var coord = new GroupCoordinatorRequest() { GroupId = "group" };
+            using (var serialized = coord.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
+            {
+                CheckHeader(Basics.ApiKey.GroupCoordinatorRequest, 0, 61, TheClientId, serialized);
+                Assert.AreEqual("group", Basics.DeserializeString(serialized));
+            }
+        }
+
+        [Test]
+        public void TestDeserializeCoordinatoreResponse()
+        {
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                BigEndianConverter.Write(serialized, (short) ErrorCode.NoError);
+                BigEndianConverter.Write(serialized, 42);
+                Basics.SerializeString(serialized, "host");
+                BigEndianConverter.Write(serialized, 9092);
+
+                serialized.Position = 0;
+                var resp = new GroupCoordinatorResponse();
+                resp.Deserialize(serialized, null);
+                Assert.AreEqual(ErrorCode.NoError, resp.ErrorCode);
+                Assert.AreEqual(42, resp.CoordinatorId);
+                Assert.AreEqual(9092, resp.CoordinatorPort);
+                Assert.AreEqual("host", resp.CoordinatorHost);
+            }
+        }
+
+        [Test]
+        public void TestSerializeOffsetFetchRequest()
+        {
+            var rq = new OffsetFetchRequest
+            {
+                ConsumerGroupId = "the group",
+                TopicsData =
+                    new[]
+                    {
+                        new TopicData<PartitionAssignment>
+                        {
+                            TopicName = "the topic",
+                            PartitionsData = new[] { new PartitionAssignment { Partition = 28 } }
+                        }
+                    }
+            };
+
+            using (var serialized = rq.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
+            {
+                CheckHeader(Basics.ApiKey.OffsetFetchRequest, 1, 61, TheClientId, serialized);
+                Assert.AreEqual("the group", Basics.DeserializeString(serialized));
+                Assert.AreEqual(1, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual("the topic", Basics.DeserializeString(serialized));
+                Assert.AreEqual(1, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(28, BigEndianConverter.ReadInt32(serialized));
+            }
+        }
+
+        [Test]
+        public void TestDeserializeFetchOffsetResponse()
+        {
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                BigEndianConverter.Write(serialized, 1);
+                Basics.SerializeString(serialized, "topic");
+                BigEndianConverter.Write(serialized, 1);
+                BigEndianConverter.Write(serialized, 14);
+                BigEndianConverter.Write(serialized, 127L);
+                Basics.SerializeString(serialized, "metadata");
+                BigEndianConverter.Write(serialized, (short) ErrorCode.NoError);
+
+                serialized.Position = 0;
+                var resp = new CommonResponse<PartitionOffsetData>();
+                resp.Deserialize(serialized, null);
+
+                Assert.AreEqual(1, resp.TopicsResponse.Length);
+                Assert.AreEqual("topic", resp.TopicsResponse[0].TopicName);
+                var p = resp.TopicsResponse[0].PartitionsData.ToArray();
+                Assert.AreEqual(1, p.Length);
+
+                Assert.AreEqual(ErrorCode.NoError, p[0].ErrorCode);
+                Assert.AreEqual(14, p[0].Partition);
+                Assert.AreEqual(127L, p[0].Offset);
+                Assert.AreEqual("metadata", p[0].Metadata);
+            }
+        }
+
+        [Test]
+        public void TestSerializeOffsetCommitRequest()
+        {
+            var rq = new OffsetCommitRequest()
+            {
+                ConsumerGroupId = "the group",
+                ConsumerGroupGenerationId = 42,
+                ConsumerId = "consumer",
+                RetentionTime = 1000L,
+                TopicsData = new[]
+                {
+                    new TopicData<OffsetCommitPartitionData>
+                    {
+                        TopicName = "topic",
+                        PartitionsData = new []
+                        {
+                            new OffsetCommitPartitionData
+                            {
+                                Metadata = "metadata",
+                                Offset = 20000L,
+                                Partition = 23
+                            }
+                        }
+                    }
+                }
+            };
+
+            using (var serialized = rq.Serialize(new ReusableMemoryStream(null), 61, ClientId, null))
+            {
+                CheckHeader(Basics.ApiKey.OffsetCommitRequest, 2, 61, TheClientId, serialized);
+                Assert.AreEqual("the group", Basics.DeserializeString(serialized));
+                Assert.AreEqual(42, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual("consumer", Basics.DeserializeString(serialized));
+                Assert.AreEqual(1000L, BigEndianConverter.ReadInt64(serialized));
+                Assert.AreEqual(1, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual("topic", Basics.DeserializeString(serialized));
+                Assert.AreEqual(1, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(23, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(20000L, BigEndianConverter.ReadInt64(serialized));
+                Assert.AreEqual("metadata", Basics.DeserializeString(serialized));
+            }
+        }
+
+        [Test]
+        public void TestDeserializeCommitOffsetResponse()
+        {
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                BigEndianConverter.Write(serialized, 1);
+                Basics.SerializeString(serialized, "topic");
+                BigEndianConverter.Write(serialized, 1);
+                BigEndianConverter.Write(serialized, 14);
+                BigEndianConverter.Write(serialized, (short)ErrorCode.NoError);
+
+                serialized.Position = 0;
+                var resp = new CommonResponse<PartitionCommitData>();
+                resp.Deserialize(serialized, null);
+
+                Assert.AreEqual(1, resp.TopicsResponse.Length);
+                Assert.AreEqual("topic", resp.TopicsResponse[0].TopicName);
+                var p = resp.TopicsResponse[0].PartitionsData.ToArray();
+                Assert.AreEqual(1, p.Length);
+
+                Assert.AreEqual(ErrorCode.NoError, p[0].ErrorCode);
+                Assert.AreEqual(14, p[0].Partition);
             }
         }
     }
-
 }

@@ -2,8 +2,8 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Generic;
 using System.Reactive.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Common;
@@ -104,6 +104,48 @@ namespace Kafka.Public
         /// <param name="partition"></param>
         /// <param name="offset"></param>
         void StopConsume(string topic, int partition, long offset);
+
+        /// <summary>
+        /// Subscribe to a list of topics, using a given consumer group id.
+        /// </summary>
+        /// <param name="consumerGroupId"></param>
+        /// <param name="topics"></param>
+        /// <param name="configuration"></param>
+        void Subscribe(string consumerGroupId, IEnumerable<string> topics, ConsumerGroupConfiguration configuration);
+
+        /// <summary>
+        /// Stop consuming messages from the given topic, effective immediately.
+        /// This is the same as 'StopConsume'.
+        /// </summary>
+        /// <param name="topic"></param>
+        void Pause(string topic);
+
+        /// <summary>
+        /// Restart consuming from the given topic, starting from where it was stopped.
+        /// The topic must have been started first.
+        /// </summary>
+        /// <param name="topic"></param>
+        void Resume(string topic);
+
+        /// <summary>
+        /// Commit offsets if linked to a consumer group.
+        /// This is a fire and forget commit: the consumer will commit offsets at the next
+        /// possible occasion. In particular if this is fired from inside a MessageReceived handler, commit
+        /// will occur just after returning from the handler.
+        /// Offsets commited are all the the offsets of the messages that have been sent through MessageReceived.
+        /// </summary>
+        void RequireCommit();
+
+        /// <summary>
+        /// Commit the given offset for the given offset/partition. This is a fined grained
+        /// asynchronous commit. When this method async returns, given offsets will have
+        /// effectively been committed.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <param name="offset"></param>
+        /// <returns></returns>
+        Task CommitAsync(string topic, int partition, long offset);
 
         /// <summary>
         /// Messages received from the brokers.
@@ -354,6 +396,11 @@ namespace Kafka.Public
             _cluster.ConsumeRouter.StartConsume(topic, partition, offset);
         }
 
+        public void Pause(string topic)
+        {
+            StopConsume(topic);
+        }
+
         public void StopConsume(string topic)
         {
             _cluster.ConsumeRouter.StopConsume(topic, Partitions.All, Offsets.Now);
@@ -373,6 +420,25 @@ namespace Kafka.Public
             if (offset < 0)
                 throw new ArgumentException("Offsets are always positive.", "offset");
             _cluster.ConsumeRouter.StopConsume(topic, partition, offset);
+        }
+
+        public void Resume(string topic)
+        {
+            _cluster.ConsumeRouter.StartConsume(topic, Partitions.All, Offsets.Now);
+        }
+
+        public void RequireCommit()
+        {
+            _cluster.ConsumeRouter.RequireCommit();
+        }
+
+        public Task CommitAsync(string topic, int partition, long offset)
+        {
+            if (partition < 0)
+                throw new ArgumentException("Partition Ids are always positive.", "partition");
+            if (offset < 0)
+                throw new ArgumentException("Offsets are always positive.", "offset");
+            return _cluster.ConsumeRouter.CommitAsync(topic, partition, offset);
         }
 
         public bool Produce(string topic, object data)
@@ -425,9 +491,23 @@ namespace Kafka.Public
             return _cluster.GetLatestOffset(topic, partition);
         }
 
-        public Task Shutdown()
+        /// <summary>
+        /// Subscribe to a list of topics, using a given consumer group id.
+        /// Only one subscription is supported at a time. If you want to consumfrom multiple
+        /// consumer group, you have to instanciate multiple ClusterClient.
+        /// </summary>
+        /// <param name="consumerGroupId"></param>
+        /// <param name="topics"></param>
+        /// <param name="configuration"></param>
+        public void Subscribe(string consumerGroupId, IEnumerable<string> topics,
+            ConsumerGroupConfiguration configuration)
         {
-            return _cluster.Stop();
+            _cluster.ConsumeRouter.StartConsumeSubscription(new ConsumerGroup(consumerGroupId, configuration, _cluster), topics);
+        }
+
+        public async Task Shutdown()
+        {
+            await _cluster.Stop();
         }
 
         public void Dispose()

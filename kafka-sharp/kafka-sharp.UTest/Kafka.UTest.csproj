@@ -80,6 +80,7 @@
   <ItemGroup>
     <Compile Include="TestBatching.cs" />
     <Compile Include="TestClient.cs" />
+    <Compile Include="TestConsumerGroup.cs" />
     <Compile Include="TestSerialization.cs" />
     <Compile Include="AsyncCountdownEvent.cs" />
     <Compile Include="Mocks.cs" />

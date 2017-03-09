@@ -111,57 +111,57 @@ namespace Kafka.Protocol
         NotEnoughReplicasAfterAppend = 20,
 
         /// <summary>Returned from a produce request if the requested requiredAcks is invalid (anything other than -1, 1, or 0).</summary>
-        InvalidRequiredAcksCode	= 21,
+        InvalidRequiredAcks	= 21,
 
         /// <summary>
         /// Returned from group membership requests (such as heartbeats) when the generation id provided in the request is not the current generation.
         /// </summary>
-        IllegalGenerationCod = 22,
+        IllegalGeneration = 22,
 
         /// <summary>
         /// Returned in join group when the member provides a protocol type or set of protocols which is not compatible with the current group.
         /// </summary>
-        InconsistentGroupProtocolCode = 23,
+        InconsistentGroupProtocol = 23,
 
         /// <summary>
         /// Returned in join group when the groupId is empty or null.
         /// </summary>
-        InvalidGroupIdCode = 24,
+        InvalidGroupId = 24,
 
         /// <summary>
         /// Returned from group requests (offset commits/fetches, heartbeats, etc) when the memberId is not in the current generation.
         /// </summary>
-        UnknownMemberIdCode = 25,
+        UnknownMemberId = 25,
 
         /// <summary>
         /// Return in join group when the requested session timeout is outside of the allowed range on the broker
         /// </summary>
-        InvalidSessionTimeoutCode = 26,
+        InvalidSessionTimeout = 26,
 
         /// <summary>
         /// Returned in heartbeat requests when the coordinator has begun rebalancing the group. This indicates to the client that it should rejoin the group.
         /// </summary>
-        RebalanceInProgressCode = 27,
+        RebalanceInProgress = 27,
 
         /// <summary>
         /// This error indicates that an offset commit was rejected because of oversize metadata.
         /// </summary>
-        InvalidCommitOffsetSizeCode = 28,
+        InvalidCommitOffsetSize = 28,
 
         /// <summary>
         /// Returned by the broker when the client is not authorized to access the requested topic.
         /// </summary>
-        TopicAuthorizationFailedCode = 29,
+        TopicAuthorizationFailed = 29,
 
         /// <summary>
         /// Returned by the broker when the client is not authorized to access a particular groupId.
         /// </summary>
-        GroupAuthorizationFailedCode = 30,
+        GroupAuthorizationFailed = 30,
 
         /// <summary>
         /// Returned by the broker when the client is not authorized to use an inter-broker or administrative API.
         /// </summary>
-        ClusterAuthorizationFailedCode = 31,
+        ClusterAuthorizationFailed = 31,
 
         // Local error, not from brokers
         LocalError = -42,
