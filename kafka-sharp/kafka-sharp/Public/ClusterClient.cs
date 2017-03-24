@@ -451,23 +451,31 @@ namespace Kafka.Public
             return Produce(topic, key, data, Partitions.Any);
         }
 
+        private object _lock = new object();
+
         public bool Produce(string topic, object key, object data, int partition)
         {
             if (_configuration.MaxBufferedMessages > 0)
             {
                 if (_cluster.Entered - _cluster.PassedThrough >= _configuration.MaxBufferedMessages)
                 {
-                    switch (_configuration.OverflowStrategy)
-                    {
-                        case OverflowStrategy.Discard:
-                            return false;
+                        switch (_configuration.OverflowStrategy)
+                        {
+                            case OverflowStrategy.Discard:
+                                return false;
 
-                        case OverflowStrategy.Block:
-                            SpinWait.SpinUntil(() => _cluster.Entered - _cluster.PassedThrough < _configuration.MaxBufferedMessages);
-                            break;
+                            case OverflowStrategy.Block:
+                                lock (_lock)
+                                {
+                                    SpinWait.SpinUntil(
+                                        () =>
+                                            _cluster.Entered - _cluster.PassedThrough
+                                                < _configuration.MaxBufferedMessages);
+                                }
+                                break;
 
-                        default:
-                            throw new ArgumentOutOfRangeException();
+                            default:
+                                throw new ArgumentOutOfRangeException();
                     }
                 }
             }
