@@ -686,7 +686,8 @@ namespace tests_kafka_sharp
             mocks.Group.Setup(g => g.Commit(It.IsAny<IEnumerable<TopicData<OffsetCommitPartitionData>>>()))
                 .ThrowsAsync(new InvalidOperationException());
 
-            Assert.Throws<InvalidOperationException>(async () => await consumer.CommitAsync("the topic", 1, 42));
+            // NUnit 3 (used for .Net Core build) requires to use ThrowsAsync which doesn't exist in 2.6
+            Assert.Throws<InvalidOperationException>(consumer.CommitAsync("the topic", 1, 42).GetAwaiter().GetResult);
         }
 
         [Test]
