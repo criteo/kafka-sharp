@@ -437,7 +437,6 @@ namespace Kafka.Routing
         {
             try
             {
-                UpdatePartitionsBlacklist();
                 switch (messageType)
                 {
                     // In this case we prioritize reading produce responses
@@ -450,6 +449,7 @@ namespace Kafka.Routing
                         ProduceAcknowledgement response;
                         if (_produceResponses.TryDequeue(out response))
                         {
+                            UpdatePartitionsBlacklist();
                             if (response.ProduceResponse.TopicsResponse != null)
                             {
                                 await HandleProduceAcknowledgement(response);
