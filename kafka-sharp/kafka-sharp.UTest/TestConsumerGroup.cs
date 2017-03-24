@@ -684,9 +684,9 @@ namespace tests_kafka_sharp
                                     Times.Once);
 
             mocks.Group.Setup(g => g.Commit(It.IsAny<IEnumerable<TopicData<OffsetCommitPartitionData>>>()))
-                .ThrowsAsync(new ApplicationException());
+                .ThrowsAsync(new InvalidOperationException());
 
-            Assert.Throws<ApplicationException>(async () => await consumer.CommitAsync("the topic", 1, 42));
+            Assert.Throws<InvalidOperationException>(async () => await consumer.CommitAsync("the topic", 1, 42));
         }
 
         [Test]
