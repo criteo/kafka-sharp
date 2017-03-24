@@ -1,10 +1,6 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel.Design;
 using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Batching;
@@ -465,7 +461,7 @@ namespace tests_kafka_sharp
             var mocks = InitCluster();
             var consumer = new ConsumeRouter(mocks.Cluster.Object,
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
-            
+
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
             mocks.Group.Verify(g => g.Join(It.IsAny<IEnumerable<string>>()), Times.Once);
@@ -619,7 +615,7 @@ namespace tests_kafka_sharp
                 .Returns(new ConsumerGroupConfiguration { AutoCommitEveryMs = -1, SessionTimeoutMs = 10 });
             var consumer = new ConsumeRouter(mocks.Cluster.Object,
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
-            
+
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
             Thread.Sleep(10); // wait for at least one heartbeat to be sent
@@ -674,7 +670,7 @@ namespace tests_kafka_sharp
                 .Returns(new ConsumerGroupConfiguration { AutoCommitEveryMs = -1, SessionTimeoutMs = 10 });
             var consumer = new ConsumeRouter(mocks.Cluster.Object,
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
-            
+
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
             await consumer.CommitAsync("the topic", 1, 42);
@@ -703,11 +699,11 @@ namespace tests_kafka_sharp
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
 
             mocks.Group.Setup(g => g.Heartbeat()).ReturnsAsync(ErrorCode.RebalanceInProgress);
-            
+
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
             Thread.Sleep(50); // wait for at least one heartbeat to be sent
-            
+
             // At least 2 Join (one on start, one on next heartbeat)
             mocks.Group.Verify(g => g.Join(It.IsAny<IEnumerable<string>>()), Times.AtLeast(2));
             // Commit should have been called due to RebalanceInProgressError
@@ -720,7 +716,7 @@ namespace tests_kafka_sharp
             mocks.Group.Setup(g => g.Heartbeat()).ThrowsAsync(new Exception());
             consumer = new ConsumeRouter(mocks.Cluster.Object,
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
-            
+
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
             Thread.Sleep(20); // wait for at least one heartbeat to be sent
@@ -740,7 +736,7 @@ namespace tests_kafka_sharp
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
 
             mocks.Group.Setup(g => g.Heartbeat()).ReturnsAsync(ErrorCode.RebalanceInProgress);
-            
+
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
             await consumer.Stop();
