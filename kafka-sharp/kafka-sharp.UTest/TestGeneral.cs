@@ -12,7 +12,7 @@ namespace tests_kafka_sharp
     [TestFixture]
     internal class TestGeneral
     {
-        private ClusterClient InitCluster(Configuration configuration, ILogger logger, MetadataResponse metadata, bool forceErrors = false, bool forceConnectionErrors = false, int responseDelay = 0)
+        private static ClusterClient InitCluster(Configuration configuration, ILogger logger, MetadataResponse metadata, bool forceErrors = false, bool forceConnectionErrors = false, int responseDelay = 0)
         {
             TestData.Reset();
             var cluster = new Cluster(

@@ -163,6 +163,71 @@ namespace Kafka.Protocol
         /// </summary>
         ClusterAuthorizationFailed = 31,
 
+        /// <summary>
+        /// The timestamp of the message is out of acceptable range.
+        /// </summary>
+        InvalidTimestamp = 32,
+
+        /// <summary>
+        /// The broker does not support the requested SASL mechanism.
+        /// </summary>
+        UnsupportedSaslMechanism = 33,
+
+        /// <summary>
+        /// Request is not valid given the current SASL state.
+        /// </summary>
+        IllegalSaslState = 34,
+
+        /// <summary>
+        /// The version of API is not supported.
+        /// </summary>
+        UnsupportedVersion = 35,
+
+        /// <summary>
+        /// 
+        /// </summary>
+        TopicAlreadyExists = 36,
+
+        /// <summary>
+        /// Number of partitions is invalid.
+        /// </summary>
+        InvalidPartitions = 37,
+
+        /// <summary>
+        /// Replication-factor is invalid.
+        /// </summary>
+        InvalidReplicationFactor = 38,
+
+        /// <summary>
+        /// Replica assignment is invalid.
+        /// </summary>
+        InvalidReplicaAssignment = 39,
+
+        /// <summary>
+        /// Configuration is invalid.
+        /// </summary>
+        InvalidConfig = 40,
+
+        /// <summary>
+        /// This is not the correct controller for this cluster.
+        /// </summary>
+        NotController = 41,
+
+        /// <summary>
+        /// This most likely occurs because of a request being malformed by the client library or the message was sent to an incompatible broker. See the broker logs for more details.
+        /// </summary>
+        InvalidRequest = 42,
+
+        /// <summary>
+        /// The message format version on the broker does not support the request.
+        /// </summary>
+        UnsupportedForMessageFormat = 43,
+
+        /// <summary>
+        /// Request parameters do not satisfy the configured policy.
+        /// </summary>
+        PolicyViolation = 44,
+
         // Local error, not from brokers
         LocalError = -42,
     }

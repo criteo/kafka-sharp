@@ -30,7 +30,7 @@ namespace Kafka.Routing
         /// The response associated to the batch. An empty value means
         /// an error occured.
         /// </summary>
-        public CommonResponse<ProducePartitionResponse> ProduceResponse;
+        public ProduceResponse ProduceResponse;
 
         /// <summary>
         /// The batch of messages that were tried to be sent.
@@ -115,6 +115,11 @@ namespace Kafka.Routing
         /// Raised when a message is postponed following a recoverable error.
         /// </summary>
         event Action<string /* topic */> MessagePostponed;
+
+        /// <summary>
+        /// Raised when a produce request has been throttled by brokers.
+        /// </summary>
+        event Action<int> Throttled;
     }
 
     /// <summary>
@@ -172,13 +177,11 @@ namespace Kafka.Routing
             private readonly AccumulatorByNodeByTopicByPartition<ProduceMessage> _accumulator;
             private Action<INode, IBatchByTopicByPartition<ProduceMessage>> _batch;
 
-            public GlobalBatchingStrategy(Configuration configuration, Action<INode, IBatchByTopicByPartition<ProduceMessage>> batch)
+            public GlobalBatchingStrategy(Configuration configuration,
+                Action<INode, IBatchByTopicByPartition<ProduceMessage>> batch)
             {
-                _accumulator = new AccumulatorByNodeByTopicByPartition<ProduceMessage>(
-                    pm => pm.Topic,
-                    pm => pm.Partition,
-                    configuration.ProduceBatchSize,
-                    configuration.ProduceBufferingTime);
+                _accumulator = new AccumulatorByNodeByTopicByPartition<ProduceMessage>(pm => pm.Topic,
+                    pm => pm.Partition, configuration.ProduceBatchSize, configuration.ProduceBufferingTime);
                 _accumulator.NewBatch += batch;
             }
 
@@ -202,8 +205,13 @@ namespace Kafka.Routing
         private readonly Pool<ReusableMemoryStream> _pool;
 
         private RoutingTable _routingTable = new RoutingTable();
-        private readonly Dictionary<string, PartitionSelector> _partitioners = new Dictionary<string, PartitionSelector>();
-        private readonly Dictionary<string, Dictionary<int, DateTime>> _filters = new Dictionary<string, Dictionary<int, DateTime>>();
+
+        private readonly Dictionary<string, PartitionSelector> _partitioners =
+            new Dictionary<string, PartitionSelector>();
+
+        private readonly Dictionary<string, Dictionary<int, DateTime>> _filters =
+            new Dictionary<string, Dictionary<int, DateTime>>();
+
         private DateTime _filtersLastChecked;
 
         private readonly Random _randomGenerator = new Random(Guid.NewGuid().GetHashCode());
@@ -212,13 +220,15 @@ namespace Kafka.Routing
         private readonly ConcurrentQueue<ProduceMessage> _produceMessages = new ConcurrentQueue<ProduceMessage>();
 
         // The queue of received acknowledgements
-        private readonly ConcurrentQueue<ProduceAcknowledgement> _produceResponses = new ConcurrentQueue<ProduceAcknowledgement>();
+        private readonly ConcurrentQueue<ProduceAcknowledgement> _produceResponses =
+            new ConcurrentQueue<ProduceAcknowledgement>();
 
         // The actor used to orchestrate all processing
         private readonly ActionBlock<RouterMessageType> _messages;
 
         // Postponed messages, stored by topics
-        private readonly Dictionary<string, Queue<ProduceMessage>> _postponedMessages = new Dictionary<string, Queue<ProduceMessage>>();
+        private readonly Dictionary<string, Queue<ProduceMessage>> _postponedMessages =
+            new Dictionary<string, Queue<ProduceMessage>>();
 
         // Active when there are some postponed messages, it checks regurlarly
         // if they can be sent again
@@ -236,6 +246,8 @@ namespace Kafka.Routing
         public event Action<string> BrokerTimeoutError = _ => { };
         public event Action<string> MessageReEnqueued = _ => { };
         public event Action<string> MessagePostponed = _ => { };
+        public event Action<int> Throttled = _ => { };
+
         #endregion
 
         /// <summary>
@@ -450,7 +462,7 @@ namespace Kafka.Routing
                         if (_produceResponses.TryDequeue(out response))
                         {
                             UpdatePartitionsBlacklist();
-                            if (response.ProduceResponse.TopicsResponse != null)
+                            if (response.ProduceResponse.ProducePartitionResponse.TopicsResponse != null)
                             {
                                 await HandleProduceAcknowledgement(response);
                             }
@@ -633,7 +645,13 @@ namespace Kafka.Routing
         {
             // The whole point of scanning the response is to search for errors
             var originalBatch = acknowledgement.OriginalBatch;
-            var produceResponse = acknowledgement.ProduceResponse;
+            var produceResponse = acknowledgement.ProduceResponse.ProducePartitionResponse;
+            var throttled = acknowledgement.ProduceResponse.ThrottleTime;
+
+            if (throttled > 0)
+            {
+                Throttled(throttled);
+            }
 
             // Fill partitions in error caches
             _tmpPartitionsInError.Clear();

@@ -12,13 +12,13 @@ namespace Kafka.Protocol
         public string GroupId;
 
         public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId,
-            object extra)
+            object _, Basics.ApiVersion __)
         {
             return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.GroupCoordinatorRequest,
                 Basics.ApiVersion.V0, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object extra)
+        public void SerializeBody(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, GroupId);
         }
@@ -34,14 +34,14 @@ namespace Kafka.Protocol
         public long Offset;
         public string Metadata;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, Offset);
             Basics.SerializeString(stream, Metadata);
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             Offset = BigEndianConverter.ReadInt64(stream);
@@ -57,13 +57,13 @@ namespace Kafka.Protocol
         public long RetentionTime;
         public IEnumerable<TopicData<OffsetCommitPartitionData>> TopicsData;
 
-        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra)
+        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object _, Basics.ApiVersion __)
         {
             return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.OffsetCommitRequest,
                 Basics.ApiVersion.V2, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object extra)
+        public void SerializeBody(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, ConsumerGroupId);
             BigEndianConverter.Write(stream, ConsumerGroupGenerationId);
@@ -78,13 +78,13 @@ namespace Kafka.Protocol
         public string ConsumerGroupId;
         public IEnumerable<TopicData<PartitionAssignment>> TopicsData;
 
-        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra)
+        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object _, Basics.ApiVersion __)
         {
             return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.OffsetFetchRequest,
                 Basics.ApiVersion.V1, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object extra)
+        public void SerializeBody(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, ConsumerGroupId);
             Basics.WriteArray(stream, TopicsData);

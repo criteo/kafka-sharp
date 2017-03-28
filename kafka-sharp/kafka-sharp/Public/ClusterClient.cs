@@ -19,6 +19,8 @@ namespace Kafka.Public
     {
         /// <summary>
         /// Send some data to a Kafka Cluster, with no key.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
         /// <param name="data">Message value</param>
@@ -26,7 +28,19 @@ namespace Kafka.Public
         bool Produce(string topic, object data);
 
         /// <summary>
+        /// Send some data to a Kafka Cluster, with no key and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="data">Message value</param>
+        /// <param name="timestamp">The timestamp of the message.</param>
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object data, DateTime timestamp);
+
+        /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
         /// <param name="key">Message key</param>
@@ -35,9 +49,22 @@ namespace Kafka.Public
         bool Produce(string topic, object key, object data);
 
         /// <summary>
+        /// Send an array of bytes to a Kafka Cluster, using the given key and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="key">Message key</param>
+        /// <param name="data">Message value</param>
+        /// <param name="timestamp">The timestamp of the message.</param>
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object key, object data, DateTime timestamp);
+
+        /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
-        /// The message will routed to the target partition. This allows
+        /// The message will be routed to the target partition. This allows
         /// clients to partition data according to a specific scheme.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
         /// <param name="key">Message key</param>
@@ -45,6 +72,20 @@ namespace Kafka.Public
         /// <param name="partition">Target partition</param>
         /// <returns>false if an overflow occured</returns>
         bool Produce(string topic, object key, object data, int partition);
+
+        /// <summary>
+        /// Send an array of bytes to a Kafka Cluster, using the given key and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
+        /// The message will be routed to the target partition. This allows
+        /// clients to partition data according to a specific scheme.
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="key">Message key</param>
+        /// <param name="data">Message value</param>
+        /// <param name="partition">Target partition</param>
+        /// <param name="timestamp">The timestamp of the message.</param>
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object key, object data, int partition, DateTime timestamp);
 
         /// <summary>
         /// Consume messages from the given topic, from all partitions, and starting from
@@ -153,6 +194,11 @@ namespace Kafka.Public
         event Action<RawKafkaRecord> MessageReceived;
 
         /// <summary>
+        /// Raised when one fetch request has been throttled by brokers.
+        /// </summary>
+        event Action<int> ConsumeThrottled;
+
+        /// <summary>
         /// The stream of received messages. Use this if you prefer using Reactive Extensions
         /// to manipulate streams of messages.
         /// </summary>
@@ -185,6 +231,11 @@ namespace Kafka.Public
         /// to none, it is never raised.
         /// </summary>
         event Action<string, int> ProduceAcknowledged;
+
+        /// <summary>
+        /// Raised when one produce request has been throttled by brokers.
+        /// </summary>
+        event Action<int> ProduceThrottled;
 
         /// <summary>
         /// Returns all the partitions ids for a given topic. This is useful
@@ -247,6 +298,11 @@ namespace Kafka.Public
         public event Action<RawKafkaRecord> MessageReceived = _ => { };
 
         /// <summary>
+        /// This is raised when a fetch request has been throttled server side.
+        /// </summary>
+        public event Action<int> ConsumeThrottled = t => { };
+
+        /// <summary>
         /// The stream of consumed messages as an Rx stream. By default it is observed in the context
         /// of the underlying fetch loop, so you can take advantage of that to throttle the whole system
         /// or you can oberve it on its own scheduler.
@@ -296,6 +352,11 @@ namespace Kafka.Public
         /// to none, it is never raised.
         /// </summary>
         public event Action<string, int> ProduceAcknowledged = (t, n) => { };
+
+        /// <summary>
+        /// This is raised when a produce request has been throttled server side.
+        /// </summary>
+        public event Action<int> ProduceThrottled = t => { };
 
         /// <summary>
         /// Initialize a client to a Kafka cluster.
@@ -355,6 +416,8 @@ namespace Kafka.Public
                     });
             DiscardedMessages = Observable.FromEvent<RawKafkaRecord>(a => MessageDiscarded += a, a => MessageDiscarded -= a);
             _cluster.ProduceRouter.MessagesAcknowledged += (t, n) => ProduceAcknowledged(t, n);
+            _cluster.ProduceRouter.Throttled += t => ProduceThrottled(t);
+            _cluster.ConsumeRouter.Throttled += t => ConsumeThrottled(t);
             _cluster.Start();
         }
 
@@ -443,17 +506,32 @@ namespace Kafka.Public
 
         public bool Produce(string topic, object data)
         {
-            return Produce(topic, null, data);
+            return Produce(topic, data, DateTime.UtcNow);
+        }
+
+        public bool Produce(string topic, object data, DateTime timestamp)
+        {
+            return Produce(topic, null, data, timestamp);
         }
 
         public bool Produce(string topic, object key, object data)
         {
-            return Produce(topic, key, data, Partitions.Any);
+            return Produce(topic, key, data, DateTime.UtcNow);
         }
 
-        private object _lock = new object();
+        public bool Produce(string topic, object key, object data, DateTime timestamp)
+        {
+            return Produce(topic, key, data, Partitions.Any, timestamp);
+        }
 
         public bool Produce(string topic, object key, object data, int partition)
+        {
+            return Produce(topic, key, data, partition, DateTime.UtcNow);
+        }
+
+        private readonly object _lock = new object();
+
+        public bool Produce(string topic, object key, object data, int partition, DateTime timestamp)
         {
             if (_configuration.MaxBufferedMessages > 0)
             {
@@ -480,7 +558,15 @@ namespace Kafka.Public
                 }
             }
             _cluster.UpdateEntered();
-            _cluster.ProduceRouter.Route(topic, new Message {Key = key, Value = data}, partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
+            _cluster.ProduceRouter.Route(topic,
+                new Message
+                {
+                    Key = key,
+                    Value = data,
+                    TimeStamp =
+                        _configuration.Compatibility >= Compatibility.V0_10_1 ? Timestamp.ToUnixTimestamp(timestamp) : 0
+                },
+                partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
             return true;
         }
 

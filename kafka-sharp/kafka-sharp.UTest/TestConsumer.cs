@@ -271,7 +271,7 @@ namespace tests_kafka_sharp
             consumer.StopConsume(TOPIC, PARTITION, offset);
 
             // Now simulate an offset response, this should not trigger any fetch request.
-            consumer.Acknowledge(new CommonAcknowledgement<OffsetPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>
             {
                 Response = new CommonResponse<OffsetPartitionResponse>
                 {
@@ -335,33 +335,53 @@ namespace tests_kafka_sharp
             consumer.StopConsume(TOPIC, PARTITION, offset);
 
             // Now simulate a fetch response getting out of range, this should not trigger any new fetch request.
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
+                Response =
+                    new FetchResponse
                     {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
+                        FetchPartitionResponse =
+                            new CommonResponse<FetchPartitionResponse>
                             {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = PARTITION,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
+                                TopicsResponse =
+                                    new[]
                                     {
-                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                        new TopicData<FetchPartitionResponse>
+                                        {
+                                            TopicName = TOPIC,
+                                            PartitionsData =
+                                                new[]
+                                                {
+                                                    new FetchPartitionResponse
+                                                    {
+                                                        ErrorCode = ErrorCode.NoError,
+                                                        Partition = PARTITION,
+                                                        HighWatermarkOffset = 432515L,
+                                                        Messages =
+                                                            new List<ResponseMessage>
+                                                            {
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET,
+                                                                    Message = new Message()
+                                                                },
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 1,
+                                                                    Message = new Message()
+                                                                },
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 2,
+                                                                    Message = new Message()
+                                                                },
+                                                            }
+                                                    }
+                                                }
+                                        }
                                     }
-                                }
                             }
-                        }
-                    }
-                },
+                    },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -396,45 +416,78 @@ namespace tests_kafka_sharp
             consumer.StopConsume(TOPIC, Partitions.All, Offsets.Now);
 
             // Now simulate a fetch response getting out of range, this should not trigger any new fetch request.
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
+                Response =
+                    new FetchResponse
                     {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
+                        FetchPartitionResponse =
+                            new CommonResponse<FetchPartitionResponse>
                             {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = 0,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
+                                TopicsResponse =
+                                    new[]
                                     {
-                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                        new TopicData<FetchPartitionResponse>
+                                        {
+                                            TopicName = TOPIC,
+                                            PartitionsData =
+                                                new[]
+                                                {
+                                                    new FetchPartitionResponse
+                                                    {
+                                                        ErrorCode = ErrorCode.NoError,
+                                                        Partition = 0,
+                                                        HighWatermarkOffset = 432515L,
+                                                        Messages =
+                                                            new List<ResponseMessage>
+                                                            {
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET,
+                                                                    Message = new Message()
+                                                                },
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 1,
+                                                                    Message = new Message()
+                                                                },
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 2,
+                                                                    Message = new Message()
+                                                                },
+                                                            }
+                                                    },
+                                                    new FetchPartitionResponse
+                                                    {
+                                                        ErrorCode = ErrorCode.NoError,
+                                                        Partition = 1,
+                                                        HighWatermarkOffset = 432515L,
+                                                        Messages =
+                                                            new List<ResponseMessage>
+                                                            {
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET,
+                                                                    Message = new Message()
+                                                                },
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 1,
+                                                                    Message = new Message()
+                                                                },
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 2,
+                                                                    Message = new Message()
+                                                                },
+                                                            }
+                                                    }
+                                                }
+                                        }
                                     }
-                                },
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = 1,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
-                                    {
-                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
-                                    }
-                                }
                             }
-                        }
-                    }
-                },
+                    },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -470,33 +523,53 @@ namespace tests_kafka_sharp
 
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
+                Response =
+                    new FetchResponse
                     {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
+                        FetchPartitionResponse =
+                            new CommonResponse<FetchPartitionResponse>
                             {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = PARTITION,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
+                                TopicsResponse =
+                                    new[]
                                     {
-                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
+                                        new TopicData<FetchPartitionResponse>
+                                        {
+                                            TopicName = TOPIC,
+                                            PartitionsData =
+                                                new[]
+                                                {
+                                                    new FetchPartitionResponse
+                                                    {
+                                                        ErrorCode = ErrorCode.NoError,
+                                                        Partition = PARTITION,
+                                                        HighWatermarkOffset = 432515L,
+                                                        Messages =
+                                                            new List<ResponseMessage>
+                                                            {
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET,
+                                                                    Message = new Message()
+                                                                },
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 1,
+                                                                    Message = new Message()
+                                                                },
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 2,
+                                                                    Message = new Message()
+                                                                },
+                                                            }
+                                                    }
+                                                }
+                                        }
                                     }
-                                }
                             }
-                        }
-                    }
-                },
+                    },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -507,31 +580,43 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Once);
 
             // Should be ignored
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
+                Response =
+                    new FetchResponse
                     {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
+                        FetchPartitionResponse =
+                            new CommonResponse<FetchPartitionResponse>
                             {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = PARTITION,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
+                                TopicsResponse =
+                                    new[]
                                     {
-                                        new ResponseMessage {Offset = OFFSET + 3, Message = new Message()},
+                                        new TopicData<FetchPartitionResponse>
+                                        {
+                                            TopicName = TOPIC,
+                                            PartitionsData =
+                                                new[]
+                                                {
+                                                    new FetchPartitionResponse
+                                                    {
+                                                        ErrorCode = ErrorCode.NoError,
+                                                        Partition = PARTITION,
+                                                        HighWatermarkOffset = 432515L,
+                                                        Messages =
+                                                            new List<ResponseMessage>
+                                                            {
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET + 3,
+                                                                    Message = new Message()
+                                                                },
+                                                            }
+                                                    }
+                                                }
+                                        }
                                     }
-                                }
                             }
-                        }
-                    }
-                },
+                    },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -576,9 +661,9 @@ namespace tests_kafka_sharp
 
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
                 {
                     TopicsResponse = new[]
                     {
@@ -602,7 +687,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -613,9 +698,9 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Once);
 
             // Should be ignored
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
                 {
                     TopicsResponse = new[]
                     {
@@ -637,7 +722,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -680,9 +765,9 @@ namespace tests_kafka_sharp
 
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse <FetchPartitionResponse>
                 {
                     TopicsResponse = new[]
                     {
@@ -706,7 +791,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -723,9 +808,9 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2));
 
             // Should trigger new Fetch
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
                 {
                     TopicsResponse = new[]
                     {
@@ -747,7 +832,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -797,7 +882,7 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Never);
 
             // Should trigger new Fetch
-            consumer.Acknowledge(new CommonAcknowledgement<OffsetPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>
             {
                 Response = new CommonResponse<OffsetPartitionResponse>
                 {
@@ -860,7 +945,7 @@ namespace tests_kafka_sharp
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
             consumer.StartConsume(TOPIC, PARTITION + 1, Offsets.Earliest);
             consumer.StartConsume(TOPIC2, PARTITION, Offsets.Earliest);
-            consumer.Acknowledge(new CommonAcknowledgement<OffsetPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>
             {
                 Response = new CommonResponse<OffsetPartitionResponse>
                 {
@@ -941,9 +1026,9 @@ namespace tests_kafka_sharp
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
             consumer.StartConsume(TOPIC, PARTITION + 1, Offsets.Earliest);
             consumer.StartConsume(TOPIC2, PARTITION, Offsets.Earliest);
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
                 {
                     TopicsResponse = new[]
                     {
@@ -995,7 +1080,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 ReceivedDate = DateTime.UtcNow
             });
             node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(3));
@@ -1051,9 +1136,9 @@ namespace tests_kafka_sharp
                 partitions.Add(kr.Partition);
                 topics.Add(kr.Topic);
             };
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
                 {
                     TopicsResponse = new[]
                     {
@@ -1078,7 +1163,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -1155,6 +1240,70 @@ namespace tests_kafka_sharp
             
             Assert.AreEqual(TOPIC, topic);
             Assert.AreEqual(PARTITION, partition);
+        }
+
+        [Test]
+        public void TestThrottled()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(
+                    () =>
+                        Task.FromResult(
+                            new RoutingTable(new Dictionary<string, Partition[]>
+                            {
+                                { TOPIC, new[] { new Partition { Id = 0, Leader = node.Object }, } }
+                            })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+
+            int throttled = -1;
+            consumer.Throttled += t => throttled = t;
+
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            {
+                Response =
+                    new FetchResponse
+                    {
+                        ThrottleTime = 42,
+                        FetchPartitionResponse =
+                            new CommonResponse<FetchPartitionResponse>
+                            {
+                                TopicsResponse =
+                                    new[]
+                                    {
+                                        new TopicData<FetchPartitionResponse>
+                                        {
+                                            TopicName = TOPIC,
+                                            PartitionsData =
+                                                new[]
+                                                {
+                                                    new FetchPartitionResponse
+                                                    {
+                                                        ErrorCode = ErrorCode.NoError,
+                                                        Partition = PARTITION,
+                                                        HighWatermarkOffset = 432515L,
+                                                        Messages =
+                                                            new List<ResponseMessage>
+                                                            {
+                                                                new ResponseMessage
+                                                                {
+                                                                    Offset = OFFSET,
+                                                                    Message = new Message()
+                                                                },
+                                                            }
+                                                    }
+                                                }
+                                        }
+                                    }
+                            }
+                    },
+                ReceivedDate = DateTime.UtcNow
+            });
+            
+            Assert.AreEqual(42, throttled);
         }
     }
 }

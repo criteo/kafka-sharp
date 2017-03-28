@@ -210,7 +210,7 @@ namespace Kafka.Cluster
 
             // Node factory
             var clientId = Encoding.UTF8.GetBytes(configuration.ClientId);
-            var serializer = new Node.Serialization(configuration.SerializationConfig, _pools.RequestsBuffersPool, clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
+            var serializer = new Node.Serialization(configuration.SerializationConfig, configuration.Compatibility, _pools.RequestsBuffersPool, clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
                                                  configuration.CompressionCodec, configuration.FetchMinBytes, configuration.FetchMaxWaitTime);
             _nodeFactory = nodeFactory ??
                            ((h, p) =>
@@ -418,6 +418,7 @@ namespace Kafka.Cluster
         public void Start()
         {
             Logger.LogInformation("Bootstraping with " + _seeds);
+            Logger.LogInformation("Compatibility with " + ((_configuration.Compatibility == Compatibility.V0_10_1) ? "Kafka 0.10+" : "Kafka 0.8.2"));
             Logger.LogInformation(
                 string.Format("Configuration: {0} - {1} - {2} - max before overflow: {3} - produce batch size: {4} - client timeout: {5} ms",
                 _configuration.OverflowStrategy == OverflowStrategy.Block ? "blocking" : "discard",

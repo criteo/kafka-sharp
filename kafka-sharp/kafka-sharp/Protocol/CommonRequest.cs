@@ -9,8 +9,8 @@ namespace Kafka.Protocol
     // quite ugly from OO perspective but struct cannot inherit in C#.
     interface ISerializableRequest
     {
-        ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra);
-        void SerializeBody(ReusableMemoryStream stream, object extra);
+        ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra, Basics.ApiVersion version);
+        void SerializeBody(ReusableMemoryStream stream, object extra, Basics.ApiVersion version);
     }
 
     // Convenience class to avoid code duplication. We cannot
@@ -22,7 +22,7 @@ namespace Kafka.Protocol
             Basics.ApiKey apiKey, Basics.ApiVersion apiVersion, object extra) where TRequest : ISerializableRequest
         {
             Basics.WriteRequestHeader(stream, correlationId, apiKey, apiVersion, clientId);
-            request.SerializeBody(stream, extra);
+            request.SerializeBody(stream, extra, apiVersion);
             Basics.WriteMessageLength(stream);
             stream.Position = 0;
             return stream;

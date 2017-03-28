@@ -380,7 +380,7 @@ namespace tests_kafka_sharp
         public void TestFetchAcknowledgement()
         {
             _cluster.Start();
-            var ca = new CommonAcknowledgement<FetchPartitionResponse>();
+            var ca = new CommonAcknowledgement<FetchResponse>();
             _nodeMocks[0].Raise(n => n.FetchAcknowledgement += null, _nodeMocks[0].Object, ca);
 
             _consumeMock.Verify(r => r.Acknowledge(ca));
@@ -392,7 +392,7 @@ namespace tests_kafka_sharp
         public void TestOffsetAcknowledgement()
         {
             _cluster.Start();
-            var ca = new CommonAcknowledgement<OffsetPartitionResponse>();
+            var ca = new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>();
             _nodeMocks[0].Raise(n => n.OffsetAcknowledgement += null, _nodeMocks[0].Object, ca);
 
             _consumeMock.Verify(r => r.Acknowledge(ca));

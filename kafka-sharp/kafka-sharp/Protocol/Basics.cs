@@ -12,33 +12,30 @@ namespace Kafka.Protocol
     // This is not intended to be beautiful.
     internal interface IMemoryStreamSerializable
     {
-        void Serialize(ReusableMemoryStream stream, object extra);
-        void Deserialize(ReusableMemoryStream stream, object extra);
+        void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version);
+        void Deserialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version);
     }
 
     static class Basics
     {
         public static readonly byte[] MinusOne32 = { 0xff, 0xff, 0xff, 0xff };
         static readonly byte[] MinusOne16 = { 0xff, 0xff };
-        static readonly byte[] ApiVersion0 = { 0x00, 0x00 };
-        static readonly byte[] ApiVersion1 = { 0x00, 0x01 };
-        static readonly byte[] ApiVersion2 = { 0x00, 0x02 };
         public static readonly byte[] Zero64 = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
         public static readonly byte[] Zero32 = { 0x00, 0x00, 0x00, 0x00 };
 
-
-        public struct ApiVersion
+        public static readonly byte[][] VersionBytes =
         {
-            public readonly byte[] Version;
+            new byte[]{ 0x00, 0x00 }, 
+            new byte[]{ 0x00, 0x01 }, 
+            new byte[]{ 0x00, 0x02 },
+        };
 
-            public ApiVersion(byte[] versionArray)
-            {
-                Version = versionArray;
-            }
-
-            public static ApiVersion V0 = new ApiVersion(ApiVersion0);
-            public static ApiVersion V1 = new ApiVersion(ApiVersion1);
-            public static ApiVersion V2 = new ApiVersion(ApiVersion2);
+        public enum ApiVersion
+        {
+            Ignored = -1,
+            V0 = 0,
+            V1 = 1,
+            V2 = 2,
         }
 
         public enum ApiKey : short
@@ -57,6 +54,8 @@ namespace Kafka.Protocol
             SyncGroupRequest = 14,
             DescribeGroupsRequest = 15,
             ListGroupsRequest = 16,
+            SaslHandshake = 17,
+            ApiVersions = 18,
         }
 
         public static byte[] DeserializeBytes(ReusableMemoryStream stream)
@@ -161,20 +160,25 @@ namespace Kafka.Protocol
         }
 
         // To avoid dynamically allocated closure
-        private static void WriteMemoryStreamSerializable<T>(ReusableMemoryStream stream, T item, object extra)
+        private static void WriteMemoryStreamSerializable<T>(ReusableMemoryStream stream, T item, object extra, ApiVersion version)
             where T : IMemoryStreamSerializable
         {
-            item.Serialize(stream, extra);
+            item.Serialize(stream, extra, version);
         }
 
         public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items) where T : IMemoryStreamSerializable
         {
-            WriteArray(stream, items, null, WriteMemoryStreamSerializable);
+            WriteArray(stream, items, null, ApiVersion.Ignored, WriteMemoryStreamSerializable);
         }
 
-        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra) where T : IMemoryStreamSerializable
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, ApiVersion version) where T : IMemoryStreamSerializable
         {
-            WriteArray(stream, items, extra, WriteMemoryStreamSerializable);
+            WriteArray(stream, items, null, version, WriteMemoryStreamSerializable);
+        }
+
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra, ApiVersion version) where T : IMemoryStreamSerializable
+        {
+            WriteArray(stream, items, extra, version, WriteMemoryStreamSerializable);
         }
 
         private static long WriteArrayHeader(ReusableMemoryStream stream)
@@ -204,13 +208,13 @@ namespace Kafka.Protocol
             WriteArraySize(stream, sizePosition, count);
         }
 
-        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra, Action<ReusableMemoryStream, T, object> write)
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra, ApiVersion version, Action<ReusableMemoryStream, T, object, ApiVersion> write)
         {
             var sizePosition = WriteArrayHeader(stream);
             var count = 0;
             foreach (var item in items)
             {
-                write(stream, item, extra);
+                write(stream, item, extra, version);
                 ++count;
             }
             WriteArraySize(stream, sizePosition, count);
@@ -220,7 +224,7 @@ namespace Kafka.Protocol
         {
             stream.Write(MinusOne32, 0, 4); // reserve space for message size
             BigEndianConverter.Write(stream, (short)requestType);
-            stream.Write(version.Version, 0, 2);
+            stream.Write(VersionBytes[(int)version], 0, 2);
             BigEndianConverter.Write(stream, correlationId);
             BigEndianConverter.Write(stream, (short)clientId.Length);
             stream.Write(clientId, 0, clientId.Length);
@@ -237,17 +241,23 @@ namespace Kafka.Protocol
         public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream)
             where TData : IMemoryStreamSerializable, new()
         {
-            return DeserializeArrayExtra<TData>(stream, null);
+            return DeserializeArrayExtra<TData>(stream, null, ApiVersion.Ignored);
         }
 
-        public static TData[] DeserializeArrayExtra<TData>(ReusableMemoryStream stream, object extra) where TData : IMemoryStreamSerializable, new()
+        public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream, ApiVersion version)
+            where TData : IMemoryStreamSerializable, new()
+        {
+            return DeserializeArrayExtra<TData>(stream, null, version);
+        }
+
+        public static TData[] DeserializeArrayExtra<TData>(ReusableMemoryStream stream, object extra, ApiVersion version) where TData : IMemoryStreamSerializable, new()
         {
             var count = BigEndianConverter.ReadInt32(stream);
             var array = new TData[count];
             for (int i = 0; i < count; ++i)
             {
                 array[i] = new TData();
-                array[i].Deserialize(stream, extra);
+                array[i].Deserialize(stream, extra, version);
             }
             return array;
         }

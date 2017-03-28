@@ -25,6 +25,11 @@ namespace Kafka.Public
         event Action<KafkaRecord<TKey, TValue>> MessageReceived;
 
         /// <summary>
+        /// Raised when a fetch request has been throttled server side.
+        /// </summary>
+        event Action<int> Throttled;
+
+        /// <summary>
         /// The stream of received messages. Use this if you prefer using Reactive Extensions
         /// to manipulate streams of messages.
         /// </summary>
@@ -171,10 +176,12 @@ namespace Kafka.Public
             _clusterClient = clusterClient;
 
             _clusterClient.MessageReceived += OnClusterMessage;
+            _clusterClient.ConsumeThrottled += t => Throttled(t);
             _messagesSub = _clusterClient.Messages.Where(CheckRecord).Select(ToRecord).Subscribe(_messages.OnNext);
         }
 
         public event Action<KafkaRecord<TKey, TValue>> MessageReceived = _ => { };
+        public event Action<int> Throttled = _ => { };
 
         public IObservable<KafkaRecord<TKey, TValue>> Messages
         {

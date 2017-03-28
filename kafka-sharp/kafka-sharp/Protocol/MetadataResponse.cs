@@ -22,8 +22,8 @@ namespace Kafka.Protocol
         // Used only in tests
         public void Serialize(ReusableMemoryStream stream, object noextra)
         {
-            Basics.WriteArray(stream, BrokersMeta, noextra);
-            Basics.WriteArray(stream, TopicsMeta, noextra);
+            Basics.WriteArray(stream, BrokersMeta, noextra, Basics.ApiVersion.Ignored);
+            Basics.WriteArray(stream, TopicsMeta, noextra, Basics.ApiVersion.Ignored);
         }
     }
 }

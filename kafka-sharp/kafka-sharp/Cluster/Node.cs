@@ -229,12 +229,12 @@ namespace Kafka.Cluster
         /// <summary>
         /// An acknowledgement for a fetch request has been received.
         /// </summary>
-        event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement;
+        event Action<INode, CommonAcknowledgement<FetchResponse>> FetchAcknowledgement;
 
         /// <summary>
         /// An acknowledgement for an offset request has been received.
         /// </summary>
-        event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement;
+        event Action<INode, CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>> OffsetAcknowledgement;
 
         /// <summary>
         /// The node reached its maximum number of concurrent requests.
@@ -270,13 +270,13 @@ namespace Kafka.Cluster
             ReusableMemoryStream SerializeMetadataAllRequest(int correlationId);
             ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch);
             ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch);
-            ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request);
+            ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version);
 
-            TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data) where TResponse : IMemoryStreamSerializable, new();
+            TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data, Basics.ApiVersion version) where TResponse : IMemoryStreamSerializable, new();
 
             MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data);
             CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-                ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new();
+                ReusableMemoryStream data, Basics.ApiVersion version) where TPartitionResponse : IMemoryStreamSerializable, new();
         }
 
         /// <summary>
@@ -292,8 +292,9 @@ namespace Kafka.Cluster
             private readonly CompressionCodec _compressionCodec;
             private readonly SerializationConfig _serializationConfig;
             private readonly Pool<ReusableMemoryStream> _requestPool;
+            private readonly Compatibility _compatibility;
 
-            public Serialization(SerializationConfig serializationConfig, Pool<ReusableMemoryStream> requestPool, byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait)
+            public Serialization(SerializationConfig serializationConfig, Compatibility compatibility, Pool<ReusableMemoryStream> requestPool, byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait)
             {
                 _clientId = clientId;
                 _requiredAcks = (short) requiredAcks;
@@ -303,11 +304,12 @@ namespace Kafka.Cluster
                 _compressionCodec = compressionCodec;
                 _serializationConfig = serializationConfig ?? new SerializationConfig();
                 _requestPool = requestPool;
+                _compatibility = compatibility;
             }
 
             public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
             {
-                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
+                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null, Basics.ApiVersion.Ignored);
             }
 
             public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
@@ -327,7 +329,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig);
+                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig, _compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
             }
 
             public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
@@ -347,7 +349,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
+                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, _compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
             }
 
             public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
@@ -365,18 +367,18 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
+                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, _compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V1);
             }
 
-            public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request)
+            public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version)
             {
-                return request.Serialize(_requestPool.Reserve(), correlationId, _clientId, null);
+                return request.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, version);
             }
 
-            public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data) where TResponse : IMemoryStreamSerializable, new()
+            public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data, Basics.ApiVersion version) where TResponse : IMemoryStreamSerializable, new()
             {
                 var response = new TResponse();
-                response.Deserialize(data, null);
+                response.Deserialize(data, _serializationConfig, version);
                 return response;
             }
 
@@ -386,10 +388,10 @@ namespace Kafka.Cluster
             }
 
             public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-                ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
+                ReusableMemoryStream data, Basics.ApiVersion version) where TPartitionResponse : IMemoryStreamSerializable, new()
             {
                 var response = new CommonResponse<TPartitionResponse>();
-                response.Deserialize(data, _serializationConfig);
+                response.Deserialize(data, _serializationConfig, version);
                 return response;
             }
         }
@@ -1108,31 +1110,34 @@ namespace Kafka.Cluster
 
                 case RequestType.GroupCoordinator:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.GroupCoordinatorRequest.Request);
+                        request.RequestValue.GroupCoordinatorRequest.Request, Basics.ApiVersion.V0);
 
                 case RequestType.Heartbeat:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.HeartbeatRequest.Request);
+                        request.RequestValue.HeartbeatRequest.Request, Basics.ApiVersion.V0);
 
                 case RequestType.LeaveGroup:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.LeaveGroupRequest.Request);
+                        request.RequestValue.LeaveGroupRequest.Request, Basics.ApiVersion.V0);
 
                 case RequestType.JoinConsumerGroup:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.JoinConsumerGroupRequest.Request);
+                        request.RequestValue.JoinConsumerGroupRequest.Request,
+                        _configuration.Compatibility == Compatibility.V0_8_2
+                            ? Basics.ApiVersion.V0
+                            : Basics.ApiVersion.V1);
 
                 case RequestType.SyncConsumerGroup:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.SyncConsumerGroupRequest.Request);
+                        request.RequestValue.SyncConsumerGroupRequest.Request, Basics.ApiVersion.V0);
 
                 case RequestType.OffsetCommit:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.OffsetCommitRequest.Request);
+                        request.RequestValue.OffsetCommitRequest.Request, Basics.ApiVersion.V2);
 
                 case RequestType.OffsetFetch:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.OffsetFetchRequest.Request);
+                        request.RequestValue.OffsetFetchRequest.Request, Basics.ApiVersion.V1);
 
                 default: // Compiler requires a default case, even if all possible cases are already handled
                     throw new ArgumentOutOfRangeException("request", "Non valid RequestType enum value: " + request.RequestType);
@@ -1454,22 +1459,33 @@ namespace Kafka.Cluster
         private static readonly long[] NoOffset = new long[0];
 
         // Build an empty response from a given Fetch request with error set to LocalError.
-        private static CommonResponse<FetchPartitionResponse> BuildEmptyFetchResponseFromOriginal(
+        private static FetchResponse BuildEmptyFetchResponseFromOriginal(
             IBatchByTopic<FetchMessage> originalRequest)
         {
-            return new CommonResponse<FetchPartitionResponse>
+            return new FetchResponse
             {
-                TopicsResponse = originalRequest.Select(b => new TopicData<FetchPartitionResponse>
-                {
-                    TopicName = b.Key,
-                    PartitionsData = b.Select(fm => new FetchPartitionResponse
+                FetchPartitionResponse =
+                    new CommonResponse<FetchPartitionResponse>
                     {
-                        ErrorCode = ErrorCode.LocalError,
-                        HighWatermarkOffset = -1,
-                        Partition = fm.Partition,
-                        Messages = ResponseMessageListPool.EmptyList
-                    }).ToArray()
-                }).ToArray()
+                        TopicsResponse =
+                            originalRequest.Select(
+                                b =>
+                                    new TopicData<FetchPartitionResponse>
+                                    {
+                                        TopicName = b.Key,
+                                        PartitionsData =
+                                            b.Select(
+                                                fm =>
+                                                    new FetchPartitionResponse
+                                                    {
+                                                        ErrorCode = ErrorCode.LocalError,
+                                                        HighWatermarkOffset = -1,
+                                                        Partition = fm.Partition,
+                                                        Messages = ResponseMessageListPool.EmptyList
+                                                    }).ToArray()
+                                    })
+                                .ToArray()
+                    }
             };
         }
 
@@ -1499,18 +1515,29 @@ namespace Kafka.Cluster
             return new ProduceAcknowledgement
             {
                 OriginalBatch = originalRequest,
-                ProduceResponse = new CommonResponse<ProducePartitionResponse>
-                {
-                    TopicsResponse = originalRequest.Select(b => new TopicData<ProducePartitionResponse>
+                ProduceResponse =
+                    new ProduceResponse
                     {
-                        TopicName = b.Key,
-                        PartitionsData = b.Select(fm => new ProducePartitionResponse
-                        {
-                            ErrorCode = ErrorCode.NoError,
-                            Partition = fm.Key,
-                        }).ToArray()
-                    }).ToArray()
-                },
+                        ProducePartitionResponse =
+                            new CommonResponse<ProducePartitionResponse>
+                            {
+                                TopicsResponse =
+                                    originalRequest.Select(
+                                        b =>
+                                            new TopicData<ProducePartitionResponse>
+                                            {
+                                                TopicName = b.Key,
+                                                PartitionsData =
+                                                    b.Select(
+                                                        fm =>
+                                                            new ProducePartitionResponse
+                                                            {
+                                                                ErrorCode = ErrorCode.NoError,
+                                                                Partition = fm.Key,
+                                                            }).ToArray()
+                                            }).ToArray()
+                            }
+                    },
                 ReceiveDate = DateTime.UtcNow
             };
         }
@@ -1525,11 +1552,11 @@ namespace Kafka.Cluster
         private void ProcessFetchResponse(int correlationId, ReusableMemoryStream responseData,
             IBatchByTopic<FetchMessage> originalRequest)
         {
-            var response = new CommonAcknowledgement<FetchPartitionResponse> {ReceivedDate = DateTime.UtcNow};
+            var response = new CommonAcknowledgement<FetchResponse> {ReceivedDate = DateTime.UtcNow};
             try
             {
-                response.Response = _serialization.DeserializeCommonResponse<FetchPartitionResponse>(correlationId,
-                    responseData);
+                response.Response = _serialization.DeserializeResponse<FetchResponse>(correlationId, responseData,
+                    _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
             }
             catch (Exception ex)
             {
@@ -1538,7 +1565,7 @@ namespace Kafka.Cluster
             }
             originalRequest.Dispose();
 
-            var tr = response.Response.TopicsResponse;
+            var tr = response.Response.FetchPartitionResponse.TopicsResponse;
             OnFetchResponseReceived(
                 tr.Aggregate(0L, (l1, td) => td.PartitionsData.Aggregate(l1, (l2, pd) => l2 + pd.Messages.Count)),
                 responseData.Length);
@@ -1555,11 +1582,11 @@ namespace Kafka.Cluster
         private void ProcessOffsetResponse(int correlationId, ReusableMemoryStream responseData,
             IBatchByTopic<OffsetMessage> originalRequest)
         {
-            var response = new CommonAcknowledgement<OffsetPartitionResponse> {ReceivedDate = DateTime.UtcNow};
+            var response = new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>> {ReceivedDate = DateTime.UtcNow};
             try
             {
                 response.Response = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId,
-                    responseData);
+                    responseData, _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V1);
             }
             catch (Exception ex)
             {
@@ -1576,7 +1603,9 @@ namespace Kafka.Cluster
         {
             try
             {
-                var offsetResponse = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId, responseData);
+                var offsetResponse = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId,
+                    responseData,
+                    _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V1);
                 var response = offsetResponse.TopicsResponse[0].PartitionsData.First();
                 originalRequest.Promise.SetResult(response.ErrorCode == ErrorCode.NoError ? response.Offsets[0] : -1);
                 originalRequest.Request.Dispose();
@@ -1603,12 +1632,12 @@ namespace Kafka.Cluster
             try
             {
                 acknowledgement.ProduceResponse =
-                    _serialization.DeserializeCommonResponse<ProducePartitionResponse>(correlationId, responseData);
+                    _serialization.DeserializeResponse<ProduceResponse>(correlationId, responseData, _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
             }
             catch (Exception ex)
             {
                 OnDecodeError(ex);
-                acknowledgement.ProduceResponse = new CommonResponse<ProducePartitionResponse>();
+                acknowledgement.ProduceResponse = new ProduceResponse();
             }
 
             OnProduceAcknowledgement(acknowledgement);
@@ -1639,7 +1668,7 @@ namespace Kafka.Cluster
         {
             try
             {
-                var response = _serialization.DeserializeResponse<TResponse>(correlationId, data);
+                var response = _serialization.DeserializeResponse<TResponse>(correlationId, data, Basics.ApiVersion.Ignored);
                 request.Promise.SetResult(response);
             }
             catch (Exception ex)
@@ -1648,16 +1677,13 @@ namespace Kafka.Cluster
                 request.Promise.SetException(ex);
             }
         }
-
-        /// <summary>
-        /// Deserialize a group coordinator response and signal the corresponding promise accordingly.
-        /// </summary>
+        
         private void ProcessSimpleResponse<TRequest>(int correlationId, ReusableMemoryStream responseData,
             Requested<TRequest, ErrorCode> originalRequest) where TRequest : class
         {
             try
             {
-                originalRequest.Promise.SetResult(_serialization.DeserializeResponse<SimpleResponse>(correlationId, responseData).ErrorCode);
+                originalRequest.Promise.SetResult(_serialization.DeserializeResponse<SimpleResponse>(correlationId, responseData, Basics.ApiVersion.Ignored).ErrorCode);
             }
             catch (Exception ex)
             {
@@ -1791,7 +1817,7 @@ namespace Kafka.Cluster
 
                     // Empty responses for Fetch / Offset requests
                 case RequestType.BatchedFetch:
-                    OnMessagesReceived(new CommonAcknowledgement<FetchPartitionResponse>
+                    OnMessagesReceived(new CommonAcknowledgement<FetchResponse>
                     {
                         Response = BuildEmptyFetchResponseFromOriginal(request.RequestValue.FetchBatchRequest),
                         ReceivedDate = DateTime.UtcNow
@@ -1799,7 +1825,7 @@ namespace Kafka.Cluster
                     break;
 
                 case RequestType.BatchedOffset:
-                    OnOffsetsReceived(new CommonAcknowledgement<OffsetPartitionResponse>
+                    OnOffsetsReceived(new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>
                     {
                         Response = BuildEmptyOffsetResponseFromOriginal(request.RequestValue.OffsetBatchRequest),
                         ReceivedDate = DateTime.UtcNow
@@ -1862,14 +1888,14 @@ namespace Kafka.Cluster
             ProduceAcknowledgement(this, ack);
         }
 
-        public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement = (n, r) => { };
-        private void OnMessagesReceived(CommonAcknowledgement<FetchPartitionResponse> r)
+        public event Action<INode, CommonAcknowledgement<FetchResponse>> FetchAcknowledgement = (n, r) => { };
+        private void OnMessagesReceived(CommonAcknowledgement<FetchResponse> r)
         {
             FetchAcknowledgement(this, r);
         }
 
-        public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement = (n, r) => { };
-        private void OnOffsetsReceived(CommonAcknowledgement<OffsetPartitionResponse> r)
+        public event Action<INode, CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>> OffsetAcknowledgement = (n, r) => { };
+        private void OnOffsetsReceived(CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>> r)
         {
             OffsetAcknowledgement(this, r);
         }

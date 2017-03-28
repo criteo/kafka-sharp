@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using Kafka.Batching;
 using Kafka.Cluster;
+using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
 using ICluster = Kafka.Cluster.ICluster;
@@ -77,13 +78,13 @@ namespace Kafka.Routing
         /// Acknowledge a response from a fetch request.
         /// </summary>
         /// <param name="fetchResponse">a fetch response from a Kafka broker.</param>
-        void Acknowledge(CommonAcknowledgement<FetchPartitionResponse> fetchResponse);
+        void Acknowledge(CommonAcknowledgement<FetchResponse> fetchResponse);
 
         /// <summary>
         /// Acknowledge a response from an offset request.
         /// </summary>
         /// <param name="offsetResponse">an offset response from a Kafka broker.</param>
-        void Acknowledge(CommonAcknowledgement<OffsetPartitionResponse> offsetResponse);
+        void Acknowledge(CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>> offsetResponse);
 
         /// <summary>
         /// Stop the consumer router.
@@ -95,6 +96,11 @@ namespace Kafka.Routing
         /// Emit a received kafka message.
         /// </summary>
         event Action<RawKafkaRecord> MessageReceived;
+
+        /// <summary>
+        /// Signaled when a fetch response has been throttled
+        /// </summary>
+        event Action<int> Throttled;
     }
 
     // Magic values for Offset APIs. Some from Kafka protocol, some special to us
@@ -150,7 +156,7 @@ namespace Kafka.Routing
 
     struct CommonAcknowledgement<TResponse> where TResponse : IMemoryStreamSerializable, new()
     {
-        public CommonResponse<TResponse> Response;
+        public TResponse Response;
         public DateTime ReceivedDate;
     }
 
@@ -282,18 +288,18 @@ namespace Kafka.Routing
         struct ConsumerMessageValue
         {
             [FieldOffset(0)]
-            public CommonAcknowledgement<FetchPartitionResponse> FetchResponse;
+            public CommonAcknowledgement<FetchResponse> FetchResponse;
 
-            [FieldOffset(0)]
-            public CommonAcknowledgement<OffsetPartitionResponse> OffsetResponse;
+            [FieldOffset(8)]
+            public CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>> OffsetResponse;
 
-            [FieldOffset(0)]
+            [FieldOffset(8)]
             public IEnumerable<string> Subscription;
 
-            [FieldOffset(0)]
+            [FieldOffset(8)]
             public TopicOnOff Topic;
 
-            [FieldOffset(0)]
+            [FieldOffset(8)]
             public CommitMsg CommitMsg;
         }
 
@@ -334,6 +340,8 @@ namespace Kafka.Routing
         private readonly IBatchStrategy<OffsetMessage> _offsetBatchStrategy;
 
         public event Action<RawKafkaRecord> MessageReceived = r => { };
+
+        public event Action<int> Throttled = t => { };
 
         /// <summary>
         /// Raised in case of unexpected internal error.
@@ -408,7 +416,7 @@ namespace Kafka.Routing
         /// message to the inner actor.
         /// </summary>
         /// <param name="fetchResponse">a fetch response from a Kafka broker.</param>
-        public void Acknowledge(CommonAcknowledgement<FetchPartitionResponse> fetchResponse)
+        public void Acknowledge(CommonAcknowledgement<FetchResponse> fetchResponse)
         {
             _innerActor.Post(new ConsumerMessage
             {
@@ -425,7 +433,7 @@ namespace Kafka.Routing
         /// message to the inner actor.
         /// </summary>
         /// <param name="offsetResponse">an offset response from a Kafka broker.</param>
-        public void Acknowledge(CommonAcknowledgement<OffsetPartitionResponse> offsetResponse)
+        public void Acknowledge(CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>> offsetResponse)
         {
             _innerActor.Post(new ConsumerMessage
             {
@@ -961,18 +969,18 @@ namespace Kafka.Routing
         /// Iterate over all partition responses. We refresh the metadata when a partition
         /// is in error.
         /// </summary>
-        private async Task HandleResponse<TPartitionResponse>(CommonAcknowledgement<TPartitionResponse> acknowledgement,
+        private async Task HandleResponse<TPartitionResponse>(CommonResponse<TPartitionResponse> response, DateTime receivedDate,
             Func<string, TPartitionResponse, Task> responseHandler, Func<TPartitionResponse, bool> partitionChecker)
             where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             bool gotMetadata = false;
-            foreach (var r in acknowledgement.Response.TopicsResponse)
+            foreach (var r in response.TopicsResponse)
             {
                 foreach (var pr in r.PartitionsData)
                 {
                     // Refresh metadata in case of error. We do this only once to avoid
                     // metadata request bombing.
-                    if (!gotMetadata && acknowledgement.ReceivedDate > _routingTable.LastRefreshed && !partitionChecker(pr))
+                    if (!gotMetadata && receivedDate > _routingTable.LastRefreshed && !partitionChecker(pr))
                     {
                         // TODO: factorize that with ProducerRouter code?
                         await EnsureHasRoutingTable();
@@ -983,9 +991,9 @@ namespace Kafka.Routing
             }
         }
 
-        private Task HandleOffsetResponse(CommonAcknowledgement<OffsetPartitionResponse> offsetResponse)
+        private Task HandleOffsetResponse(CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>> offsetResponse)
         {
-            return HandleResponse(offsetResponse, HandleOffsetPartitionResponse, IsPartitionOkForClients);
+            return HandleResponse(offsetResponse.Response, offsetResponse.ReceivedDate, HandleOffsetPartitionResponse, IsPartitionOkForClients);
         }
 
         // Initiate appropriate fetch request following offset update, or retry offset request
@@ -1022,9 +1030,13 @@ namespace Kafka.Routing
             }
         }
 
-        private Task HandleFetchResponse(CommonAcknowledgement<FetchPartitionResponse> fetchResponse)
+        private Task HandleFetchResponse(CommonAcknowledgement<FetchResponse> fetchResponse)
         {
-            return HandleResponse(fetchResponse, HandleFetchPartitionResponse, IsPartitionOkForClients);
+            if (fetchResponse.Response.ThrottleTime > 0)
+            {
+                Throttled(fetchResponse.Response.ThrottleTime);
+            }
+            return HandleResponse(fetchResponse.Response.FetchPartitionResponse, fetchResponse.ReceivedDate, HandleFetchPartitionResponse, IsPartitionOkForClients);
         }
 
         private bool CheckActivity(PartitionState state, string topic, int partition)
@@ -1069,7 +1081,8 @@ namespace Kafka.Routing
                         Value = message.Message.Value,
                         Offset = message.Offset,
                         Lag = partitionResponse.HighWatermarkOffset - message.Offset,
-                        Partition = partitionResponse.Partition
+                        Partition = partitionResponse.Partition,
+                        Timestamp = Timestamp.FromUnixTimestamp(message.Message.TimeStamp)
                     });
                     state.NextOffset = message.Offset + 1;
 

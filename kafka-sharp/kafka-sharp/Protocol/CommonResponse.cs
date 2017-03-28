@@ -10,14 +10,14 @@ namespace Kafka.Protocol
     {
         public TopicData<TPartitionData>[] TopicsResponse;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             throw new NotImplementedException();
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
-            TopicsResponse = Basics.DeserializeArrayExtra<TopicData<TPartitionData>>(stream, extra);
+            TopicsResponse = Basics.DeserializeArrayExtra<TopicData<TPartitionData>>(stream, extra, version);
         }
     }
 }

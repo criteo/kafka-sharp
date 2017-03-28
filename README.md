@@ -91,8 +91,16 @@ You can provide a deserializer for each topic so that messages are returned as o
 
 The client is configured via the `Configuration` class, by setting the following properties:
 
-	/// <summary>
-        /// Maximum amount a message can stay alive before being discard in case of repeated errors.
+        /// <summary>
+        /// Kafka version compatibility mode.
+        /// 0.8.2 compatibility will work with any kafka version >= 0.8.2.
+        /// However consumer group support will require brokers >= 0.9 to actually work in this mode.
+        /// 0.10.1 compatibility will work with kafka >= 0.10.1.
+        /// </summary>
+        public Compatibility Compatibility = Compatibility.V0_8_2;
+
+        /// <summary>
+        /// Maximum amount a message can stay alive before being discarded in case of repeated errors.
         /// </summary>
         public TimeSpan MessageTtl = TimeSpan.FromMinutes(1);
 

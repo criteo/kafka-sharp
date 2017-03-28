@@ -35,6 +35,25 @@ namespace Kafka.Public
     }
 
     /// <summary>
+    /// Kafka version compatibility mode.
+    /// </summary>
+    public enum Compatibility
+    {
+        /// <summary>
+        /// Use V0 version of all APIs. This should work with any Kafka version >= 0.8.2.
+        /// Exception: to use consumer groups, brokers must be version >= 0.9 (we don't support
+        /// any client side zookeeper management).
+        /// </summary>
+        V0_8_2,
+
+        /// <summary>
+        /// Use latest versions of all API, as supported by Kafka 0.10.1. This means that producer
+        /// will use v1 message format, and consumer will be able to read v0 and v1 message format.
+        /// </summary>
+        V0_10_1
+    }
+
+    /// <summary>
     /// In case of network errors
     /// </summary>
     public enum ErrorStrategy
@@ -88,6 +107,11 @@ namespace Kafka.Public
 
     public class Configuration
     {
+        /// <summary>
+        /// Kafka version compatibility mode.
+        /// </summary>
+        public Compatibility Compatibility = Compatibility.V0_8_2;
+
         /// <summary>
         /// Maximum amount a message can stay alive before being discard in case of repeated errors.
         /// </summary>

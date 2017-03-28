@@ -69,5 +69,16 @@ namespace tests_kafka_sharp
             Assert.That(() => new Pool<Item>(() => new Item(), null), Throws.InstanceOf<ArgumentNullException>());
             Assert.That(() => new Pool<Item>(null, (i, _) => i.Value = 0), Throws.InstanceOf<ArgumentNullException>());
         }
+
+        [Test]
+        public void TestTimestamp()
+        {
+            Assert.AreEqual(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), Timestamp.Epoch);
+
+            var now = DateTime.UtcNow;
+            var datenow = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, now.Millisecond, DateTimeKind.Utc);
+
+            Assert.AreEqual(datenow, Timestamp.FromUnixTimestamp(Timestamp.ToUnixTimestamp(now)));
+        }
     }
 }

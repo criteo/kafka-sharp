@@ -472,10 +472,10 @@ namespace tests_kafka_sharp
 
             mocks.Group.Verify(g => g.Heartbeat());
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
                 ReceivedDate = DateTime.UtcNow,
-                Response =
+                Response = new FetchResponse {  FetchPartitionResponse =
                     new CommonResponse<FetchPartitionResponse>
                     {
                         TopicsResponse =
@@ -500,7 +500,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                     }
-            });
+            }});
 
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2)); // response should have triggered one more fetch
             mocks.Group.Verify(g => g.Commit(It.IsAny<IEnumerable<TopicData<OffsetCommitPartitionData>>>())); // should have auto commited
@@ -525,10 +525,10 @@ namespace tests_kafka_sharp
 
             mocks.Group.Verify(g => g.Heartbeat());
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
                 ReceivedDate = DateTime.UtcNow,
-                Response =
+                Response = new FetchResponse { FetchPartitionResponse =
                     new CommonResponse<FetchPartitionResponse>
                     {
                         TopicsResponse =
@@ -553,16 +553,16 @@ namespace tests_kafka_sharp
                                 }
                             }
                     }
-            });
+            }});
 
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2)); // response should have triggered one more fetch
 
             consumer.StopConsume("the topic", Partitions.All, Offsets.Now);
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
                 ReceivedDate = DateTime.UtcNow,
-                Response =
+                Response = new FetchResponse { FetchPartitionResponse = 
                     new CommonResponse<FetchPartitionResponse>
                     {
                         TopicsResponse =
@@ -587,7 +587,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                     }
-            });
+            }});
 
             consumer.StartConsume("the topic", Partitions.All, Offsets.Now);
 
@@ -620,10 +620,10 @@ namespace tests_kafka_sharp
 
             Thread.Sleep(10); // wait for at least one heartbeat to be sent
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchPartitionResponse>
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
                 ReceivedDate = DateTime.UtcNow,
-                Response =
+                Response = new FetchResponse { FetchPartitionResponse = 
                     new CommonResponse<FetchPartitionResponse>
                     {
                         TopicsResponse =
@@ -648,7 +648,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                     }
-            });
+            }});
 
             mocks.Group.Verify(g => g.Commit(It.IsAny<IEnumerable<TopicData<OffsetCommitPartitionData>>>()), Times.Never); // no auto commit
 

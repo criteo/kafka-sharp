@@ -43,6 +43,30 @@ namespace Kafka.Protocol
         public static readonly List<ResponseMessage> EmptyList = new List<ResponseMessage>();
     }
 
+    struct FetchResponse : IMemoryStreamSerializable
+    {
+        public CommonResponse<FetchPartitionResponse> FetchPartitionResponse;
+        public int ThrottleTime;
+
+        public void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
+        {
+            if (version > Basics.ApiVersion.V0)
+            {
+                BigEndianConverter.Write(stream, ThrottleTime);
+            }
+            FetchPartitionResponse.Serialize(stream, extra, version);
+        }
+
+        public void Deserialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
+        {
+            if (version > Basics.ApiVersion.V0)
+            {
+                ThrottleTime = BigEndianConverter.ReadInt32(stream);
+            }
+            FetchPartitionResponse.Deserialize(stream, extra, version);
+        }
+    }
+
     struct FetchPartitionResponse : IMemoryStreamSerializable
     {
         public long HighWatermarkOffset;
@@ -52,7 +76,7 @@ namespace Kafka.Protocol
 
         #region Deserialization
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
@@ -72,6 +96,14 @@ namespace Kafka.Protocol
         // and compressed message sets (the method recursively calls itself in this case and
         // flatten the result). The returned enumeration must be enumerated for deserialization
         // effectiveley occuring.
+        //
+        // A message set can contain a mix of v0 and v1 messages.
+        // In the case of compressed messages, offsets are returned differently by brokers.
+        // Messages inside compressed message v0 will have absolute offsets assigned.
+        // Messages inside compressed message v1 will have relative offset assigned, starting
+        // from 0. The wrapping compressed message itself is assigned the absolute offset of the last
+        // message in the set. That means in this case we can only assign offsets after having decompressing
+        // all messages. Lazy deserialization won't be so lazy anymore...
         private static IEnumerable<ResponseMessage> LazyDeserializeMessageSet(ReusableMemoryStream stream, int messageSetSize, Deserializers deserializers)
         {
             var remainingMessageSetBytes = messageSetSize;
@@ -103,11 +135,16 @@ namespace Kafka.Protocol
                 var crc = BigEndianConverter.ReadInt32(stream);
                 var crcStartPos = stream.Position; // crc is computed from this position
                 var magic = stream.ReadByte();
-                if (magic != 0)
+                if ((uint)magic > 1)
                 {
                     throw new UnsupportedMagicByteVersion((byte) magic);
                 }
                 var attributes = stream.ReadByte();
+                long timestamp = 0;
+                if (magic == 1)
+                {
+                    timestamp = BigEndianConverter.ReadInt64(stream);
+                }
 
                 // Check for compression
                 var codec = (CompressionCodec)(attributes & 3); // Lowest 2 bits
@@ -119,7 +156,8 @@ namespace Kafka.Protocol
                         Message = new Message
                         {
                             Key = Basics.DeserializeByteArray(stream, deserializers.Item1),
-                            Value = Basics.DeserializeByteArray(stream, deserializers.Item2)
+                            Value = Basics.DeserializeByteArray(stream, deserializers.Item2),
+                            TimeStamp = timestamp
                         }
                     };
                     CheckCrc(crc, stream, crcStartPos);
@@ -142,10 +180,35 @@ namespace Kafka.Protocol
                     {
                         Uncompress(uncompressedStream, stream.GetBuffer(), (int) dataPos, compressedLength, codec);
                         // Deserialize recursively
-                        foreach (var m in LazyDeserializeMessageSet(uncompressedStream, (int) uncompressedStream.Length, deserializers))
+                        if (magic == 0) // v0 message
                         {
-                            // Flatten
-                            yield return m;
+                            foreach (var m in
+                                LazyDeserializeMessageSet(uncompressedStream, (int) uncompressedStream.Length,
+                                    deserializers))
+                            {
+                                // Flatten
+                                yield return m;
+                            }
+                        }
+                        else // v1 message, we have to assign the absolute offsets
+                        {
+                            var innerMsgs = ResponseMessageListPool.Reserve();
+                            // We need to deserialize all messages first, because the wrapper offset is the
+                            // offset of the last messe in the set, so wee need to know how many messages there are
+                            // before assigning offsets.
+                            innerMsgs.AddRange(LazyDeserializeMessageSet(uncompressedStream,
+                                (int) uncompressedStream.Length, deserializers));
+                            var baseOffset = offset - innerMsgs.Count + 1;
+                            foreach (var msg in innerMsgs)
+                            {
+                                yield return
+                                    new ResponseMessage
+                                    {
+                                        Offset = msg.Offset + baseOffset,
+                                        Message = msg.Message
+                                    };
+                            }
+                            ResponseMessageListPool.Release(innerMsgs);
                         }
                     }
                 }
@@ -204,7 +267,7 @@ namespace Kafka.Protocol
         #endregion
 
         // Used only in tests, and we only support byte array data
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, (short) ErrorCode);
@@ -214,7 +277,10 @@ namespace Kafka.Protocol
                 foreach (var m in l)
                 {
                     BigEndianConverter.Write(s, m.Offset);
-                    Basics.WriteSizeInBytes(s, m.Message, (st, msg) => msg.Serialize(st, CompressionCodec.None, extra as Serializers));
+                    Basics.WriteSizeInBytes(s, m.Message,
+                        (st, msg) =>
+                            msg.Serialize(st, CompressionCodec.None, extra as Serializers,
+                                version == Basics.ApiVersion.V2 ? MessageVersion.V1 : MessageVersion.V0));
                 }
             });
         }

@@ -1,6 +1,8 @@
 ﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
+using System;
+
 namespace Kafka.Public
 {
     /// <summary>
@@ -69,6 +71,12 @@ namespace Kafka.Public
         {
             get { return Record.Partition; }
         }
+
+        /// <summary>
+        /// Timestamp of the message. If using 0.8.2 compatibility mode, this
+        /// is always set to Epoch (1970/01/01 00:00:00 UTC).
+        /// </summary>
+        public DateTime Timestamp { get { return Record.Timestamp; } }
     }
 
     /// <summary>
@@ -108,5 +116,11 @@ namespace Kafka.Public
         /// The partition the message belongs to inside its topic.
         /// </summary>
         public int Partition { get; internal set; }
+
+        /// <summary>
+        /// Timestamp of the message. If using 0.8.2 compatibility mode, this
+        /// is always set to Epoch (1970/01/01 00:00:00 UTC).
+        /// </summary>
+        public DateTime Timestamp { get; internal set; }
     }
 }

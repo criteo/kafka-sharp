@@ -15,7 +15,7 @@ using NUnit.Framework;
 namespace tests_kafka_sharp
 {
     [TestFixture]
-    class TestRouter
+    class TestProducer
     {
         private static readonly Pool<ReusableMemoryStream> Pool =
             new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(Pool), (m, b) => { m.SetLength(0); });
@@ -286,7 +286,7 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                ProduceResponse = new ProduceResponse { ProducePartitionResponse = new CommonResponse<ProducePartitionResponse>()
                 {
                     TopicsResponse = new[]
                     {
@@ -304,7 +304,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 OriginalBatch =
                     new TestBatchByTopicByPartition(new[]
                     {
@@ -322,7 +322,7 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                ProduceResponse = new ProduceResponse { ProducePartitionResponse = new CommonResponse<ProducePartitionResponse>()
                 {
                     TopicsResponse = new[]
                     {
@@ -340,7 +340,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 OriginalBatch =
                     new TestBatchByTopicByPartition(new[]
                     {
@@ -358,7 +358,7 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new CommonResponse<ProducePartitionResponse>
+                ProduceResponse = new ProduceResponse { ProducePartitionResponse = new CommonResponse<ProducePartitionResponse>
                 {
                     TopicsResponse = new[]
                     {
@@ -376,7 +376,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 OriginalBatch =
                     new TestBatchByTopicByPartition(new[]
                     {
@@ -394,7 +394,7 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                ProduceResponse = new ProduceResponse { ProducePartitionResponse = new CommonResponse<ProducePartitionResponse>()
                 {
                     TopicsResponse = new[]
                     {
@@ -424,7 +424,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 OriginalBatch =
                     new TestBatchByTopicByPartition(new[]
                     {
@@ -539,7 +539,7 @@ namespace tests_kafka_sharp
         {
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                ProduceResponse = new ProduceResponse { ProducePartitionResponse = new CommonResponse<ProducePartitionResponse>()
                 {
                     TopicsResponse = new[]
                     {
@@ -563,7 +563,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 OriginalBatch = new TestBatchByTopicByPartition(new[]
 
                 {
@@ -609,7 +609,7 @@ namespace tests_kafka_sharp
             SetUp(new Configuration{TaskScheduler = new CurrentThreadTaskScheduler(), RetryIfNotEnoughReplicasAfterAppend = true});
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                ProduceResponse = new ProduceResponse { ProducePartitionResponse = new CommonResponse<ProducePartitionResponse>()
                 {
                     TopicsResponse = new[]
                     {
@@ -657,7 +657,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 OriginalBatch = new TestBatchByTopicByPartition(new[]
                 {
                     ProduceMessage.New("test", 0, new Message(),
@@ -899,7 +899,7 @@ namespace tests_kafka_sharp
             var value = new Mock<IDisposable>();
             var acknowledgement = new ProduceAcknowledgement
             {
-                ProduceResponse = new CommonResponse<ProducePartitionResponse>()
+                ProduceResponse = new ProduceResponse { ProducePartitionResponse = new CommonResponse<ProducePartitionResponse>()
                 {
                     TopicsResponse = new[]
                     {
@@ -917,7 +917,7 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                },
+                }},
                 OriginalBatch =
                     new TestBatchByTopicByPartition(new[]
                     {
@@ -950,6 +950,59 @@ namespace tests_kafka_sharp
 
             key.Verify(k => k.Dispose(), Times.Never());
             value.Verify(v => v.Dispose(), Times.Never());
+        }
+
+        [Test]
+        public void TestThrottled()
+        {
+            var node = new Mock<INode>();
+            node.Setup(n => n.Produce(It.IsAny<ProduceMessage>())).Returns(true);
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(new RoutingTable(new Dictionary<string, Partition[]>
+                    {
+                        {"toto", new[] {new Partition {Id = 0, Leader = node.Object, NbIsr = 1}}}
+                    })));
+            var producer = new ProduceRouter(cluster.Object,
+                new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() }, Pool);
+
+            int throttled = -1;
+            producer.Throttled += t => throttled = t;
+
+            var key = new Mock<IDisposable>();
+            var value = new Mock<IDisposable>();
+            var acknowledgement = new ProduceAcknowledgement
+            {
+                OriginalBatch =
+                    new TestBatchByTopicByPartition(new[]
+                    {
+                        ProduceMessage.New("test1p", 0, new Message { Key = key.Object, Value = value.Object },
+                            DateTime.UtcNow.AddDays(1))
+                    }),
+                ReceiveDate = DateTime.UtcNow,
+                ProduceResponse =
+                    new ProduceResponse
+                    {
+                        ThrottleTime = 42,
+                        ProducePartitionResponse =
+                            new CommonResponse<ProducePartitionResponse>
+                            {
+                                TopicsResponse =
+                                    new[]
+                                    {
+                                        new TopicData<ProducePartitionResponse>
+                                        {
+                                            TopicName = "test1p",
+                                            PartitionsData = new[] { new ProducePartitionResponse() }
+                                        },
+                                    }
+                            }
+                    }
+            };
+            producer.Acknowledge(acknowledgement);
+
+            Assert.AreEqual(42, throttled);
         }
     }
 }

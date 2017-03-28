@@ -1,6 +1,7 @@
 ﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -19,7 +20,7 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, Version);
             Basics.WriteArray(stream, Subscription ?? Enumerable.Empty<string>(), Basics.SerializeString);
@@ -28,7 +29,7 @@ namespace Kafka.Protocol
 
         #region Deserialization (for test)
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Version = BigEndianConverter.ReadInt16(stream);
             Subscription = Basics.DeserializeArray(stream, Basics.DeserializeString);
@@ -47,21 +48,21 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, ProtocolName);
             var pm = ProtocolMetadata;
-            Basics.WriteSizeInBytes(stream, s => pm.Serialize(s, null));
+            Basics.WriteSizeInBytes(stream, s => pm.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
         #region Deserialization (for test)
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             ProtocolName = Basics.DeserializeString(stream);
             BigEndianConverter.ReadInt32(stream);
             ProtocolMetadata = new ConsumerGroupProtocolMetadata();
-            ProtocolMetadata.Deserialize(stream, null);
+            ProtocolMetadata.Deserialize(stream, null, Basics.ApiVersion.Ignored);
         }
 
         #endregion
@@ -78,17 +79,20 @@ namespace Kafka.Protocol
         public IEnumerable<string> Subscription;
 
         public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId,
-            object extra)
+            object extra, Basics.ApiVersion version)
         {
             return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.JoinGroupRequest,
-                Basics.ApiVersion.V1, null);
+                version, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object extra)
+        public void SerializeBody(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             Basics.SerializeString(stream, GroupId);
             BigEndianConverter.Write(stream, SessionTimeout);
-            BigEndianConverter.Write(stream, RebalanceTimeout);
+            if (version > Basics.ApiVersion.V0)
+            {
+                BigEndianConverter.Write(stream, RebalanceTimeout);
+            }
             Basics.SerializeString(stream, MemberId);
             Basics.SerializeString(stream, "consumer");
             var metadata = new[] // Only one protocol is supported
@@ -100,7 +104,7 @@ namespace Kafka.Protocol
                         new ConsumerGroupProtocolMetadata { Version = 0, Subscription = Subscription, UserData = null, }
                 }
             };
-            Basics.WriteArray(stream, metadata, (s, d) => d.Serialize(s, null));
+            Basics.WriteArray(stream, metadata, (s, d) => d.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
     }
 
@@ -112,12 +116,12 @@ namespace Kafka.Protocol
     {
         public int Partition;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, Partition);
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
         }
@@ -129,14 +133,14 @@ namespace Kafka.Protocol
         public IEnumerable<TopicData<PartitionAssignment>> PartitionAssignments;
         public byte[] UserData;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, Version);
-            Basics.WriteArray(stream, PartitionAssignments);
+            Basics.WriteArray(stream, PartitionAssignments, Basics.ApiVersion.Ignored);
             Basics.SerializeBytes(stream, UserData);
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Version = BigEndianConverter.ReadInt16(stream);
             PartitionAssignments = Basics.DeserializeArray<TopicData<PartitionAssignment>>(stream);
@@ -149,14 +153,14 @@ namespace Kafka.Protocol
         public string MemberId;
         public ConsumerGroupMemberAssignment MemberAssignment;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, MemberId);
             var ma = MemberAssignment;
-            Basics.WriteSizeInBytes(stream, s => ma.Serialize(s, null));
+            Basics.WriteSizeInBytes(stream, s => ma.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             MemberId = Basics.DeserializeString(stream);
             MemberAssignment = new ConsumerGroupMemberAssignment
@@ -165,7 +169,7 @@ namespace Kafka.Protocol
             };
             if (BigEndianConverter.ReadInt32(stream) > 0)
             {
-                MemberAssignment.Deserialize(stream, null);
+                MemberAssignment.Deserialize(stream, null, Basics.ApiVersion.Ignored);
             }
         }
     }
@@ -178,13 +182,13 @@ namespace Kafka.Protocol
         public IEnumerable<ConsumerGroupAssignment> GroupAssignment;
 
         public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId,
-            object extra)
+            object _, Basics.ApiVersion __)
         {
             return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.SyncGroupRequest,
                 Basics.ApiVersion.V0, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object extra)
+        public void SerializeBody(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, GroupId);
             BigEndianConverter.Write(stream, GenerationId);
@@ -203,13 +207,13 @@ namespace Kafka.Protocol
         public int GenerationId;
         public string MemberId;
 
-        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra)
+        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object _, Basics.ApiVersion __)
         {
             return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.HeartbeatRequest,
                 Basics.ApiVersion.V0, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object extra)
+        public void SerializeBody(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, GroupId);
             BigEndianConverter.Write(stream, GenerationId);
@@ -226,13 +230,13 @@ namespace Kafka.Protocol
         public string GroupId;
         public string MemberId;
 
-        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra)
+        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object _, Basics.ApiVersion __)
         {
             return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.LeaveGroupRequest,
                 Basics.ApiVersion.V0, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object extra)
+        public void SerializeBody(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, GroupId);
             Basics.SerializeString(stream, MemberId);

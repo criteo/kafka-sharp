@@ -12,7 +12,7 @@ namespace Kafka.Protocol
         public string CoordinatorHost;
         public int CoordinatorPort;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, (short) ErrorCode);
             BigEndianConverter.Write(stream, CoordinatorId);
@@ -20,7 +20,7 @@ namespace Kafka.Protocol
             BigEndianConverter.Write(stream, CoordinatorPort);
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
             CoordinatorId = BigEndianConverter.ReadInt32(stream);
@@ -34,13 +34,13 @@ namespace Kafka.Protocol
         public int Partition;
         public ErrorCode ErrorCode;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, (short) ErrorCode);
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
@@ -54,7 +54,7 @@ namespace Kafka.Protocol
         public string Metadata;
         public ErrorCode ErrorCode;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, Offset);
@@ -62,7 +62,7 @@ namespace Kafka.Protocol
             BigEndianConverter.Write(stream, (short) ErrorCode);
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             Offset = BigEndianConverter.ReadInt64(stream);

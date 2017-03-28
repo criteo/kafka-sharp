@@ -18,21 +18,21 @@ namespace Kafka.Protocol
 
         #region Serialization (for test)
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Basics.SerializeString(stream, MemberId);
             var pm = Metadata;
-            Basics.WriteSizeInBytes(stream, s => pm.Serialize(s, null));
+            Basics.WriteSizeInBytes(stream, s => pm.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
         #endregion
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             MemberId = Basics.DeserializeString(stream);
             BigEndianConverter.ReadInt32(stream);
             Metadata = new ConsumerGroupProtocolMetadata();
-            Metadata.Deserialize(stream, null);
+            Metadata.Deserialize(stream, null, Basics.ApiVersion.Ignored);
         }
 
         #endregion
@@ -51,19 +51,19 @@ namespace Kafka.Protocol
 
         #region Serialization (for test)
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, (short) ErrorCode);
             BigEndianConverter.Write(stream, GenerationId);
             Basics.SerializeString(stream, GroupProtocol);
             Basics.SerializeString(stream, LeaderId);
             Basics.SerializeString(stream, MemberId);
-            Basics.WriteArray(stream, GroupMembers, (s, m) => m.Serialize(s, null));
+            Basics.WriteArray(stream, GroupMembers, (s, m) => m.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
         #endregion
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
             GenerationId = BigEndianConverter.ReadInt32(stream);
@@ -85,14 +85,14 @@ namespace Kafka.Protocol
         public ErrorCode ErrorCode;
         public ConsumerGroupMemberAssignment MemberAssignment;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, (short) ErrorCode);
             var ma = MemberAssignment;
-            Basics.WriteSizeInBytes(stream, s => ma.Serialize(s, null));
+            Basics.WriteSizeInBytes(stream, s => ma.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
             MemberAssignment = new ConsumerGroupMemberAssignment
@@ -101,7 +101,7 @@ namespace Kafka.Protocol
             };
             if (BigEndianConverter.ReadInt32(stream) > 0)
             {
-                MemberAssignment.Deserialize(stream, null);
+                MemberAssignment.Deserialize(stream, null, Basics.ApiVersion.Ignored);
             }
         }
     }
@@ -114,12 +114,12 @@ namespace Kafka.Protocol
     {
         public ErrorCode ErrorCode;
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, (short) ErrorCode);
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
         }
