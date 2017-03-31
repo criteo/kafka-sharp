@@ -26,7 +26,7 @@ to Produce and Consume operations.
 		cluster.MessageReceived += kafkaRecord => { /* do something */ };
 		cluster.ConsumeFromLatest("some_topic", somePartition);
 		// OR (for consumer group usage)
-		cluster.Subscribe("some group", new[] { "topic" }, new ConsumerGroupConfiguration);
+		cluster.Subscribe("some group", new[] { "topic", "some_other_topic" }, new ConsumerGroupConfiguration { AutoCommitEveryMs = 5000 });
 
 ## Producer
 
@@ -81,7 +81,7 @@ Messages are received as a stream of events. The API is accessed either through
 `ClusterClient` (untyped API) or `KafkaConsumer` (typed API). When using a consumer group you can manage offsets
 via specifying an autcommit period or requiring commits directly (or mix both). In simple mode you can directly specify
 which offsets to start consuming from (including latest and earliest offsets). `Pause` and `Resume` methods are available
-in both mode to stop / resume consuimg from a topic.
+in both modes to stop / resume consuming from a topic.
 
 ### Deserialization
 
@@ -159,7 +159,7 @@ The client is configured via the `Configuration` class, by setting the following
         /// </summary>
         public RequiredAcks RequiredAcks = RequiredAcks.AllInSyncReplicas;
 
-	/// <summary>
+        /// <summary>
         /// Minimum in sync replicas required to consider a partition as alive.
         /// <= 0 means only leader is required.
         /// </summary>
