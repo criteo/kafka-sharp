@@ -90,11 +90,143 @@ namespace Kafka.Protocol
         /// <summary>The broker returns this error code if it receives an offset fetch or commit request for a consumer group that it is not a coordinator for</summary>
         NotCoordinatorForConsumer = 16,
 
-        // New in 0.8.2
+        /// <summary>
+        /// For a request which attempts to access an invalid topic (e.g. one which has an illegal name), or if an attempt is made to write to an internal topic (such as the consumer offsets topic).
+        /// </summary>
         InvalidTopic = 17,
+
+        /// <summary>
+        /// If a message batch in a produce request exceeds the maximum configured segment size.
+        /// </summary>
         MessageSetSizeTooLarge = 18,
+
+        /// <summary>
+        /// Returned from a produce request when the number of in-sync replicas is lower than the configured minimum and requiredAcks is -1.
+        /// </summary>
         NotEnoughReplicas = 19,
+
+        /// <summary>
+        /// Returned from a produce request when the message was written to the log, but with fewer in-sync replicas than required.
+        /// </summary>
         NotEnoughReplicasAfterAppend = 20,
+
+        /// <summary>Returned from a produce request if the requested requiredAcks is invalid (anything other than -1, 1, or 0).</summary>
+        InvalidRequiredAcks	= 21,
+
+        /// <summary>
+        /// Returned from group membership requests (such as heartbeats) when the generation id provided in the request is not the current generation.
+        /// </summary>
+        IllegalGeneration = 22,
+
+        /// <summary>
+        /// Returned in join group when the member provides a protocol type or set of protocols which is not compatible with the current group.
+        /// </summary>
+        InconsistentGroupProtocol = 23,
+
+        /// <summary>
+        /// Returned in join group when the groupId is empty or null.
+        /// </summary>
+        InvalidGroupId = 24,
+
+        /// <summary>
+        /// Returned from group requests (offset commits/fetches, heartbeats, etc) when the memberId is not in the current generation.
+        /// </summary>
+        UnknownMemberId = 25,
+
+        /// <summary>
+        /// Return in join group when the requested session timeout is outside of the allowed range on the broker
+        /// </summary>
+        InvalidSessionTimeout = 26,
+
+        /// <summary>
+        /// Returned in heartbeat requests when the coordinator has begun rebalancing the group. This indicates to the client that it should rejoin the group.
+        /// </summary>
+        RebalanceInProgress = 27,
+
+        /// <summary>
+        /// This error indicates that an offset commit was rejected because of oversize metadata.
+        /// </summary>
+        InvalidCommitOffsetSize = 28,
+
+        /// <summary>
+        /// Returned by the broker when the client is not authorized to access the requested topic.
+        /// </summary>
+        TopicAuthorizationFailed = 29,
+
+        /// <summary>
+        /// Returned by the broker when the client is not authorized to access a particular groupId.
+        /// </summary>
+        GroupAuthorizationFailed = 30,
+
+        /// <summary>
+        /// Returned by the broker when the client is not authorized to use an inter-broker or administrative API.
+        /// </summary>
+        ClusterAuthorizationFailed = 31,
+
+        /// <summary>
+        /// The timestamp of the message is out of acceptable range.
+        /// </summary>
+        InvalidTimestamp = 32,
+
+        /// <summary>
+        /// The broker does not support the requested SASL mechanism.
+        /// </summary>
+        UnsupportedSaslMechanism = 33,
+
+        /// <summary>
+        /// Request is not valid given the current SASL state.
+        /// </summary>
+        IllegalSaslState = 34,
+
+        /// <summary>
+        /// The version of API is not supported.
+        /// </summary>
+        UnsupportedVersion = 35,
+
+        /// <summary>
+        /// 
+        /// </summary>
+        TopicAlreadyExists = 36,
+
+        /// <summary>
+        /// Number of partitions is invalid.
+        /// </summary>
+        InvalidPartitions = 37,
+
+        /// <summary>
+        /// Replication-factor is invalid.
+        /// </summary>
+        InvalidReplicationFactor = 38,
+
+        /// <summary>
+        /// Replica assignment is invalid.
+        /// </summary>
+        InvalidReplicaAssignment = 39,
+
+        /// <summary>
+        /// Configuration is invalid.
+        /// </summary>
+        InvalidConfig = 40,
+
+        /// <summary>
+        /// This is not the correct controller for this cluster.
+        /// </summary>
+        NotController = 41,
+
+        /// <summary>
+        /// This most likely occurs because of a request being malformed by the client library or the message was sent to an incompatible broker. See the broker logs for more details.
+        /// </summary>
+        InvalidRequest = 42,
+
+        /// <summary>
+        /// The message format version on the broker does not support the request.
+        /// </summary>
+        UnsupportedForMessageFormat = 43,
+
+        /// <summary>
+        /// Request parameters do not satisfy the configured policy.
+        /// </summary>
+        PolicyViolation = 44,
 
         // Local error, not from brokers
         LocalError = -42,

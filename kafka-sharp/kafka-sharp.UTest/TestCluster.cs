@@ -66,7 +66,7 @@ namespace tests_kafka_sharp
             var nodeMock = new Mock<INode>();
             nodeMock.Setup(n => n.Name).Returns("localhost:" + port);
             nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(TestData.TestMetadataResponse));
-            nodeMock.Setup(n => n.FetchMetadata(It.IsAny<string>())).Returns(Task.FromResult(TestData.TestMetadataResponse));
+            nodeMock.Setup(n => n.FetchMetadata(It.IsAny<IEnumerable<string>>())).Returns(Task.FromResult(TestData.TestMetadataResponse));
             nodeMock.Setup(n => n.Stop()).Returns(Task.FromResult(true));
             return nodeMock;
         }
@@ -378,7 +378,7 @@ namespace tests_kafka_sharp
         public void TestFetchAcknowledgement()
         {
             _cluster.Start();
-            var ca = new CommonAcknowledgement<FetchPartitionResponse>();
+            var ca = new CommonAcknowledgement<FetchResponse>();
             _nodeMocks[0].Raise(n => n.FetchAcknowledgement += null, _nodeMocks[0].Object, ca);
 
             _consumeMock.Verify(r => r.Acknowledge(ca));
@@ -390,7 +390,7 @@ namespace tests_kafka_sharp
         public void TestOffsetAcknowledgement()
         {
             _cluster.Start();
-            var ca = new CommonAcknowledgement<OffsetPartitionResponse>();
+            var ca = new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>();
             _nodeMocks[0].Raise(n => n.OffsetAcknowledgement += null, _nodeMocks[0].Object, ca);
 
             _consumeMock.Verify(r => r.Acknowledge(ca));
@@ -504,7 +504,7 @@ namespace tests_kafka_sharp
             const string missingTopic = "doesnotexist";
             _cluster.Start();
 
-            Assert.That(async () => await _cluster.RequireAllPartitionsForTopic(missingTopic), Throws.TypeOf<TaskCanceledException>());
+            Assert.That(async () => await _cluster.RequireAllPartitionsForTopic(missingTopic), Throws.TypeOf<KeyNotFoundException>());
 
             _logger.Verify(l => l.LogError(It.IsAny<string>()), Times.Once);
         }
@@ -653,7 +653,7 @@ namespace tests_kafka_sharp
 
             foreach (var nodeMock in _nodeMocks)
             {
-                nodeMock.Setup(n => n.FetchMetadata("topic1")).Returns(Task.FromResult(oneTopicMetadataResponse));
+                nodeMock.Setup(n => n.FetchMetadata(new[] { "topic1" })).Returns(Task.FromResult(oneTopicMetadataResponse));
             }
 
             _cluster.Start();

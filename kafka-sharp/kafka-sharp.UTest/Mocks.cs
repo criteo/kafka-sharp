@@ -131,7 +131,7 @@ namespace tests_kafka_sharp
             var ack = new ProduceAcknowledgement
             {
                 OriginalBatch = new TestBatchByTopicByPartition(new[] { message }),
-                ProduceResponse =
+                ProduceResponse = new ProduceResponse { ProducePartitionResponse = 
                         new CommonResponse<ProducePartitionResponse>()
                         {
                             TopicsResponse =
@@ -152,7 +152,7 @@ namespace tests_kafka_sharp
                                                             }
                                                 }
                                         }
-                        },
+                        }},
                 ReceiveDate = DateTime.UtcNow
             };
             ProduceAcknowledgement(this, ack);
@@ -174,7 +174,7 @@ namespace tests_kafka_sharp
             return Task.FromResult(_response);
         }
 
-        public Task<MetadataResponse> FetchMetadata(string topic)
+        public Task<MetadataResponse> FetchMetadata(IEnumerable<string> topic)
         {
             return Task.FromResult(_response);
         }
@@ -185,6 +185,42 @@ namespace tests_kafka_sharp
         }
 
         public Task<long> GetLatestOffset(string topic, int partition)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<GroupCoordinatorResponse> GetGroupCoordinator(string groupId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<ErrorCode> Heartbeat(string groupId, int generationId, string memberId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<JoinConsumerGroupResponse> JoinConsumerGroup(string groupId, string memberId, int sessionTimeout, int rebalanceTimeout,
+            IEnumerable<string> subscription)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<SyncConsumerGroupResponse> SyncConsumerGroup(string groupId, string memberId, int generation, IEnumerable<ConsumerGroupAssignment> assignments)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<ErrorCode> LeaveGroup(string groupId, string memberId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<CommonResponse<PartitionCommitData>> Commit(string groupId, int generation, string memberId, long retentionTime, IEnumerable<TopicData<OffsetCommitPartitionData>> topicsData)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<CommonResponse<PartitionOffsetData>> FetchOffsets(string groupId, IEnumerable<TopicData<PartitionAssignment>> topicsData)
         {
             throw new NotImplementedException();
         }
@@ -204,8 +240,8 @@ namespace tests_kafka_sharp
         public event Action<INode> Connected = _ => { };
         public event Action<INode> RequestTimeout = _ => { };
         public event Action<INode, ProduceAcknowledgement> ProduceAcknowledgement = (n, ack) => { };
-        public event Action<INode, CommonAcknowledgement<FetchPartitionResponse>> FetchAcknowledgement = (n, ack) => { };
-        public event Action<INode, CommonAcknowledgement<OffsetPartitionResponse>> OffsetAcknowledgement = (n, ack) => { };
+        public event Action<INode, CommonAcknowledgement<FetchResponse>> FetchAcknowledgement;
+        public event Action<INode, CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>> OffsetAcknowledgement;
         public event Action<INode> NoMoreRequestSlot = _ => { };
         public event Action<string> MessageReceived = _ => { };
 
@@ -247,12 +283,22 @@ namespace tests_kafka_sharp
             throw new NotImplementedException();
         }
 
+        public Task<INode> GetGroupCoordinator(string @group)
+        {
+            throw new NotImplementedException();
+        }
+
         public IStatistics Statistics
         {
             get { return new Statistics(); }
         }
 
         public Task<int[]> RequireAllPartitionsForTopic(string topic)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<IDictionary<string, int[]>> RequireAllPartitionsForTopics(IEnumerable<string> topic)
         {
             throw new NotImplementedException();
         }
@@ -437,6 +483,7 @@ namespace tests_kafka_sharp
         public event Action<string> BrokerTimeoutError = _ => { };
         public event Action<string> MessageReEnqueued = _ => { };
         public event Action<string> MessagePostponed = _ => { };
+        public event Action<int> Throttled = _ => { };
     }
 
     class DummySerialization : Node.ISerialization
@@ -461,12 +508,22 @@ namespace tests_kafka_sharp
             return new ReusableMemoryStream(null);
         }
 
+        public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data, Basics.ApiVersion version) where TResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
+        }
+
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
         {
             return new MetadataResponse();
         }
 
-        public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId, ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
+        public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId, ReusableMemoryStream data, Basics.ApiVersion version) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             return new CommonResponse<TPartitionResponse>();
         }
@@ -501,13 +558,23 @@ namespace tests_kafka_sharp
             return new ReusableMemoryStream(null);
         }
 
+        public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data, Basics.ApiVersion version) where TResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
+        }
+
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
         {
             return _metadataResponse;
         }
 
         public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-            ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
+            ReusableMemoryStream data, Basics.ApiVersion version) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             throw new NotImplementedException();
         }
@@ -542,13 +609,23 @@ namespace tests_kafka_sharp
             return new ReusableMemoryStream(null);
         }
 
+        public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data, Basics.ApiVersion version) where TResponse : IMemoryStreamSerializable, new()
+        {
+            throw new NotImplementedException();
+        }
+
         public MetadataResponse DeserializeMetadataResponse(int correlationId, ReusableMemoryStream data)
         {
             throw new NotImplementedException();
         }
 
         public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-            ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
+            ReusableMemoryStream data, Basics.ApiVersion version) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             object o = _produceResponse;
             return (CommonResponse<TPartitionResponse>)o;
@@ -625,7 +702,7 @@ namespace tests_kafka_sharp
 
         public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
         {
-            var r = new CommonResponse<ProducePartitionResponse>
+            var r = new ProduceResponse { ProducePartitionResponse = new CommonResponse<ProducePartitionResponse>
             {
                 TopicsResponse = batch.Select(g => new TopicData<ProducePartitionResponse>
                 {
@@ -643,7 +720,7 @@ namespace tests_kafka_sharp
                         Partition = pg.Key
                     }).ToArray()
                 }).ToArray()
-            };
+            }};
 
             _produceResponses[correlationId] = r;
 
@@ -660,6 +737,18 @@ namespace tests_kafka_sharp
             return new ReusableMemoryStream(null);
         }
 
+        public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version)
+        {
+            throw new NotImplementedException();
+        }
+
+        public TResponse DeserializeResponse<TResponse>(int correlationId, ReusableMemoryStream data, Basics.ApiVersion version) where TResponse : IMemoryStreamSerializable, new()
+        {
+            object o;
+            _produceResponses.TryRemove(correlationId, out o);
+            return (TResponse)o;
+        }
+
         public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
         {
             return new ReusableMemoryStream(null);
@@ -671,7 +760,7 @@ namespace tests_kafka_sharp
         }
 
         public CommonResponse<TPartitionResponse> DeserializeCommonResponse<TPartitionResponse>(int correlationId,
-            ReusableMemoryStream data) where TPartitionResponse : IMemoryStreamSerializable, new()
+            ReusableMemoryStream data, Basics.ApiVersion version) where TPartitionResponse : IMemoryStreamSerializable, new()
         {
             object o;
             _produceResponses.TryRemove(correlationId, out o);

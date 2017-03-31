@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reactive.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Kafka.Cluster;
+using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
 using Kafka.Routing;
@@ -565,7 +567,7 @@ namespace tests_kafka_sharp
         public void TestGetAllPartitionsForTopic()
         {
             _client.GetPartitionforTopicAsync("toto");
-            _node.Verify(n => n.FetchMetadata("toto"));
+            _node.Verify(n => n.FetchMetadata(new [] { "toto"}));
         }
 
         [Test]
@@ -584,6 +586,53 @@ namespace tests_kafka_sharp
             Assert.IsFalse(_client.Produce(Topic, ValueB));
             Assert.AreEqual(2, _client.Statistics.Entered);
             Assert.AreEqual(0, _client.Statistics.Exited);
+        }
+
+        [Test]
+        public void TestPauseResume()
+        {
+            _client.Pause("tutu");
+            _client.Resume("titi");
+
+            _consumer.Verify(c => c.StopConsume("tutu", Partitions.All, Offsets.Now));
+            _consumer.Verify(c => c.StopConsume("tutu", Partitions.All, Offsets.Now));
+        }
+
+        [Test]
+        public void TestSubscription()
+        {
+            _client.Subscribe("group", new[] { "topic" }, new ConsumerGroupConfiguration());
+            
+            _consumer.Verify(
+                c => c.StartConsumeSubscription(It.IsAny<IConsumerGroup>(), It.Is<IEnumerable<string>>(l => l.Count() == 1 && l.Contains("topic"))),
+                Times.Once);
+        }
+
+        [Test]
+        public void TestTimestampSetOnlyInV10Compat()
+        {
+            var date = new DateTime(2017, 1, 13, 23, 45, 21, 42, DateTimeKind.Utc);
+
+            _client.Produce("toto", null, date);
+
+            _producer.Verify(
+                p =>
+                    p.Route("toto", It.Is<Message>(m => m.TimeStamp == 0), It.IsAny<int>(),
+                        It.IsAny<DateTime>()));
+
+            Init(new Configuration
+            {
+                Seeds = "localhost:1",
+                TaskScheduler = new CurrentThreadTaskScheduler(),
+                Compatibility = Compatibility.V0_10_1
+            });
+
+            _client.Produce("toto", null, date);
+
+            _producer.Verify(
+                p =>
+                    p.Route("toto", It.Is<Message>(m => m.TimeStamp == Timestamp.ToUnixTimestamp(date)), It.IsAny<int>(),
+                        It.IsAny<DateTime>()));
         }
     }
 }

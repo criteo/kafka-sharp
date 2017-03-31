@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="14.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -41,21 +41,22 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="TestBatching.cs" />
+    <Compile Include="TestClient.cs" />
+    <Compile Include="TestConsumerGroup.cs" />
+    <Compile Include="TestSerialization.cs" />
     <Compile Include="AsyncCountdownEvent.cs" />
     <Compile Include="Mocks.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="TestBatching.cs" />
-    <Compile Include="TestClient.cs" />
     <Compile Include="TestCluster.cs" />
     <Compile Include="TestCommon.cs" />
     <Compile Include="TestConnection.cs" />
     <Compile Include="TestConsumer.cs" />
     <Compile Include="TestGeneral.cs" />
-    <Compile Include="TestNode.cs.cs" />
     <Compile Include="TestPartitioner.cs" />
+    <Compile Include="TestNode.cs.cs" />
     <Compile Include="TestRouter.cs" />
     <Compile Include="TestRoutingTable.cs" />
-    <Compile Include="TestSerialization.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\kafka-sharp\Kafka.csproj">

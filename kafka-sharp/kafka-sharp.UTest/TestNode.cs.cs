@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -47,13 +48,68 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestFetchWithNoErrors()
+        public void TestFetchCompatibility()
+        {
+            MemoryStream stream = null;
+            var connection = new Mock<IConnection>();
+            connection.Setup(c => c.ConnectAsync()).Returns(Task.FromResult(true));
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns(Task.FromResult(true))
+                .Callback((int _, ReusableMemoryStream s, bool __) => stream = new MemoryStream(s.ToArray()));
+
+            var node = new Node("Node", () => connection.Object,
+                new Node.Serialization(new SerializationConfig(), Compatibility.V0_8_2, Pool, new byte[0],
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Configuration
+                {
+                    ConsumeBufferingTime = TimeSpan.FromMilliseconds(15),
+                    ConsumeBatchSize = 1,
+                    TaskScheduler = new CurrentThreadTaskScheduler()
+                }, 1);
+
+            node.Fetch(new FetchMessage { Topic = "yolo" });
+
+            Assert.IsNotNull(stream);
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), true));
+
+            stream.Position = 4; //  skip correlation id
+            Assert.AreEqual(Basics.ApiKey.FetchRequest, (Basics.ApiKey)BigEndianConverter.ReadInt16(stream));
+            Assert.AreEqual(Basics.ApiVersion.V0, (Basics.ApiVersion)BigEndianConverter.ReadInt16(stream));
+
+            node = new Node("Node", () => connection.Object,
+                new Node.Serialization(new SerializationConfig(), Compatibility.V0_10_1, Pool, new byte[0],
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Configuration
+                {
+                    ConsumeBufferingTime = TimeSpan.FromMilliseconds(15),
+                    ConsumeBatchSize = 1,
+                    TaskScheduler = new CurrentThreadTaskScheduler()
+                }, 1);
+
+            node.Fetch(new FetchMessage { Topic = "yolo" });
+
+            Assert.IsNotNull(stream);
+
+            stream.Position = 4;
+            Assert.AreEqual(Basics.ApiKey.FetchRequest, (Basics.ApiKey)BigEndianConverter.ReadInt16(stream));
+            Assert.AreEqual(Basics.ApiVersion.V2, (Basics.ApiVersion)BigEndianConverter.ReadInt16(stream));
+        }
+
+        [Test]
+        [TestCase(Basics.ApiVersion.V0)]
+        [TestCase(Basics.ApiVersion.V2)]
+        public void TestFetchWithNoErrors(Basics.ApiVersion version)
         {
             // Prepare
             var serializer = new Mock<Node.ISerialization>();
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object, serializer.Object,
-                new Configuration {TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1}, 1);
+                new Configuration
+                {
+                    TaskScheduler = new CurrentThreadTaskScheduler(),
+                    ConsumeBatchSize = 1,
+                    Compatibility = version == Basics.ApiVersion.V0 ? Compatibility.V0_8_2 : Compatibility.V0_10_1
+                }, 1);
             var ev = new ManualResetEvent(false);
             var corrs = new Queue<int>();
             connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
@@ -75,15 +131,15 @@ namespace tests_kafka_sharp
                 Assert.AreSame(node, n);
                 ++response;
             };
-            var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
+            var acknowledgement = new CommonAcknowledgement<FetchResponse>();
             node.FetchAcknowledgement += (n, ack) =>
             {
                 acknowledgement = ack;
                 Assert.AreSame(node, n);
             };
 
-            serializer.Setup(s => s.DeserializeCommonResponse<FetchPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
-                .Returns(new CommonResponse<FetchPartitionResponse>
+            serializer.Setup(s => s.DeserializeResponse<FetchResponse>(corr, It.IsAny<ReusableMemoryStream>(), version))
+                .Returns(new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
                 {
                     TopicsResponse =
                         new[]
@@ -105,7 +161,7 @@ namespace tests_kafka_sharp
                                     }
                             }
                         }
-                });
+                }});
 
             bool resp = false;
             node.FetchResponseReceived += (n, c, s) =>
@@ -120,14 +176,16 @@ namespace tests_kafka_sharp
             var r = new ReusableMemoryStream(null);
             r.SetLength(28);
             connection.Raise(c => c.Response += null, connection.Object, corr, r);
+            serializer.Verify(s => s.DeserializeResponse<FetchResponse>(corr, It.IsAny<ReusableMemoryStream>(), It.IsAny<Basics.ApiVersion>()), Times.Once);
+            serializer.Verify(s => s.DeserializeResponse<FetchResponse>(corr, It.IsAny<ReusableMemoryStream>(), version));
 
             // Checks
             Assert.IsTrue(resp);
             Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
-            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
-            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
-            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
-            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(1, acknowledgement.Response.FetchPartitionResponse.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].PartitionsData.First();
             Assert.AreEqual(ErrorCode.NoError, fetch.ErrorCode);
             Assert.AreEqual(42, fetch.HighWatermarkOffset);
             Assert.AreEqual(1, fetch.Partition);
@@ -163,7 +221,7 @@ namespace tests_kafka_sharp
             {
                 Assert.AreSame(node, n);
             };
-            var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
+            var acknowledgement = new CommonAcknowledgement<FetchResponse>();
             node.FetchAcknowledgement += (n, ack) =>
             {
                 acknowledgement = ack;
@@ -171,8 +229,8 @@ namespace tests_kafka_sharp
             };
             int decodeError = 0;
             node.DecodeError += (n, e) => ++decodeError;
-
-            serializer.Setup(s => s.DeserializeCommonResponse<FetchPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
+            
+            serializer.Setup(s => s.DeserializeResponse<FetchResponse>(corr, It.IsAny<ReusableMemoryStream>(), It.IsAny<Basics.ApiVersion>()))
                 .Throws(new Exception());
 
             // Now send a response
@@ -181,10 +239,10 @@ namespace tests_kafka_sharp
             // Checks
             Assert.AreEqual(1, decodeError);
             Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
-            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
-            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
-            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
-            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(1, acknowledgement.Response.FetchPartitionResponse.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].PartitionsData.First();
             Assert.AreEqual(ErrorCode.LocalError, fetch.ErrorCode);
             Assert.AreEqual(-1, fetch.HighWatermarkOffset);
             Assert.AreEqual(1, fetch.Partition);
@@ -206,7 +264,7 @@ namespace tests_kafka_sharp
             connection.Setup(c => c.ConnectAsync()).Returns(Success);
             var message = new FetchMessage { Topic = "balbuzzard", Offset = 42, Partition = 1, MaxBytes = 1242 };
 
-            var acknowledgement = new CommonAcknowledgement<FetchPartitionResponse>();
+            var acknowledgement = new CommonAcknowledgement<FetchResponse>();
             node.FetchAcknowledgement += (n, ack) =>
             {
                 acknowledgement = ack;
@@ -226,10 +284,10 @@ namespace tests_kafka_sharp
             // Checks
             Assert.IsInstanceOf<TimeoutException>(exception);
             Assert.AreNotEqual(default(DateTime), acknowledgement.ReceivedDate);
-            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse.Length);
-            Assert.AreEqual("balbuzzard", acknowledgement.Response.TopicsResponse[0].TopicName);
-            Assert.AreEqual(1, acknowledgement.Response.TopicsResponse[0].PartitionsData.Count());
-            var fetch = acknowledgement.Response.TopicsResponse[0].PartitionsData.First();
+            Assert.AreEqual(1, acknowledgement.Response.FetchPartitionResponse.TopicsResponse.Length);
+            Assert.AreEqual("balbuzzard", acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].TopicName);
+            Assert.AreEqual(1, acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].PartitionsData.Count());
+            var fetch = acknowledgement.Response.FetchPartitionResponse.TopicsResponse[0].PartitionsData.First();
             Assert.AreEqual(ErrorCode.LocalError, fetch.ErrorCode);
             Assert.AreEqual(-1, fetch.HighWatermarkOffset);
             Assert.AreEqual(1, fetch.Partition);
@@ -262,6 +320,54 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestOffsetCompatibility()
+        {
+            MemoryStream stream = null;
+            var connection = new Mock<IConnection>();
+            connection.Setup(c => c.ConnectAsync()).Returns(Task.FromResult(true));
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns(Task.FromResult(true))
+                .Callback((int _, ReusableMemoryStream s, bool __) => stream = new MemoryStream(s.ToArray()));
+
+            var node = new Node("Node", () => connection.Object,
+                new Node.Serialization(new SerializationConfig(), Compatibility.V0_8_2, Pool, new byte[0],
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Configuration
+                {
+                    ConsumeBufferingTime = TimeSpan.FromMilliseconds(15),
+                    ConsumeBatchSize = 1,
+                    TaskScheduler = new CurrentThreadTaskScheduler()
+                }, 1);
+            
+            node.Offset(new OffsetMessage { Topic = "yolo" });
+
+            Assert.IsNotNull(stream);
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), true));
+
+            stream.Position = 4; //  skip correlation id
+            Assert.AreEqual(Basics.ApiKey.OffsetRequest, (Basics.ApiKey)BigEndianConverter.ReadInt16(stream));
+            Assert.AreEqual(Basics.ApiVersion.V0, (Basics.ApiVersion)BigEndianConverter.ReadInt16(stream));
+
+            node = new Node("Node", () => connection.Object,
+                new Node.Serialization(new SerializationConfig(), Compatibility.V0_10_1, Pool, new byte[0],
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Configuration
+                {
+                    ConsumeBufferingTime = TimeSpan.FromMilliseconds(15),
+                    ConsumeBatchSize = 1,
+                    TaskScheduler = new CurrentThreadTaskScheduler()
+                }, 1);
+
+            node.Offset(new OffsetMessage { Topic = "yolo" });
+
+            Assert.IsNotNull(stream);
+
+            stream.Position = 4;
+            Assert.AreEqual(Basics.ApiKey.OffsetRequest, (Basics.ApiKey)BigEndianConverter.ReadInt16(stream));
+            Assert.AreEqual(Basics.ApiVersion.V1, (Basics.ApiVersion)BigEndianConverter.ReadInt16(stream));
+        }
+
+        [Test]
         public void TestOffsetWithNoErrors()
         {
             // Prepare
@@ -288,14 +394,14 @@ namespace tests_kafka_sharp
             {
                 Assert.AreSame(node, n);
             };
-            var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
+            var acknowledgement = new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>();
             node.OffsetAcknowledgement += (n, ack) =>
             {
                 acknowledgement = ack;
                 Assert.AreSame(node, n);
             };
 
-            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>(), It.IsAny<Basics.ApiVersion>()))
                 .Returns(new CommonResponse<OffsetPartitionResponse>
                 {
                     TopicsResponse =
@@ -360,7 +466,7 @@ namespace tests_kafka_sharp
             {
                 Assert.AreSame(node, n);
             };
-            var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
+            var acknowledgement = new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>();
             node.OffsetAcknowledgement += (n, ack) =>
             {
                 acknowledgement = ack;
@@ -369,7 +475,7 @@ namespace tests_kafka_sharp
             int decodeError = 0;
             node.DecodeError += (n, e) => ++decodeError;
 
-            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>(), It.IsAny<Basics.ApiVersion>()))
                 .Throws(new Exception());
 
             // Now send a response
@@ -404,7 +510,7 @@ namespace tests_kafka_sharp
             var message = new OffsetMessage { Topic = "balbuzzard", Partition = 1, MaxNumberOfOffsets = 1, Time = 12341 };
             node.Offset(message);
 
-            var acknowledgement = new CommonAcknowledgement<OffsetPartitionResponse>();
+            var acknowledgement = new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>>();
             node.OffsetAcknowledgement += (n, ack) =>
             {
                 acknowledgement = ack;
@@ -455,7 +561,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
 
-            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>(), It.IsAny<Basics.ApiVersion>()))
                 .Returns(new CommonResponse<OffsetPartitionResponse>
                 {
                     TopicsResponse =
@@ -510,7 +616,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, corrs.Count);
             int corr = corrs.Dequeue();
 
-            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>()))
+            serializer.Setup(s => s.DeserializeCommonResponse<OffsetPartitionResponse>(corr, It.IsAny<ReusableMemoryStream>(), It.IsAny<Basics.ApiVersion>()))
                 .Returns(new CommonResponse<OffsetPartitionResponse>
                 {
                     TopicsResponse =
@@ -578,7 +684,7 @@ namespace tests_kafka_sharp
         public void TestMetadataDecodeError()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serialization(null, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                                 new Configuration());
             Exception ex = null;
             node.DecodeError += (n, e) =>
@@ -623,6 +729,44 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestProduceCompatibility()
+        {
+            MemoryStream stream = null;
+            var connection = new Mock<IConnection>();
+            connection.Setup(c => c.ConnectAsync()).Returns(Task.FromResult(true));
+            connection.Setup(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), It.IsAny<bool>()))
+                .Returns(Task.FromResult(true))
+                .Callback((int _, ReusableMemoryStream s, bool __) => stream = new MemoryStream(s.ToArray()));
+
+            var node = new Node("Node", () => connection.Object,
+                new Node.Serialization(new SerializationConfig(), Compatibility.V0_8_2, Pool, new byte[0],
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Configuration { ProduceBufferingTime = TimeSpan.FromMilliseconds(15), ProduceBatchSize = 1, TaskScheduler = new CurrentThreadTaskScheduler()}, 1);
+
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+
+            Assert.IsNotNull(stream);
+            connection.Verify(c => c.SendAsync(It.IsAny<int>(), It.IsAny<ReusableMemoryStream>(), true));
+
+            stream.Position = 4; //  skip correlation id
+            Assert.AreEqual(Basics.ApiKey.ProduceRequest, (Basics.ApiKey)BigEndianConverter.ReadInt16(stream));
+            Assert.AreEqual(Basics.ApiVersion.V0, (Basics.ApiVersion)BigEndianConverter.ReadInt16(stream));
+
+            node = new Node("Node", () => connection.Object,
+                new Node.Serialization(new SerializationConfig(), Compatibility.V0_10_1, Pool, new byte[0],
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Configuration { ProduceBufferingTime = TimeSpan.FromMilliseconds(15), ProduceBatchSize = 1, TaskScheduler = new CurrentThreadTaskScheduler() }, 1);
+
+            node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
+
+            Assert.IsNotNull(stream);
+
+            stream.Position = 4;
+            Assert.AreEqual(Basics.ApiKey.ProduceRequest, (Basics.ApiKey)BigEndianConverter.ReadInt16(stream));
+            Assert.AreEqual(Basics.ApiVersion.V2, (Basics.ApiVersion)BigEndianConverter.ReadInt16(stream));
+        }
+
+        [Test]
         public void TestProduceWithNoErrorsNoAck()
         {
             var node = new Node("Node", () => new EchoConnectionMock(), new ProduceSerialization(new CommonResponse<ProducePartitionResponse>()),
@@ -642,7 +786,7 @@ namespace tests_kafka_sharp
             node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
 
             count.Wait();
-            Assert.AreEqual(ErrorCode.NoError, acknowledgement.ProduceResponse.TopicsResponse[0].PartitionsData.First().ErrorCode);
+            Assert.AreEqual(ErrorCode.NoError, acknowledgement.ProduceResponse.ProducePartitionResponse.TopicsResponse[0].PartitionsData.First().ErrorCode);
         }
 
         [Test]
@@ -688,7 +832,7 @@ namespace tests_kafka_sharp
         public void TestProduceDecodeErrorAreAcknowledged()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serialization(null, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                                 new Configuration
                                     {
                                         ErrorStrategy = ErrorStrategy.Discard,
@@ -709,7 +853,7 @@ namespace tests_kafka_sharp
                 {
                     discarded = true;
                     Assert.AreSame(node, n);
-                    Assert.AreEqual(default(CommonResponse<ProducePartitionResponse>), ack.ProduceResponse);
+                    Assert.AreEqual(default(ProduceResponse), ack.ProduceResponse);
                     Assert.AreNotEqual(default(DateTime), ack.ReceiveDate);
                     if (Interlocked.Increment(ref rec) == 2)
                         ev.Set();
@@ -726,7 +870,7 @@ namespace tests_kafka_sharp
             // Prepare
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object,
-                new Node.Serialization(null, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                 new Configuration
                 {
                     TaskScheduler = new CurrentThreadTaskScheduler(),
@@ -746,7 +890,7 @@ namespace tests_kafka_sharp
             node.ProduceAcknowledgement += (n, ack) =>
             {
                 Assert.AreSame(node, n);
-                Assert.AreEqual(default(CommonResponse<ProducePartitionResponse>), ack.ProduceResponse);
+                Assert.AreEqual(default(ProduceResponse), ack.ProduceResponse);
                 Assert.AreNotEqual(default(DateTime), ack.ReceiveDate);
                 ackEvent.Set();
             };
@@ -846,7 +990,7 @@ namespace tests_kafka_sharp
             // Prepare
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object,
-                new Node.Serialization(null, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
                 new Configuration
                 {
                     TaskScheduler = new CurrentThreadTaskScheduler(),

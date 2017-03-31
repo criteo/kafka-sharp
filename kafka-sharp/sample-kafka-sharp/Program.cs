@@ -236,6 +236,9 @@ dagfhefdghafdahfh",
                 serializationConfig.SetDeserializersForTopic(topic, deserializer, deserializer);
             }
             configuration.SerializationConfig = serializationConfig;
+            configuration.FetchMaxWaitTime = 500;
+            configuration.ClientRequestTimeoutMs = 40000;
+            configuration.ClientId = string.Format("K#-{0}", Guid.NewGuid());
 
             var cluster =
                 new ClusterClient(configuration, new ConsoleLogger());
@@ -254,14 +257,25 @@ dagfhefdghafdahfh",
                 foreach (var topic in _topics)
                 {
                     var capturedTopic = topic;
-                    cluster.Messages.Where(kr => kr.Topic == capturedTopic).Sample(TimeSpan.FromMilliseconds(15))
+                    cluster.Messages.Where(kr => kr.Topic == capturedTopic)//.Sample(TimeSpan.FromMilliseconds(15))
                     .Subscribe(kr => Console.WriteLine("{0}/{1} {2}: {3}", kr.Topic, kr.Partition, kr.Offset, kr.Value as string));
+                    /*
                     foreach (var p in _partitions[i])
                     {
                         cluster.Consume(topic, p, _consumeFrom);
                     }
+                    */
                     ++i;
                 }
+
+                var consConf = new ConsumerGroupConfiguration
+                {
+                    SessionTimeoutMs = 30000,
+                    RebalanceTimeoutMs = 20000,
+                    DefaultOffsetToReadFrom = Offset.Lastest,
+                    AutoCommitEveryMs = 5000
+                };
+                cluster.Subscribe("test-cgid", _topics, consConf);
 
                 Task task = null;
                 if (mix)
@@ -270,17 +284,9 @@ dagfhefdghafdahfh",
                 }
 
                 Console.ReadKey();
-                i = 0;
                 foreach (var topic in _topics)
                 {
-                    foreach (var p in _partitions[i])
-                    {
-                        if (p < 0)
-                            cluster.StopConsume(topic);
-                        else
-                            cluster.StopConsume(topic, p);
-                    }
-                    ++i;
+                    cluster.StopConsume(topic);
                 }
                 if (task != null)
                 {

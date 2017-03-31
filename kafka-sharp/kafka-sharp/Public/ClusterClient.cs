@@ -2,8 +2,8 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Generic;
 using System.Reactive.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Common;
@@ -19,6 +19,8 @@ namespace Kafka.Public
     {
         /// <summary>
         /// Send some data to a Kafka Cluster, with no key.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
         /// <param name="data">Message value</param>
@@ -26,7 +28,19 @@ namespace Kafka.Public
         bool Produce(string topic, object data);
 
         /// <summary>
+        /// Send some data to a Kafka Cluster, with no key and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="data">Message value</param>
+        /// <param name="timestamp">The timestamp of the message.</param>
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object data, DateTime timestamp);
+
+        /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
         /// <param name="key">Message key</param>
@@ -35,9 +49,22 @@ namespace Kafka.Public
         bool Produce(string topic, object key, object data);
 
         /// <summary>
+        /// Send an array of bytes to a Kafka Cluster, using the given key and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="key">Message key</param>
+        /// <param name="data">Message value</param>
+        /// <param name="timestamp">The timestamp of the message.</param>
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object key, object data, DateTime timestamp);
+
+        /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
-        /// The message will routed to the target partition. This allows
+        /// The message will be routed to the target partition. This allows
         /// clients to partition data according to a specific scheme.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
         /// </summary>
         /// <param name="topic">Kafka message topic</param>
         /// <param name="key">Message key</param>
@@ -45,6 +72,20 @@ namespace Kafka.Public
         /// <param name="partition">Target partition</param>
         /// <returns>false if an overflow occured</returns>
         bool Produce(string topic, object key, object data, int partition);
+
+        /// <summary>
+        /// Send an array of bytes to a Kafka Cluster, using the given key and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
+        /// The message will be routed to the target partition. This allows
+        /// clients to partition data according to a specific scheme.
+        /// </summary>
+        /// <param name="topic">Kafka message topic</param>
+        /// <param name="key">Message key</param>
+        /// <param name="data">Message value</param>
+        /// <param name="partition">Target partition</param>
+        /// <param name="timestamp">The timestamp of the message.</param>
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object key, object data, int partition, DateTime timestamp);
 
         /// <summary>
         /// Consume messages from the given topic, from all partitions, and starting from
@@ -106,9 +147,56 @@ namespace Kafka.Public
         void StopConsume(string topic, int partition, long offset);
 
         /// <summary>
+        /// Subscribe to a list of topics, using a given consumer group id.
+        /// </summary>
+        /// <param name="consumerGroupId"></param>
+        /// <param name="topics"></param>
+        /// <param name="configuration"></param>
+        void Subscribe(string consumerGroupId, IEnumerable<string> topics, ConsumerGroupConfiguration configuration);
+
+        /// <summary>
+        /// Stop consuming messages from the given topic, effective immediately.
+        /// This is the same as 'StopConsume'.
+        /// </summary>
+        /// <param name="topic"></param>
+        void Pause(string topic);
+
+        /// <summary>
+        /// Restart consuming from the given topic, starting from where it was stopped.
+        /// The topic must have been started first.
+        /// </summary>
+        /// <param name="topic"></param>
+        void Resume(string topic);
+
+        /// <summary>
+        /// Commit offsets if linked to a consumer group.
+        /// This is a fire and forget commit: the consumer will commit offsets at the next
+        /// possible occasion. In particular if this is fired from inside a MessageReceived handler, commit
+        /// will occur just after returning from the handler.
+        /// Offsets commited are all the the offsets of the messages that have been sent through MessageReceived.
+        /// </summary>
+        void RequireCommit();
+
+        /// <summary>
+        /// Commit the given offset for the given offset/partition. This is a fined grained
+        /// asynchronous commit. When this method async returns, given offsets will have
+        /// effectively been committed.
+        /// </summary>
+        /// <param name="topic"></param>
+        /// <param name="partition"></param>
+        /// <param name="offset"></param>
+        /// <returns></returns>
+        Task CommitAsync(string topic, int partition, long offset);
+
+        /// <summary>
         /// Messages received from the brokers.
         /// </summary>
         event Action<RawKafkaRecord> MessageReceived;
+
+        /// <summary>
+        /// Raised when one fetch request has been throttled by brokers.
+        /// </summary>
+        event Action<int> ConsumeThrottled;
 
         /// <summary>
         /// The stream of received messages. Use this if you prefer using Reactive Extensions
@@ -143,6 +231,11 @@ namespace Kafka.Public
         /// to none, it is never raised.
         /// </summary>
         event Action<string, int> ProduceAcknowledged;
+
+        /// <summary>
+        /// Raised when one produce request has been throttled by brokers.
+        /// </summary>
+        event Action<int> ProduceThrottled;
 
         /// <summary>
         /// Returns all the partitions ids for a given topic. This is useful
@@ -205,6 +298,11 @@ namespace Kafka.Public
         public event Action<RawKafkaRecord> MessageReceived = _ => { };
 
         /// <summary>
+        /// This is raised when a fetch request has been throttled server side.
+        /// </summary>
+        public event Action<int> ConsumeThrottled = t => { };
+
+        /// <summary>
         /// The stream of consumed messages as an Rx stream. By default it is observed in the context
         /// of the underlying fetch loop, so you can take advantage of that to throttle the whole system
         /// or you can oberve it on its own scheduler.
@@ -254,6 +352,11 @@ namespace Kafka.Public
         /// to none, it is never raised.
         /// </summary>
         public event Action<string, int> ProduceAcknowledged = (t, n) => { };
+
+        /// <summary>
+        /// This is raised when a produce request has been throttled server side.
+        /// </summary>
+        public event Action<int> ProduceThrottled = t => { };
 
         /// <summary>
         /// Initialize a client to a Kafka cluster.
@@ -313,6 +416,8 @@ namespace Kafka.Public
                     });
             DiscardedMessages = Observable.FromEvent<RawKafkaRecord>(a => MessageDiscarded += a, a => MessageDiscarded -= a);
             _cluster.ProduceRouter.MessagesAcknowledged += (t, n) => ProduceAcknowledged(t, n);
+            _cluster.ProduceRouter.Throttled += t => ProduceThrottled(t);
+            _cluster.ConsumeRouter.Throttled += t => ConsumeThrottled(t);
             _cluster.Start();
         }
 
@@ -354,6 +459,11 @@ namespace Kafka.Public
             _cluster.ConsumeRouter.StartConsume(topic, partition, offset);
         }
 
+        public void Pause(string topic)
+        {
+            StopConsume(topic);
+        }
+
         public void StopConsume(string topic)
         {
             _cluster.ConsumeRouter.StopConsume(topic, Partitions.All, Offsets.Now);
@@ -375,38 +485,88 @@ namespace Kafka.Public
             _cluster.ConsumeRouter.StopConsume(topic, partition, offset);
         }
 
+        public void Resume(string topic)
+        {
+            _cluster.ConsumeRouter.StartConsume(topic, Partitions.All, Offsets.Now);
+        }
+
+        public void RequireCommit()
+        {
+            _cluster.ConsumeRouter.RequireCommit();
+        }
+
+        public Task CommitAsync(string topic, int partition, long offset)
+        {
+            if (partition < 0)
+                throw new ArgumentException("Partition Ids are always positive.", "partition");
+            if (offset < 0)
+                throw new ArgumentException("Offsets are always positive.", "offset");
+            return _cluster.ConsumeRouter.CommitAsync(topic, partition, offset);
+        }
+
         public bool Produce(string topic, object data)
         {
-            return Produce(topic, null, data);
+            return Produce(topic, data, DateTime.UtcNow);
+        }
+
+        public bool Produce(string topic, object data, DateTime timestamp)
+        {
+            return Produce(topic, null, data, timestamp);
         }
 
         public bool Produce(string topic, object key, object data)
         {
-            return Produce(topic, key, data, Partitions.Any);
+            return Produce(topic, key, data, DateTime.UtcNow);
+        }
+
+        public bool Produce(string topic, object key, object data, DateTime timestamp)
+        {
+            return Produce(topic, key, data, Partitions.Any, timestamp);
         }
 
         public bool Produce(string topic, object key, object data, int partition)
+        {
+            return Produce(topic, key, data, partition, DateTime.UtcNow);
+        }
+
+        private readonly object _lock = new object();
+
+        public bool Produce(string topic, object key, object data, int partition, DateTime timestamp)
         {
             if (_configuration.MaxBufferedMessages > 0)
             {
                 if (_cluster.Entered - _cluster.PassedThrough >= _configuration.MaxBufferedMessages)
                 {
-                    switch (_configuration.OverflowStrategy)
-                    {
-                        case OverflowStrategy.Discard:
-                            return false;
+                        switch (_configuration.OverflowStrategy)
+                        {
+                            case OverflowStrategy.Discard:
+                                return false;
 
-                        case OverflowStrategy.Block:
-                            SpinWait.SpinUntil(() => _cluster.Entered - _cluster.PassedThrough < _configuration.MaxBufferedMessages);
-                            break;
+                            case OverflowStrategy.Block:
+                                lock (_lock)
+                                {
+                                    SpinWait.SpinUntil(
+                                        () =>
+                                            _cluster.Entered - _cluster.PassedThrough
+                                                < _configuration.MaxBufferedMessages);
+                                }
+                                break;
 
-                        default:
-                            throw new ArgumentOutOfRangeException();
+                            default:
+                                throw new ArgumentOutOfRangeException();
                     }
                 }
             }
             _cluster.UpdateEntered();
-            _cluster.ProduceRouter.Route(topic, new Message {Key = key, Value = data}, partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
+            _cluster.ProduceRouter.Route(topic,
+                new Message
+                {
+                    Key = key,
+                    Value = data,
+                    TimeStamp =
+                        _configuration.Compatibility >= Compatibility.V0_10_1 ? Timestamp.ToUnixTimestamp(timestamp) : 0
+                },
+                partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
             return true;
         }
 
@@ -425,9 +585,23 @@ namespace Kafka.Public
             return _cluster.GetLatestOffset(topic, partition);
         }
 
-        public Task Shutdown()
+        /// <summary>
+        /// Subscribe to a list of topics, using a given consumer group id.
+        /// Only one subscription is supported at a time. If you want to consumfrom multiple
+        /// consumer group, you have to instanciate multiple ClusterClient.
+        /// </summary>
+        /// <param name="consumerGroupId"></param>
+        /// <param name="topics"></param>
+        /// <param name="configuration"></param>
+        public void Subscribe(string consumerGroupId, IEnumerable<string> topics,
+            ConsumerGroupConfiguration configuration)
         {
-            return _cluster.Stop();
+            _cluster.ConsumeRouter.StartConsumeSubscription(new ConsumerGroup(consumerGroupId, configuration, _cluster), topics);
+        }
+
+        public async Task Shutdown()
+        {
+            await _cluster.Stop();
         }
 
         public void Dispose()

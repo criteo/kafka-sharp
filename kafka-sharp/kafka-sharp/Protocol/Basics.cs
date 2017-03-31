@@ -12,17 +12,31 @@ namespace Kafka.Protocol
     // This is not intended to be beautiful.
     internal interface IMemoryStreamSerializable
     {
-        void Serialize(ReusableMemoryStream stream, object extra);
-        void Deserialize(ReusableMemoryStream stream, object extra);
+        void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version);
+        void Deserialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version);
     }
 
     static class Basics
     {
         public static readonly byte[] MinusOne32 = { 0xff, 0xff, 0xff, 0xff };
         static readonly byte[] MinusOne16 = { 0xff, 0xff };
-        static readonly byte[] ApiVersion = { 0x00, 0x00 };
         public static readonly byte[] Zero64 = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
         public static readonly byte[] Zero32 = { 0x00, 0x00, 0x00, 0x00 };
+
+        public static readonly byte[][] VersionBytes =
+        {
+            new byte[]{ 0x00, 0x00 }, 
+            new byte[]{ 0x00, 0x01 }, 
+            new byte[]{ 0x00, 0x02 },
+        };
+
+        public enum ApiVersion
+        {
+            Ignored = -1,
+            V0 = 0,
+            V1 = 1,
+            V2 = 2,
+        }
 
         public enum ApiKey : short
         {
@@ -33,7 +47,39 @@ namespace Kafka.Protocol
             // Non-user facing control APIs 4-7
             OffsetCommitRequest = 8,
             OffsetFetchRequest = 9,
-            ConsumerMetadataRequest = 10
+            GroupCoordinatorRequest = 10,
+            JoinGroupRequest = 11,
+            HeartbeatRequest = 12,
+            LeaveGroupRequest = 13,
+            SyncGroupRequest = 14,
+            DescribeGroupsRequest = 15,
+            ListGroupsRequest = 16,
+            SaslHandshake = 17,
+            ApiVersions = 18,
+        }
+
+        public static byte[] DeserializeBytes(ReusableMemoryStream stream)
+        {
+            var len = BigEndianConverter.ReadInt32(stream);
+            // per contract, null string is represented with -1 len.
+            if (len == -1)
+                return null;
+
+            var buffer = new byte[len];
+            stream.Read(buffer, 0, len);
+            return buffer;
+        }
+
+        public static void SerializeBytes(ReusableMemoryStream stream, byte[] b)
+        {
+            if (b == null)
+            {
+                stream.Write(MinusOne32, 0, 4);
+                return;
+            }
+
+            BigEndianConverter.Write(stream, b.Length);
+            stream.Write(b, 0, b.Length);
         }
 
         private static readonly StringDeserializer _stringDeser = new StringDeserializer();
@@ -58,8 +104,13 @@ namespace Kafka.Protocol
                 return;
             }
 
-            BigEndianConverter.Write(stream, (short) s.Length);
-            _stringSer.Serialize(s, stream);
+            var start = stream.Position;
+            BigEndianConverter.Write(stream, (short)0);
+            var length = _stringSer.Serialize(s, stream);
+            var current = stream.Position;
+            stream.Position = start;
+            BigEndianConverter.Write(stream, (short)length);
+            stream.Position = current;
         }
 
         public static ReusableMemoryStream WriteMessageLength(ReusableMemoryStream stream)
@@ -109,20 +160,25 @@ namespace Kafka.Protocol
         }
 
         // To avoid dynamically allocated closure
-        private static void WriteMemoryStreamSerializable<T>(ReusableMemoryStream stream, T item, object extra)
+        private static void WriteMemoryStreamSerializable<T>(ReusableMemoryStream stream, T item, object extra, ApiVersion version)
             where T : IMemoryStreamSerializable
         {
-            item.Serialize(stream, extra);
+            item.Serialize(stream, extra, version);
         }
 
         public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items) where T : IMemoryStreamSerializable
         {
-            WriteArray(stream, items, null, WriteMemoryStreamSerializable);
+            WriteArray(stream, items, null, ApiVersion.Ignored, WriteMemoryStreamSerializable);
         }
 
-        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra) where T : IMemoryStreamSerializable
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, ApiVersion version) where T : IMemoryStreamSerializable
         {
-            WriteArray(stream, items, extra, WriteMemoryStreamSerializable);
+            WriteArray(stream, items, null, version, WriteMemoryStreamSerializable);
+        }
+
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra, ApiVersion version) where T : IMemoryStreamSerializable
+        {
+            WriteArray(stream, items, extra, version, WriteMemoryStreamSerializable);
         }
 
         private static long WriteArrayHeader(ReusableMemoryStream stream)
@@ -152,23 +208,23 @@ namespace Kafka.Protocol
             WriteArraySize(stream, sizePosition, count);
         }
 
-        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra, Action<ReusableMemoryStream, T, object> write)
+        public static void WriteArray<T>(ReusableMemoryStream stream, IEnumerable<T> items, object extra, ApiVersion version, Action<ReusableMemoryStream, T, object, ApiVersion> write)
         {
             var sizePosition = WriteArrayHeader(stream);
             var count = 0;
             foreach (var item in items)
             {
-                write(stream, item, extra);
+                write(stream, item, extra, version);
                 ++count;
             }
             WriteArraySize(stream, sizePosition, count);
         }
 
-        public static void WriteRequestHeader(ReusableMemoryStream stream, int correlationId, ApiKey requestType, byte[] clientId)
+        public static void WriteRequestHeader(ReusableMemoryStream stream, int correlationId, ApiKey requestType, ApiVersion version, byte[] clientId)
         {
             stream.Write(MinusOne32, 0, 4); // reserve space for message size
             BigEndianConverter.Write(stream, (short)requestType);
-            stream.Write(ApiVersion, 0, 2);
+            stream.Write(VersionBytes[(int)version], 0, 2);
             BigEndianConverter.Write(stream, correlationId);
             BigEndianConverter.Write(stream, (short)clientId.Length);
             stream.Write(clientId, 0, clientId.Length);
@@ -185,17 +241,23 @@ namespace Kafka.Protocol
         public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream)
             where TData : IMemoryStreamSerializable, new()
         {
-            return DeserializeArrayExtra<TData>(stream, null);
+            return DeserializeArrayExtra<TData>(stream, null, ApiVersion.Ignored);
         }
 
-        public static TData[] DeserializeArrayExtra<TData>(ReusableMemoryStream stream, object extra) where TData : IMemoryStreamSerializable, new()
+        public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream, ApiVersion version)
+            where TData : IMemoryStreamSerializable, new()
+        {
+            return DeserializeArrayExtra<TData>(stream, null, version);
+        }
+
+        public static TData[] DeserializeArrayExtra<TData>(ReusableMemoryStream stream, object extra, ApiVersion version) where TData : IMemoryStreamSerializable, new()
         {
             var count = BigEndianConverter.ReadInt32(stream);
             var array = new TData[count];
             for (int i = 0; i < count; ++i)
             {
                 array[i] = new TData();
-                array[i].Deserialize(stream, extra);
+                array[i].Deserialize(stream, extra, version);
             }
             return array;
         }
@@ -209,16 +271,6 @@ namespace Kafka.Protocol
                 array[i] = dataDeserializer(stream);
             }
             return array;
-        }
-
-        public static byte[] DeserializeByteArray(ReusableMemoryStream stream)
-        {
-            var len = BigEndianConverter.ReadInt32(stream);
-            if (len == -1)
-                return null;
-            var buff = new byte[len];
-            stream.Read(buff, 0, len);
-            return buff;
         }
 
         public static object DeserializeByteArray(ReusableMemoryStream stream, IDeserializer deserializer)

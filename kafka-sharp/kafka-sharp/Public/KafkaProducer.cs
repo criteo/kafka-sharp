@@ -19,26 +19,58 @@ namespace Kafka.Public
     {
         /// <summary>
         /// Send a value to a Kafka cluster.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
         /// </summary>
         /// <param name="data">Message value</param>
         bool Produce(TValue data);
 
         /// <summary>
+        /// Send a value to a Kafka cluster and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
+        /// </summary>
+        /// <param name="data">Message value</param>
+        bool Produce(TValue data, DateTime timestamp);
+
+        /// <summary>
         /// Send a value to a Kafka Cluster, using the given key.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
         /// </summary>
         /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
         bool Produce(TKey key, TValue data);
 
         /// <summary>
+        /// Send a value to a Kafka Cluster, using the given key and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
+        /// </summary>
+        /// <param name="key">Message key</param>
+        /// <param name="data">Message value</param>
+        bool Produce(TKey key, TValue data, DateTime timestamp);
+
+        /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key.
+        /// The message will routed to the target partition. This allows
+        /// clients to partition data according to a specific scheme.
+        /// If kafka compatibility mode is set to 0.10+, the timestamp will
+        /// be set to Now().
+        /// </summary>
+        /// <param name="key">Message key</param>
+        /// <param name="data">Message value</param>
+        /// <param name="partition">Target partition</param>
+        bool Produce(TKey key, TValue data, int partition);
+
+        /// <summary>
+        /// Send an array of bytes to a Kafka Cluster, using the given key and a given timestamp.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+
         /// The message will routed to the target partition. This allows
         /// clients to partition data according to a specific scheme.
         /// </summary>
         /// <param name="key">Message key</param>
         /// <param name="data">Message value</param>
         /// <param name="partition">Target partition</param>
-        bool Produce(TKey key, TValue data, int partition);
+        bool Produce(TKey key, TValue data, int partition, DateTime timestamp);
 
         /// <summary>
         /// This is raised when a produce message has expired.
@@ -67,6 +99,11 @@ namespace Kafka.Public
         /// strategy to none, it is never raised.
         /// </summary>
         event Action<int> Acknowledged;
+
+        /// <summary>
+        /// Raised when some produce request has been throttled server side.
+        /// </summary>
+        event Action<int> Throttled;
     }
 
     /// <summary>
@@ -131,6 +168,7 @@ namespace Kafka.Public
                     Acknowledged(n);
                 }
             };
+            _clusterClient.ProduceThrottled += t => Throttled(t);
 
             _discardedSub =
                 _clusterClient.DiscardedMessages.Where(CheckRecord).Select(ToRecord).Subscribe(_discarded.OnNext);
@@ -142,14 +180,29 @@ namespace Kafka.Public
             return Produce(null, data);
         }
 
+        public bool Produce(TValue data, DateTime timestamp)
+        {
+            return Produce(null, data, timestamp);
+        }
+
         public bool Produce(TKey key, TValue data)
         {
             return Produce(key, data, Partitions.Any);
         }
 
+        public bool Produce(TKey key, TValue data, DateTime timestamp)
+        {
+            return Produce(key, data, Partitions.Any, timestamp);
+        }
+
         public bool Produce(TKey key, TValue data, int partition)
         {
             return !_disposed && _clusterClient.Produce(_topic, key, data, partition);
+        }
+
+        public bool Produce(TKey key, TValue data, int partition, DateTime timestamp)
+        {
+            return !_disposed && _clusterClient.Produce(_topic, key, data, partition, timestamp);
         }
 
         public event Action<KafkaRecord<TKey, TValue>> MessageExpired = _ => { };
@@ -179,6 +232,7 @@ namespace Kafka.Public
         }
 
         public event Action<int> Acknowledged = _ => { };
+        public event Action<int> Throttled = _ => { };
 
         private bool _disposed;
 

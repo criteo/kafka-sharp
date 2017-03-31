@@ -35,6 +35,25 @@ namespace Kafka.Public
     }
 
     /// <summary>
+    /// Kafka version compatibility mode.
+    /// </summary>
+    public enum Compatibility
+    {
+        /// <summary>
+        /// Use V0 version of all APIs. This should work with any Kafka version >= 0.8.2.
+        /// Exception: to use consumer groups, brokers must be version >= 0.9 (we don't support
+        /// any client side zookeeper management).
+        /// </summary>
+        V0_8_2,
+
+        /// <summary>
+        /// Use latest versions of all API, as supported by Kafka 0.10.1. This means that producer
+        /// will use v1 message format, and consumer will be able to read v0 and v1 message format.
+        /// </summary>
+        V0_10_1
+    }
+
+    /// <summary>
     /// In case of network errors
     /// </summary>
     public enum ErrorStrategy
@@ -88,6 +107,11 @@ namespace Kafka.Public
 
     public class Configuration
     {
+        /// <summary>
+        /// Kafka version compatibility mode.
+        /// </summary>
+        public Compatibility Compatibility = Compatibility.V0_8_2;
+
         /// <summary>
         /// Maximum amount a message can stay alive before being discard in case of repeated errors.
         /// </summary>
@@ -286,5 +310,48 @@ namespace Kafka.Public
         /// Serialization configuration options and (de)serializers.
         /// </summary>
         public SerializationConfig SerializationConfig = new SerializationConfig();
+    }
+
+    public enum Offset
+    {
+        Earliest = -2,
+        Lastest = -1
+    }
+
+    /// <summary>
+    /// A class used to configure one consumer group
+    /// </summary>
+    public class ConsumerGroupConfiguration
+    {
+        /// <summary>
+        /// Maximum time between two Heartbeat requests
+        /// </summary>
+        public int SessionTimeoutMs = 15000;
+
+        /// <summary>
+        /// Maximum time to rejoin when a rebalance occurs
+        /// </summary>
+        public int RebalanceTimeoutMs = 10000;
+
+        /// <summary>
+        /// If > 0, offsets will be autocommitted at this rate
+        /// </summary>
+        public int AutoCommitEveryMs = -1;
+
+        /// <summary>
+        /// Time to keep committed offsets on the broker side.
+        /// </summary>
+        public long OffsetRetentionTimeMs = -1;
+
+        /// <summary>
+        /// If no saved offset is found when joining a group, start consumeing from
+        /// this offset
+        /// </summary>
+        public Offset DefaultOffsetToReadFrom = Offset.Earliest;
+
+        /// <summary>
+        /// Time to wait before retrying to discover a coordinator
+        /// </summary>
+        public TimeSpan CoordinatorDiscoveryRetryTime = TimeSpan.FromMilliseconds(5000);
     }
 }

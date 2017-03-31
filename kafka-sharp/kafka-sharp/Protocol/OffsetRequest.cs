@@ -12,15 +12,15 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object noextra)
+        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object _, Basics.ApiVersion version)
         {
-            return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.OffsetRequest, null);
+            return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.OffsetRequest, version, null);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object noextra)
+        public void SerializeBody(ReusableMemoryStream stream, object _, Basics.ApiVersion version)
         {
             stream.Write(Basics.MinusOne32, 0, 4); // ReplicaId, non clients that are not a broker must use -1
-            Basics.WriteArray(stream, TopicsData);
+            Basics.WriteArray(stream, TopicsData, version);
         }
 
         #endregion
@@ -34,18 +34,24 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream, object noextra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion version)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, Time);
-            BigEndianConverter.Write(stream, MaxNumberOfOffsets);
+            if (version == Basics.ApiVersion.V0)
+            {
+                BigEndianConverter.Write(stream, MaxNumberOfOffsets);
+            }
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object noextra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion version)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             Time = BigEndianConverter.ReadInt64(stream);
-            MaxNumberOfOffsets = BigEndianConverter.ReadInt32(stream);
+            if (version == Basics.ApiVersion.V0)
+            {
+                MaxNumberOfOffsets = BigEndianConverter.ReadInt32(stream);
+            }
         }
 
         #endregion

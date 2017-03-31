@@ -14,17 +14,17 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra)
+        public ReusableMemoryStream Serialize(ReusableMemoryStream target, int correlationId, byte[] clientId, object extra, Basics.ApiVersion version)
         {
-            return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.FetchRequest, extra);
+            return CommonRequest.Serialize(target, this, correlationId, clientId, Basics.ApiKey.FetchRequest, version, extra);
         }
 
-        public void SerializeBody(ReusableMemoryStream stream, object extra)
+        public void SerializeBody(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             stream.Write(Basics.MinusOne32, 0, 4); // ReplicaId, non clients that are not a broker must use -1
             BigEndianConverter.Write(stream, MaxWaitTime);
             BigEndianConverter.Write(stream, MinBytes);
-            Basics.WriteArray(stream, TopicsData, extra);
+            Basics.WriteArray(stream, TopicsData, extra, version);
         }
 
         #endregion
@@ -38,7 +38,7 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream, object noextra)
+        public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, FetchOffset);
@@ -46,7 +46,7 @@ namespace Kafka.Protocol
         }
 
         // Used only in tests
-        public void Deserialize(ReusableMemoryStream stream, object noextra)
+        public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
         {
             Partition = BigEndianConverter.ReadInt32(stream);
             FetchOffset = BigEndianConverter.ReadInt64(stream);

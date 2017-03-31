@@ -7,10 +7,17 @@ using Kafka.Public;
 
 namespace Kafka.Protocol
 {
+    enum MessageVersion
+    {
+        V0 = 0,
+        V1 = 1
+    }
+
     struct Message
     {
         public object Key;
         public object Value;
+        public long TimeStamp;
         public ReusableMemoryStream SerializedKeyValue;
 
         public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers)
@@ -21,14 +28,24 @@ namespace Kafka.Protocol
             Value = null;
         }
 
-        public void Serialize(ReusableMemoryStream stream, CompressionCodec compressionCodec, Tuple<ISerializer, ISerializer> serializers)
+        public void Serialize(ReusableMemoryStream stream, CompressionCodec compressionCodec, Tuple<ISerializer, ISerializer> serializers, MessageVersion msgVersion)
         {
             var crcPos = stream.Position;
             stream.Write(Basics.MinusOne32, 0, 4); // crc placeholder
             var bodyPos = stream.Position;
 
-            stream.WriteByte(0); // magic byte
-            stream.WriteByte((byte) compressionCodec); // attributes
+            // V0 message format
+            if (msgVersion == MessageVersion.V0)
+            {
+                stream.WriteByte(0); // magic byte
+                stream.WriteByte((byte) compressionCodec); // attributes
+            }
+            else // V1 message format
+            {
+                stream.WriteByte(1); // magic byte
+                stream.WriteByte((byte)compressionCodec); // attributes
+                BigEndianConverter.Write(stream, TimeStamp);
+            }
 
             if (SerializedKeyValue != null)
             {

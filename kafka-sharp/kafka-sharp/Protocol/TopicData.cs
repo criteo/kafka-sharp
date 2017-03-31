@@ -14,7 +14,7 @@ namespace Kafka.Protocol
 
         #region Serialization
 
-        public void Serialize(ReusableMemoryStream stream, object extra)
+        public void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             Basics.SerializeString(stream, TopicName);
             object pdExtra = null;
@@ -23,10 +23,10 @@ namespace Kafka.Protocol
                 var config = extra as SerializationConfig;
                 pdExtra = config.GetSerializersForTopic(TopicName);
             }
-            Basics.WriteArray(stream, PartitionsData, pdExtra);
+            Basics.WriteArray(stream, PartitionsData, pdExtra, version);
         }
 
-        public void Deserialize(ReusableMemoryStream stream, object extra)
+        public void Deserialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             TopicName = Basics.DeserializeString(stream);
             var count = BigEndianConverter.ReadInt32(stream);
@@ -40,7 +40,7 @@ namespace Kafka.Protocol
             for (int i = 0; i < count; ++i)
             {
                 array[i] = new TPartitionData();
-                array[i].Deserialize(stream, pdExtra);
+                array[i].Deserialize(stream, pdExtra, version);
             }
             PartitionsData = array;
         }
