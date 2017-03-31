@@ -154,7 +154,7 @@ namespace Kafka.Routing
         public int MaxNumberOfOffsets;
     }
 
-    struct CommonAcknowledgement<TResponse> where TResponse : IMemoryStreamSerializable, new()
+    class CommonAcknowledgement<TResponse> where TResponse : IMemoryStreamSerializable, new()
     {
         public TResponse Response;
         public DateTime ReceivedDate;
@@ -280,8 +280,8 @@ namespace Kafka.Routing
         {
             public TaskCompletionSource<bool> CommitPromise;
             public string Topic;
-            public long Offset;
             public int Partition;
+            public long Offset;
         }
 
         [StructLayout(LayoutKind.Explicit)]
@@ -290,16 +290,16 @@ namespace Kafka.Routing
             [FieldOffset(0)]
             public CommonAcknowledgement<FetchResponse> FetchResponse;
 
-            [FieldOffset(8)]
+            [FieldOffset(0)]
             public CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>> OffsetResponse;
 
-            [FieldOffset(8)]
+            [FieldOffset(0)]
             public IEnumerable<string> Subscription;
 
-            [FieldOffset(8)]
+            [FieldOffset(0)]
             public TopicOnOff Topic;
 
-            [FieldOffset(8)]
+            [FieldOffset(0)]
             public CommitMsg CommitMsg;
         }
 
