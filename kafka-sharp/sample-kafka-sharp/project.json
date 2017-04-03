@@ -1,18 +1,41 @@
 {
   "version": "1.0.0-*",
-    "dependencies": {
-        "kafka-sharp": "1.0.0-*",
-        "NETStandard.Library": "1.6.0",
-        "System.Reactive.Core": "3.1.1",
-        "System.Reactive.Interfaces": "3.1.1",
-        "System.Reactive.Linq": "3.1.1"
+  "dependencies": {
+      "kafka-sharp": "1.0.0-*",
+      "NETStandard.Library": "1.6.0",
+      "System.Reactive.Core": "3.1.1",
+      "System.Reactive.Interfaces": "3.1.1",
+      "System.Reactive.Linq": "3.1.1"
+  },
+  "configurations": {
+    "Debug": {
+      "buildOptions": {
+        "define": [ "DEBUG" ],
+        "emitEntryPoint": true
+      }
     },
-    "frameworks": {
-        "netstandard1.6": {
-            "imports": "dnxcore50"
-        }
-    },
-    "buildOptions": {
-        "define": [ "NET_CORE" ]
+    "Release": {
+      "buildOptions": {
+        "define": [ "RELEASE" ],
+        "optimize": true,
+        "emitEntryPoint": true
+      }
     }
+  },
+  "frameworks": {
+    "netcoreapp1.0": {
+      "imports": [
+        "portable-net45+win8"
+      ],
+      "dependencies": {
+        "Microsoft.NETCore.App": {
+          "version": "1.0.0",
+          "type": "platform"
+        }
+      },
+      "buildOptions": {
+        "define": [ "NET_CORE" ]
+      }
+    }
+  }
 }
