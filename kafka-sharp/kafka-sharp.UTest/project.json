@@ -1,20 +1,31 @@
 {
   "version": "1.0.0-*",
-    "dependencies": {
-        "kafka-sharp": "1.0.0-*",
-        "NETStandard.Library": "1.6.0",
-        "NUnit": "3.6.0",
-        "System.Reactive.Core": "3.1.1",
-        "System.Reactive.Interfaces": "3.1.1",
-        "System.Reactive.Linq": "3.1.1",
-        "moq.netcore": "4.4.0-beta8"
+  "dependencies": {
+    "dotnet-test-nunit": "3.4.0-beta-3",
+    "kafka-sharp": {
+      "target": "project"
     },
-    "frameworks": {
-        "netstandard1.6": {
-            "imports": "dnxcore50"
-        }
-    },
-    "buildOptions": {
+    "nunit": "3.6.0",
+    "moq": "4.6.38-alpha",
+    "System.Reactive.Core": "3.1.1",
+    "System.Reactive.Interfaces": "3.1.1",
+    "System.Reactive.Linq": "3.1.1"
+  },
+  "testRunner": "nunit",
+  "frameworks": {
+    "netcoreapp1.0": {
+      "imports": [
+      "portable-net45+win8"
+      ],
+      "dependencies": {
+      "Microsoft.NETCore.App": {
+          "version": "1.0.0",
+          "type": "platform"
+	  }
+      },
+      "buildOptions": {
         "define": [ "NET_CORE" ]
+      }
     }
+  }
 }
