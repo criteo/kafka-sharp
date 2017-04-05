@@ -55,9 +55,9 @@ Serialization of messages can be handled two ways:
 
 You also have the option serialize the messages a soon as they enter the producer or at send time.
 In the first case no reference will be held on the original data (key and value) so it may be more
-efficient memory wise, however in case of error ending in discarding/expriing messages the producer
-won't be able to provide the original message when signaling the error. In the later case references
-will be held and the original data will be returned in case of error. This means the original  data will survive for the duration of a batching cycle, so more generation garbage collection is to
+efficient memory wise, however in case of error ending in discarding/expiring messages the producer
+won't be able to provide the original message when signaling the error. In the later case, references
+will be held and the original data will be returned in case of error. This means the original  data will survive for the duration of a batching cycle, so more generation 2 garbage collection is to
 be expected, however if the original data implements `IDisposable`, `Dispose` will be called in due
 time, which may help implementing a pooling mechanism.
 
@@ -306,8 +306,8 @@ to effectively throttle the consumer.
 Threading can be controlled by the `MaximumConcurrency` configuration parameter. Alternatively you can provide
 your own TaskScheduler via the `TaskScheduler` configuration option. In any case the driver will never squat threads,
 all IO operations are non blocking and the driver never does blocking wait, so any concurrency configuration is only
-a hint on up to how many threads the driver may be using at a given time. If you don't provide your own TaskScheduler,
-the threads will be picked from the .NET ThreadPool. By default the driver will use at most 3 threads from the threadpool.
+a hint on up to how many threads the driver may be using at a given time. If you don't provide your own `TaskScheduler`,
+the threads will be picked from the .NET threadpool. By default the driver will use at most 3 threads from the threadpool.
 
 ## Acknowledgements
 
