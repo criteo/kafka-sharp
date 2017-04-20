@@ -5,9 +5,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-using System.Net;
 using Kafka.Common;
 using Kafka.Public;
+using LZ4;
 #if !NET_CORE
 using Snappy;
 #endif
@@ -243,19 +243,24 @@ namespace Kafka.Protocol
                     SnappyCodec.Uncompress(body, offset, length, uncompressed.GetBuffer(), 0);
 #endif
                 }
-                else // compression == CompressionCodec.Gzip
+                else if (codec == CompressionCodec.Gzip)
                 {
                     using (var compressed = new MemoryStream(body, offset, length, false))
                     {
-                        using (var gzip = new GZipStream(compressed, CompressionMode.Decompress))
+                        using (var zipped = new GZipStream(compressed, CompressionMode.Decompress))
                         {
                             using (var tmp = uncompressed.Pool.Reserve())
                             {
-                                gzip.ReusableCopyTo(uncompressed, tmp);
+                                zipped.ReusableCopyTo(uncompressed, tmp);
                             }
                         }
                     }
                 }
+                else // compression == CompressionCodec.Lz4
+                {
+                    KafkaLz4.Uncompress(uncompressed, body, offset);
+                }
+
                 uncompressed.Position = 0;
             }
             catch (Exception ex)

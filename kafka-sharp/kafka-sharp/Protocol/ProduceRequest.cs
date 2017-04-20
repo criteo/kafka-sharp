@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO.Compression;
 using Kafka.Common;
 using Kafka.Public;
+using LZ4;
 #if !NET_CORE
 using Snappy;
 #endif
@@ -105,25 +106,34 @@ namespace Kafka.Protocol
 
                     using (var compressed = stream.Pool.Reserve())
                     {
-                        if (info.CompressionCodec == CompressionCodec.Gzip)
+                        switch (info.CompressionCodec)
                         {
-                            using (var gzip = new GZipStream(compressed, CompressionMode.Compress, true))
+                            case CompressionCodec.Gzip:
+                                using (var gzip = new GZipStream(compressed, CompressionMode.Compress, true))
+                                {
+                                    msgsetStream.WriteTo(gzip);
+                                }
+                                break;
+
+                            case CompressionCodec.Lz4:
+                                KafkaLz4.Compress(compressed, msgsetStream.GetBuffer(), (int) msgsetStream.Length);
+                                break;
+
+                            case CompressionCodec.Snappy:
                             {
-                                msgsetStream.WriteTo(gzip);
-                            }
-                        }
-                        else // Snappy
-                        {
 #if NET_CORE
                             throw new NotImplementedException();
 #else
-                            compressed.SetLength(SnappyCodec.GetMaxCompressedLength((int) msgsetStream.Length));
-                            {
-                                int size = SnappyCodec.Compress(msgsetStream.GetBuffer(), 0, (int) msgsetStream.Length,
-                                    compressed.GetBuffer(), 0);
-                                compressed.SetLength(size);
-                            }
+                                compressed.SetLength(SnappyCodec.GetMaxCompressedLength((int) msgsetStream.Length));
+                                {
+                                    int size = SnappyCodec.Compress(msgsetStream.GetBuffer(), 0,
+                                        (int) msgsetStream.Length,
+                                        compressed.GetBuffer(), 0);
+                                    compressed.SetLength(size);
+                                }
 #endif
+                            }
+                                break;
                         }
 
                         var m = new Message

@@ -58,6 +58,7 @@ dagfhefdghafdahfh",
    --retry               => retry send in case of transport errors
    --gzip                => use gzip compression
    --snappy              => use snappy compression
+   --lz4                 => use lz4 compression
    --no-ack              => tell broker to not send acks (default is ack on sync leader only)
    --all-sync-ack        => tell broker to send ack when all live replicas have been synced
    --ttl TTL             => message time to live before been expired when retrying
@@ -86,7 +87,8 @@ dagfhefdghafdahfh",
             bool mix = false;
             var configuration = new Configuration
             {
-                ConsumeBatchSize = 100
+                ConsumeBatchSize = 100,
+                Compatibility = Compatibility.V0_10_1
             };
 
             // Ugly command line parsing
@@ -130,6 +132,10 @@ dagfhefdghafdahfh",
 
                         case "--snappy":
                             configuration.CompressionCodec = CompressionCodec.Snappy;
+                            break;
+
+                        case "--lz4":
+                            configuration.CompressionCodec = CompressionCodec.Lz4;
                             break;
 
                         case "--no-ack":

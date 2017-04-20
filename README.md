@@ -132,6 +132,7 @@ The client is configured via the `Configuration` class, by setting the following
 
         /// <summary>
         /// The compression codec used to compress messages to this cluster.
+	/// Lz4 is only supported with compatibility set to 0.10.1+
         /// </summary>
         public CompressionCodec CompressionCodec = CompressionCodec.None;
 

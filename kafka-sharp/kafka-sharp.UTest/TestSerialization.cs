@@ -42,6 +42,21 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void Test007_KafkaLz4()
+        {
+            var data = new string('e', 65536 * 2 + 7); // this will produce 3 blocks with uncompressed last block due to very small size
+            var value = Encoding.UTF8.GetBytes(data);
+            var compressed = new ReusableMemoryStream(null);
+            compressed.WriteByte(7);
+            KafkaLz4.Compress(compressed, value, value.Length);
+            var uncompressed = new ReusableMemoryStream(null);
+            KafkaLz4.Uncompress(uncompressed, compressed.GetBuffer(), 1);
+            var dec = Encoding.UTF8.GetString(uncompressed.GetBuffer(), 0, (int)uncompressed.Length);
+            Assert.AreEqual(data, dec);
+        }
+
+
+        [Test]
         public void TestSerializeOneMessage_V0()
         {
             var message = new Message { Key = Key, Value = Value, TimeStamp = 285};
@@ -196,6 +211,7 @@ namespace tests_kafka_sharp
 #if !NET_CORE
         [TestCase(CompressionCodec.Snappy, 2)]
 #endif
+        [TestCase(CompressionCodec.Lz4, 3)]
         public void TestSerializeMessageSetCompressed(CompressionCodec codec, byte attr)
         {
             using (var serialized = Pool.Reserve())
@@ -308,6 +324,7 @@ namespace tests_kafka_sharp
 #if !NET_CORE
         [TestCase(CompressionCodec.Snappy)]
 #endif
+        [TestCase(CompressionCodec.Lz4)]
         public void TestDeserializeMessageSet_v1compressed(CompressionCodec codec)
         {
             using (var serialized = Pool.Reserve())
