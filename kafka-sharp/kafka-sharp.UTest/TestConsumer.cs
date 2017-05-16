@@ -243,6 +243,76 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        [TestCase(Offset.Earliest)]
+        [TestCase(Offset.Latest)]
+        public void TestStart_OffsetsOutOfRange(Offset offsetStrategy)
+        {
+            var node = new Mock<INode>();
+            node.Setup(n => n.Fetch(It.IsAny<FetchMessage>())).Returns(true);
+            var cluster = new Mock<ICluster>();
+            cluster.SetupGet(c => c.Logger).Returns(new DevNullLogger());
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), OffsetOutOfRangeStrategy = offsetStrategy};
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+            cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
+            cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.Partition == PARTITION)), Times.Once());
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.Topic != TOPIC)), Times.Never());
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.Offset != OFFSET)), Times.Never());
+            node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.MaxBytes != configuration.FetchMessageMaxBytes)),
+                Times.Never());
+
+            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            {
+                Response =
+                    new FetchResponse
+                    {
+                        FetchPartitionResponse =
+                            new CommonResponse<FetchPartitionResponse>
+                            {
+                                TopicsResponse =
+                                    new[]
+                                    {
+                                        new TopicData<FetchPartitionResponse>
+                                        {
+                                            TopicName = TOPIC,
+                                            PartitionsData =
+                                                new[]
+                                                {
+                                                    new FetchPartitionResponse
+                                                    {
+                                                        ErrorCode = ErrorCode.OffsetOutOfRange,
+                                                        Partition = PARTITION,
+                                                        HighWatermarkOffset = 432515L,
+                                                    }
+                                                }
+                                        }
+                                    }
+                            }
+                    },
+                ReceivedDate = DateTime.UtcNow
+            });
+
+            node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Exactly(1));
+            node.Verify(n => n.Offset(It.Is<OffsetMessage>(om => om.Partition == PARTITION && om.Topic == TOPIC && om.Time == (long)configuration.OffsetOutOfRangeStrategy)), Times.Once());
+        }
+
+        [Test]
         [TestCase(OFFSET - 1)]
         [TestCase(Offsets.Now)]
         [TestCase(OFFSET + 1)]

@@ -311,11 +311,20 @@ namespace Kafka.Public
         /// Serialization configuration options and (de)serializers.
         /// </summary>
         public SerializationConfig SerializationConfig = new SerializationConfig();
+
+        /// <summary>
+        /// What to do in case of offset out range error when reading a partition.
+        /// Switch to earliest offset or latest offset.
+        /// </summary>
+        public Offset OffsetOutOfRangeStrategy = Offset.Earliest;
     }
 
     public enum Offset
     {
         Earliest = -2,
+        Latest = -1,
+
+        [Obsolete]
         Lastest = -1
     }
 

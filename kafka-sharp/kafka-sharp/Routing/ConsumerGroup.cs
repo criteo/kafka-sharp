@@ -321,7 +321,7 @@ namespace Kafka.Routing
                 case Public.Offset.Earliest:
                     return -2;
 
-                case Public.Offset.Lastest:
+                case Public.Offset.Latest:
                     return -1;
 
                 default:
