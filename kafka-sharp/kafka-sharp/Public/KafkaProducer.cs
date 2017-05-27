@@ -129,7 +129,7 @@ namespace Kafka.Public
 
         private bool CheckRecord(RawKafkaRecord kr)
         {
-            return kr.Topic == _topic && kr.Key is TKey && kr.Value is TValue;
+            return kr.Topic == _topic && (kr.Key is TKey || kr.Key == null) && kr.Value is TValue;
         }
 
         private static KafkaRecord<TKey, TValue> ToRecord(RawKafkaRecord kr)

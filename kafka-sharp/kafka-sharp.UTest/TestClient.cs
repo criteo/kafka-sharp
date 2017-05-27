@@ -469,27 +469,17 @@ namespace tests_kafka_sharp
                 client.Verify(c => c.StopConsume(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<long>()), Times.Once());
                 client.Verify(c => c.StopConsume("topic", 2, 42));
 
-                // Message stream
-                Action<KafkaRecord<string, string>> checkRecord = kr =>
-                {
-                    Assert.AreEqual("topic", kr.Topic);
-                    Assert.AreEqual("key", kr.Key);
-                    Assert.AreEqual("data", kr.Value);
-                    Assert.AreEqual(2, kr.Partition);
-                    Assert.AreEqual(42, kr.Offset);
-                };
-
                 bool messageObserved = false;
                 bool messageEvent = false;
+                KafkaRecord<string, string> received = default(KafkaRecord<string, string>);
 
                 consumer.MessageReceived += kr =>
                 {
-                    checkRecord(kr);
+                    received = kr;
                     messageEvent = true;
                 };
                 consumer.Messages.Subscribe(kr =>
                 {
-                    checkRecord(kr);
                     messageObserved = true;
                 });
 
@@ -506,6 +496,27 @@ namespace tests_kafka_sharp
 
                 Assert.IsTrue(messageEvent);
                 Assert.IsTrue(messageObserved);
+                Assert.AreEqual("topic", received.Topic);
+                Assert.AreEqual("key", received.Key);
+                Assert.AreEqual("data", received.Value);
+                Assert.AreEqual(2, received.Partition);
+                Assert.AreEqual(42, received.Offset);
+
+                record.Key = null;
+                messageObserved = false;
+                messageEvent = false;
+                received = default(KafkaRecord<string, string>);
+                client.Raise(c => c.MessageReceived += null, record);
+
+                Assert.IsTrue(messageEvent);
+                Assert.IsTrue(messageObserved);
+                Assert.IsTrue(messageEvent);
+                Assert.IsTrue(messageObserved);
+                Assert.AreEqual("topic", received.Topic);
+                Assert.IsNull(received.Key);
+                Assert.AreEqual("data", received.Value);
+                Assert.AreEqual(2, received.Partition);
+                Assert.AreEqual(42, received.Offset);
             }
 
             // Dispose: can register another producer with same Topic/TKey/TValue once
