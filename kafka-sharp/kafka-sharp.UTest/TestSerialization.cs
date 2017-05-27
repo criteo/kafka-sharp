@@ -1083,6 +1083,15 @@ namespace tests_kafka_sharp
                 var deserialized = Basics.DeserializeArray(serialized, BigEndianConverter.ReadInt32);
                 CollectionAssert.AreEqual(array, deserialized);
             }
+
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                serialized.Write(Basics.MinusOne32, 0, 4);
+                serialized.Position = 0;
+
+                var deserialized = Basics.DeserializeArray(serialized, BigEndianConverter.ReadInt32);
+                Assert.AreEqual(0, deserialized.Length);
+            }
         }
 
         [Test]

@@ -253,6 +253,7 @@ namespace Kafka.Protocol
         public static TData[] DeserializeArrayExtra<TData>(ReusableMemoryStream stream, object extra, ApiVersion version) where TData : IMemoryStreamSerializable, new()
         {
             var count = BigEndianConverter.ReadInt32(stream);
+            if (count == -1) return new TData[0];
             var array = new TData[count];
             for (int i = 0; i < count; ++i)
             {
@@ -265,6 +266,7 @@ namespace Kafka.Protocol
         public static TData[] DeserializeArray<TData>(ReusableMemoryStream stream, Func<ReusableMemoryStream, TData> dataDeserializer)
         {
             var count = BigEndianConverter.ReadInt32(stream);
+            if (count == -1) return new TData[0];
             var array = new TData[count];
             for (int i = 0; i < count; ++i)
             {
