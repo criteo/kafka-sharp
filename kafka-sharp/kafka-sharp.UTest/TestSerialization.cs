@@ -774,7 +774,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestDeserializeOffsetResponse()
+        public void TestDeserializeOffsetResponse_V0()
         {
             var response = new CommonResponse<OffsetPartitionResponse>
             {
@@ -814,6 +814,53 @@ namespace tests_kafka_sharp
                         return false;
                     Assert.AreEqual(p1.Offsets.Length, p2.Offsets.Length);
                     CollectionAssert.AreEqual(p1.Offsets, p2.Offsets);
+                    return true;
+                });
+            }
+        }
+
+        [Test]
+        public void TestDeserializeOffsetResponse_V1()
+        {
+            var response = new CommonResponse<OffsetPartitionResponse>
+            {
+                TopicsResponse =
+                    new[]
+                    {
+                        new TopicData<OffsetPartitionResponse>
+                        {
+                            TopicName = "yoleeroy",
+                            PartitionsData =
+                                new[]
+                                {
+                                    new OffsetPartitionResponse
+                                    {
+                                        ErrorCode = ErrorCode.BrokerNotAvailable,
+                                        Partition = 32,
+                                        Timestamp = 42,
+                                        Offsets = new[] { 1L, 142L }
+                                    }
+                                }
+                        }
+                    }
+            };
+
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                Basics.WriteArray(serialized, response.TopicsResponse, Basics.ApiVersion.V1);
+                serialized.Position = 0;
+
+                var o = new CommonResponse<OffsetPartitionResponse>();
+                o.Deserialize(serialized, null, Basics.ApiVersion.V1);
+
+                TestCommonResponse(o, response, (p1, p2) =>
+                {
+                    if (p1.Partition != p2.Partition)
+                        return false;
+                    if (p1.ErrorCode != p2.ErrorCode)
+                        return false;
+                    Assert.AreEqual(p1.Timestamp, p2.Timestamp);
+                    Assert.AreEqual(1, p2.Offsets.Length);
                     return true;
                 });
             }

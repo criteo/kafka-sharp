@@ -22,8 +22,12 @@ namespace Kafka.Protocol
             if (version > Basics.ApiVersion.V0)
             {
                 BigEndianConverter.Write(stream, Timestamp);
+                BigEndianConverter.Write(stream, Offsets[0]);
             }
-            Basics.WriteArray(stream, Offsets, BigEndianConverter.Write);
+            else
+            {
+                Basics.WriteArray(stream, Offsets, BigEndianConverter.Write);
+            }
         }
 
         public void Deserialize(ReusableMemoryStream stream, object noextra, Basics.ApiVersion version)
@@ -34,8 +38,13 @@ namespace Kafka.Protocol
             if (version > Basics.ApiVersion.V0)
             {
                 Timestamp = BigEndianConverter.ReadInt64(stream);
+                Offsets = new long[1];
+                Offsets[0] = BigEndianConverter.ReadInt64(stream);
             }
-            Offsets = Basics.DeserializeArray(stream, BigEndianConverter.ReadInt64);
+            else
+            {
+                Offsets = Basics.DeserializeArray(stream, BigEndianConverter.ReadInt64);
+            }
         }
 
         #endregion

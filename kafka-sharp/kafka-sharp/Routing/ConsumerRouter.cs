@@ -1010,7 +1010,13 @@ namespace Kafka.Routing
             // TODO: check size is 0 or 1 only
             if (partitionResponse.Offsets.Length == 0)
             {
-                // there was an error, retry
+                // there was probably an error, in any case retry
+                if (partitionResponse.ErrorCode != ErrorCode.NoError)
+                {
+                    _cluster.Logger.LogError(string.Format(
+                        "Error on ListOffsets request for topic {0} / partition {1} [{2}].", topic,
+                        partitionResponse.Partition, partitionResponse.ErrorCode));
+                }
                 await Offset(topic, partitionResponse.Partition, state.NextOffset);
             }
             else
