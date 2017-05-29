@@ -3,13 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
 VisualStudioVersion = 14.0.25420.1
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BB2217D-0F2D-49D1-97BC-3654ED321F3B}") = "kafka-sharp", "kafka-sharp\Kafka.xproj", "{EFDD2224-578E-4EB4-9BC1-AC3E53794E32}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kafka", "kafka-sharp\Kafka.csproj", "{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}"
 EndProject
-Project("{8BB2217D-0F2D-49D1-97BC-3654ED321F3B}") = "kafka-sharp.ITest", "kafka-sharp.ITest\Kafka.ITest.xproj", "{FCD0A1D1-D16D-40B1-A63B-24F630CEFAFE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kafka.UTest", "kafka-sharp.UTest\Kafka.UTest.csproj", "{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}"
 EndProject
-Project("{8BB2217D-0F2D-49D1-97BC-3654ED321F3B}") = "kafka-sharp.UTest", "kafka-sharp.UTest\Kafka.UTest.xproj", "{6D69BB5C-3261-4E81-A1D9-1AF095F6FB23}"
-EndProject
-Project("{8BB2217D-0F2D-49D1-97BC-3654ED321F3B}") = "sample-kafka-sharp", "sample-kafka-sharp\sample-kafka-sharp.xproj", "{CBAEB972-6616-485B-9671-726FC9F4910C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "sample-kafka-sharp", "sample-kafka-sharp\sample-kafka-sharp.csproj", "{322B004A-B8B1-4D33-9CC6-2BA67267A4F4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -17,20 +15,18 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{EFDD2224-578E-4EB4-9BC1-AC3E53794E32}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{EFDD2224-578E-4EB4-9BC1-AC3E53794E32}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{EFDD2224-578E-4EB4-9BC1-AC3E53794E32}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{EFDD2224-578E-4EB4-9BC1-AC3E53794E32}.Release|Any CPU.Build.0 = Release|Any CPU
-		{FCD0A1D1-D16D-40B1-A63B-24F630CEFAFE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{FCD0A1D1-D16D-40B1-A63B-24F630CEFAFE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{6D69BB5C-3261-4E81-A1D9-1AF095F6FB23}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{6D69BB5C-3261-4E81-A1D9-1AF095F6FB23}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{6D69BB5C-3261-4E81-A1D9-1AF095F6FB23}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{6D69BB5C-3261-4E81-A1D9-1AF095F6FB23}.Release|Any CPU.Build.0 = Release|Any CPU
-		{CBAEB972-6616-485B-9671-726FC9F4910C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{CBAEB972-6616-485B-9671-726FC9F4910C}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{CBAEB972-6616-485B-9671-726FC9F4910C}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{CBAEB972-6616-485B-9671-726FC9F4910C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C2E6D32F-69D0-41B4-A1EA-9ADE27A99B5E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{316DEA8D-E7D4-48C3-BFD1-9186956FD43B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{322B004A-B8B1-4D33-9CC6-2BA67267A4F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{322B004A-B8B1-4D33-9CC6-2BA67267A4F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{322B004A-B8B1-4D33-9CC6-2BA67267A4F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{322B004A-B8B1-4D33-9CC6-2BA67267A4F4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
