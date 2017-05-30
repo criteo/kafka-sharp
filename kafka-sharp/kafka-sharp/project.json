@@ -8,7 +8,7 @@
     "lz4net": "1.0.11.93"
   },
   "frameworks": {
-    "net45": {
+    "net451": {
       "dependencies": {
         "Snappy.NET": "1.1.1.8"
       }
