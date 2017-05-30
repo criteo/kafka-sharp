@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.26430.6
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Kafka.netstandard", "kafka-sharp\Kafka.netstandard.csproj", "{04C50BEA-1E10-4FBD-9341-BBC185A27A9D}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "kafka.UTest.netstandard", "kafka-sharp.UTest\kafka.UTest.netstandard.csproj", "{9F335136-1C65-4BD4-BFEE-E1710C9AD883}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "sample-kafka-sharp.netstandard", "sample-kafka-sharp\sample-kafka-sharp.netstandard.csproj", "{CF8DE5DE-FEE7-4FC5-99B1-536A11FDE1F1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{04C50BEA-1E10-4FBD-9341-BBC185A27A9D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{04C50BEA-1E10-4FBD-9341-BBC185A27A9D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{04C50BEA-1E10-4FBD-9341-BBC185A27A9D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{04C50BEA-1E10-4FBD-9341-BBC185A27A9D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9F335136-1C65-4BD4-BFEE-E1710C9AD883}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9F335136-1C65-4BD4-BFEE-E1710C9AD883}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9F335136-1C65-4BD4-BFEE-E1710C9AD883}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9F335136-1C65-4BD4-BFEE-E1710C9AD883}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CF8DE5DE-FEE7-4FC5-99B1-536A11FDE1F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CF8DE5DE-FEE7-4FC5-99B1-536A11FDE1F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CF8DE5DE-FEE7-4FC5-99B1-536A11FDE1F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CF8DE5DE-FEE7-4FC5-99B1-536A11FDE1F1}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
