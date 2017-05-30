@@ -1,4 +1,5 @@
 #!/usr/bin/env bash                                                                                                                                                       
+set -e
 
 function check_availability() {
     binary=$1
@@ -9,15 +10,12 @@ function check_availability() {
     fi
 }
 
-src="kafka-sharp"
-tests="kafka-sharp.UTest"
-sample="sample-kafka-sharp"
-
 check_availability "dotnet"
 
-cd kafka-sharp          \
-&& dotnet restore       \
-&& dotnet build $src    \
-&& dotnet build $tests  \
-&& dotnet test $tests   \
-&& dotnet build $sample
+solutionName=kafka-sharp-netstd.sln
+testProject=kafka-sharp.UTest/kafka.UTest.netstandard.csproj
+
+cd kafka-sharp
+dotnet restore $solutionName
+dotnet build $solutionName
+dotnet test $testProject
