@@ -3,7 +3,11 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard1.6</TargetFrameworks>
     <AssemblyName>kafka-sharp</AssemblyName>
+    <AssemblyDescription>High Performance .NET Kafka Client</AssemblyDescription>
     <PackageId>kafka-sharp</PackageId>
+    <PackageTags>Kafka;kafka-sharp;Criteo</PackageTags>
+    <PackageProjectUrl>https://github.com/criteo/kafka-sharp</PackageProjectUrl>
+    <PackageLicenseUrl>https://github.com/criteo/kafka-sharp/blob/master/LICENSE</PackageLicenseUrl>
     <GenerateAssemblyTitleAttribute>false</GenerateAssemblyTitleAttribute>
     <GenerateAssemblyDescriptionAttribute>false</GenerateAssemblyDescriptionAttribute>
     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
@@ -12,6 +16,12 @@
     <GenerateAssemblyCopyrightAttribute>false</GenerateAssemblyCopyrightAttribute>
     <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
     <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
+    <Title>kafka-sharp</Title>
+    <Authors>Criteo</Authors>
+    <Copyright>Criteo</Copyright>
+    <Owners>Criteo</Owners>
+    <Description>High Performance .NET Kafka Client</Description>
+    <PackageVersion>1.0.0</PackageVersion>
   </PropertyGroup>
 
   <ItemGroup>
