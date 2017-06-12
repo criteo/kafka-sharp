@@ -432,6 +432,28 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public async Task TestConsumerGroup_JoinExceptionSync()
+        {
+            var mocks = InitCluster();
+            var group = new ConsumerGroup("the group", new ConsumerGroupConfiguration(), mocks.Cluster.Object);
+
+            mocks.Node.Setup(
+                n =>
+                    n.SyncConsumerGroup(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
+                        It.IsAny<IEnumerable<ConsumerGroupAssignment>>()))
+                .ThrowsAsync(new Exception());
+
+            try
+            {
+                await group.Join(new[] { "the topic" });
+            }
+            catch
+            {
+                Assert.AreEqual(-1, group.Generation);
+            }
+        }
+
+        [Test]
         public async Task TestConsumerGroup_JoinErrorSync()
         {
             var mocks = InitCluster();

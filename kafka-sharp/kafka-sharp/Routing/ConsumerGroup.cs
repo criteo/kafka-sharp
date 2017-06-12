@@ -74,76 +74,90 @@ namespace Kafka.Routing
 
         public async Task<PartitionAssignments> Join(IEnumerable<string> topics)
         {
-            await RefreshCoordinator();
-
-            // JoinGroup request
-            var joinResponse =
-                await
-                    _coordinator.JoinConsumerGroup(GroupId, MemberId, Configuration.SessionTimeoutMs,
-                        Configuration.RebalanceTimeoutMs, topics);
-
-            Generation = joinResponse.GenerationId;
-            MemberId = joinResponse.MemberId ?? "";
-
-            if (joinResponse.ErrorCode != ErrorCode.NoError)
+            try
             {
-                HandleError(joinResponse.ErrorCode);
-                return new PartitionAssignments
+                await RefreshCoordinator();
+
+                // JoinGroup request
+                var joinResponse =
+                    await
+                        _coordinator.JoinConsumerGroup(GroupId, MemberId, Configuration.SessionTimeoutMs,
+                            Configuration.RebalanceTimeoutMs, topics);
+
+                Generation = joinResponse.GenerationId;
+                MemberId = joinResponse.MemberId ?? "";
+
+                if (joinResponse.ErrorCode != ErrorCode.NoError)
                 {
-                    ErrorCode = joinResponse.ErrorCode,
-                    Assignments = EmptyAssignment
-                };
-            }
+                    HandleError(joinResponse.ErrorCode);
+                    return new PartitionAssignments
+                    {
+                        ErrorCode = joinResponse.ErrorCode,
+                        Assignments = EmptyAssignment
+                    };
+                }
 
-            bool isLeader = joinResponse.GroupMembers.Length > 0;
-            _cluster.Logger.LogInformation(
-                string.Format("Consumer group \"{0}\" joined. Member id is \"{1}\", generation is {2}.{3}", GroupId,
-                    MemberId, Generation, isLeader ? " I am leader." : ""));
+                bool isLeader = joinResponse.GroupMembers.Length > 0;
+                _cluster.Logger.LogInformation(
+                    string.Format("Consumer group \"{0}\" joined. Member id is \"{1}\", generation is {2}.{3}", GroupId,
+                        MemberId, Generation, isLeader ? " I am leader." : ""));
 
-            // SyncGroup request
-            var assignments = isLeader ? await LeaderAssign(joinResponse.GroupMembers) : Enumerable.Empty<ConsumerGroupAssignment>();
-            var syncResponse = await _coordinator.SyncConsumerGroup(GroupId, MemberId, Generation, assignments);
+                // SyncGroup request
+                var assignments = isLeader
+                    ? await LeaderAssign(joinResponse.GroupMembers)
+                    : Enumerable.Empty<ConsumerGroupAssignment>();
+                var syncResponse = await _coordinator.SyncConsumerGroup(GroupId, MemberId, Generation, assignments);
 
-            _cluster.Logger.LogInformation(string.Format("Consumer group \"{0}\" synced. Assignments: {1}", GroupId,
-                string.Join(", ",
-                    syncResponse.MemberAssignment.PartitionAssignments.Select(
-                        td =>
-                            string.Format("{0}:[{1}]", td.TopicName,
-                                string.Join(",", td.PartitionsData.Select(p => p.Partition.ToString())))))));
+                _cluster.Logger.LogInformation(string.Format("Consumer group \"{0}\" synced. Assignments: {1}", GroupId,
+                    string.Join(", ",
+                        syncResponse.MemberAssignment.PartitionAssignments.Select(
+                            td =>
+                                string.Format("{0}:[{1}]", td.TopicName,
+                                    string.Join(",", td.PartitionsData.Select(p => p.Partition.ToString())))))));
 
-            // Empty assignments, no need to fetch offsets
-            if (!syncResponse.MemberAssignment.PartitionAssignments.Any() || joinResponse.ErrorCode != ErrorCode.NoError)
-            {
-                HandleError(joinResponse.ErrorCode);
+                // Empty assignments, no need to fetch offsets
+                if (!syncResponse.MemberAssignment.PartitionAssignments.Any()
+                    || joinResponse.ErrorCode != ErrorCode.NoError)
+                {
+                    HandleError(joinResponse.ErrorCode);
+                    return new PartitionAssignments
+                    {
+                        ErrorCode = syncResponse.ErrorCode,
+                        Assignments = EmptyAssignment
+                    };
+                }
+
+                // FetchOffsets request (retrieve saved offsets)
+                var offsets =
+                    await _coordinator.FetchOffsets(GroupId, syncResponse.MemberAssignment.PartitionAssignments);
+
+                // Returns assignments, each one with the offset we have have to start to read from
                 return new PartitionAssignments
                 {
                     ErrorCode = syncResponse.ErrorCode,
-                    Assignments = EmptyAssignment
+                    Assignments =
+                        offsets.TopicsResponse.ToDictionary(assignment => assignment.TopicName,
+                            assignment =>
+                                new HashSet<PartitionOffset>(
+                                    assignment.PartitionsData.Select(
+                                        p =>
+                                            new PartitionOffset
+                                            {
+                                                Partition = p.Partition,
+                                                Offset = p.Offset < 0
+                                                    ? Offset(Configuration.DefaultOffsetToReadFrom)
+                                                    // read from whatever is configured offset (end or start)
+                                                    : p.Offset // read from saved offset
+                                            })) as ISet<PartitionOffset>)
                 };
             }
-
-            // FetchOffsets request (retrieve saved offsets)
-            var offsets = await _coordinator.FetchOffsets(GroupId, syncResponse.MemberAssignment.PartitionAssignments);
-
-            // Returns assignments, each one with the offset we have have to start to read from
-            return new PartitionAssignments
+            catch
             {
-                ErrorCode = syncResponse.ErrorCode,
-                Assignments =
-                    offsets.TopicsResponse.ToDictionary(assignment => assignment.TopicName,
-                        assignment =>
-                            new HashSet<PartitionOffset>(
-                                assignment.PartitionsData.Select(
-                                    p =>
-                                        new PartitionOffset
-                                        {
-                                            Partition = p.Partition,
-                                            Offset = p.Offset < 0
-                                                ? Offset(Configuration.DefaultOffsetToReadFrom)
-                                                // read from whatever is configured offset (end or start)
-                                                : p.Offset // read from saved offset
-                                        })) as ISet<PartitionOffset>)
-            };
+                // Something worng occured during the workflow (typically a timeout).
+                // Reset Generation in case the problem occured after Join.
+                Generation = -1;
+                throw;
+            }
         }
 
         private async Task RefreshCoordinator()
