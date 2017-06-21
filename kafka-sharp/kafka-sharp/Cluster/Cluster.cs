@@ -200,7 +200,7 @@ namespace Kafka.Cluster
 
             // Consumer init
             ConsumeRouter = consumerFactory != null ? consumerFactory() : new ConsumeRouter(this, configuration);
-            ConsumeRouter.MessageReceived += _ => Statistics.UpdateReceived();
+            ConsumeRouter.MessageReceived += UpdateConsumerMessageStatistics;
             if (ConsumeRouter is ConsumeRouter)
             {
                 (ConsumeRouter as ConsumeRouter).InternalError +=
@@ -233,6 +233,12 @@ namespace Kafka.Cluster
             {
                 throw new ArgumentException("Invalid seeds: " + _seeds);
             }
+        }
+
+        private void UpdateConsumerMessageStatistics(RawKafkaRecord kr)
+        {
+            Statistics.UpdateReceived();
+            Statistics.UpdateConsumerLag(kr.Topic, kr.Lag);
         }
 
         public Cluster SetResolution(double resolution)

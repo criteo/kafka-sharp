@@ -117,7 +117,7 @@ namespace tests_kafka_sharp
 
         private void AssertStatistics(IStatistics statistics, int successfulSent = 0, int requestSent = 0, int responseReceived = 0, int errors = 0,
             int nodeDead = 0, int expired = 0, int discarded = 0, int exit = 0, int received = 0,
-            int rawReceived = 0, int rawReceivedBytes = 0, int rawProduced = 0, int rawProducedBytes = 0, int requestTimeout = 0)
+            int rawReceived = 0, int rawReceivedBytes = 0, int rawProduced = 0, int rawProducedBytes = 0, int requestTimeout = 0, int consumerLag = 0)
         {
             Assert.AreEqual(successfulSent, statistics.SuccessfulSent);
             Assert.AreEqual(requestSent, statistics.RequestSent);
@@ -133,6 +133,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(rawProducedBytes, statistics.RawProducedBytes);
             Assert.AreEqual(rawReceived, statistics.RawReceived);
             Assert.AreEqual(rawReceivedBytes, statistics.RawReceivedBytes);
+            Assert.AreEqual(consumerLag, statistics.LatestConsumerLag);
         }
 
         [Test]
@@ -402,10 +403,12 @@ namespace tests_kafka_sharp
         public void TestConsumerMessageReceived()
         {
             _cluster.Start();
-            _consumeMock.Raise(r => r.MessageReceived += null, It.IsAny<RawKafkaRecord>());
+            const int msgLag = 10;
+            var msg = new RawKafkaRecord { Topic = "myTopic", Lag = msgLag };
+            _consumeMock.Raise(r => r.MessageReceived += null, msg);
 
             Assert.AreEqual(0, _internalErrors);
-            AssertStatistics(_cluster.Statistics, received: 1);
+            AssertStatistics(_cluster.Statistics, received: 1, consumerLag: msgLag);
         }
 
         [Test]
