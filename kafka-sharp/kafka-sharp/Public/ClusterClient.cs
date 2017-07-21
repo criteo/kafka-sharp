@@ -194,6 +194,16 @@ namespace Kafka.Public
         event Action<RawKafkaRecord> MessageReceived;
 
         /// <summary>
+        /// Signaled when partitions have been assigned by group coordinator
+        /// </summary>
+        event Action<IDictionary<string, ISet<int>>> PartitionsAssigned;
+
+        /// <summary>
+        /// Signaled when partitions have been revoked
+        /// </summary>
+        event Action PartitionsRevoked;
+
+        /// <summary>
         /// Raised when one fetch request has been throttled by brokers.
         /// </summary>
         event Action<int> ConsumeThrottled;
@@ -297,6 +307,10 @@ namespace Kafka.Public
         /// </summary>
         public event Action<RawKafkaRecord> MessageReceived = _ => { };
 
+        public event Action<IDictionary<string, ISet<int>>> PartitionsAssigned = x => { };
+
+        public event Action PartitionsRevoked = () => { };
+
         /// <summary>
         /// This is raised when a fetch request has been throttled server side.
         /// </summary>
@@ -392,6 +406,9 @@ namespace Kafka.Public
             _cluster = cluster ?? new Cluster.Cluster(configuration, logger, statistics);
             _cluster.InternalError += e => _logger.LogError("Cluster internal error: " + e);
             _cluster.ConsumeRouter.MessageReceived += kr => MessageReceived(kr);
+            _cluster.ConsumeRouter.PartitionsAssigned += PartitionsAssigned;
+            _cluster.ConsumeRouter.PartitionsRevoked += PartitionsRevoked;
+
             Messages = Observable.FromEvent<RawKafkaRecord>(a => MessageReceived += a, a => MessageReceived -= a);
             _cluster.ProduceRouter.MessageExpired +=
                 (t, m) =>

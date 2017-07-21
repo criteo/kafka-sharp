@@ -105,7 +105,7 @@ namespace Kafka.Routing
         /// <summary>
         /// Signaled when partitions have been assigned by group coordinator
         /// </summary>
-        event Action<IDictionary<string, ISet<PartitionOffset>>> PartitionsAssigned;
+        event Action<IDictionary<string, ISet<int>>> PartitionsAssigned;
 
         /// <summary>
         /// Signaled when partitions have been revoked
@@ -353,9 +353,9 @@ namespace Kafka.Routing
 
         public event Action<int> Throttled = t => { };
 
-        public event Action<IDictionary<string, ISet<PartitionOffset>>> PartitionsAssigned = x => { };
+        public event Action<IDictionary<string, ISet<int>>> PartitionsAssigned = x => { };
 
-        public event Action PartitionsRevoked = () => {};
+        public event Action PartitionsRevoked = () => { };
 
         /// <summary>
         /// Raised in case of unexpected internal error.
@@ -643,7 +643,8 @@ namespace Kafka.Routing
                     }
                 }
 
-                PartitionsAssigned(joined.Assignments);
+                PartitionsAssigned(
+                    joined.Assignments.ToDictionary(x => x.Key, x => (ISet<int>)new HashSet<int>(x.Value.Select(y => y.Partition))));
 
                 _partitionAssignments = joined.Assignments;
             }
