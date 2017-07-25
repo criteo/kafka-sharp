@@ -645,5 +645,31 @@ namespace tests_kafka_sharp
                     p.Route("toto", It.Is<Message>(m => m.TimeStamp == Timestamp.ToUnixTimestamp(date)), It.IsAny<int>(),
                         It.IsAny<DateTime>()));
         }
+
+        [Test]
+        public void RaisesPartitionsAssignedEvent()
+        {
+            var assignments = new Dictionary<string, ISet<int>>();
+
+            var eventRisen = false;
+
+            _client.PartitionsAssigned += x => eventRisen = true;
+
+            _consumer.Raise(x => x.PartitionsAssigned += null, assignments);
+
+            Assert.That(eventRisen, Is.True);
+        }
+
+        [Test]
+        public void RaisesPartitionsRevokedEvent()
+        {
+            var eventRisen = false;
+
+            _client.PartitionsRevoked += () => eventRisen = true;
+
+            _consumer.Raise(x => x.PartitionsRevoked += null);
+
+            Assert.That(eventRisen, Is.True);
+        }
     }
 }
