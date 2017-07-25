@@ -187,8 +187,8 @@ namespace Kafka.Public
 
             _clusterClient.MessageReceived += OnClusterMessage;
             _clusterClient.ConsumeThrottled += t => Throttled(t);
-            _clusterClient.PartitionsAssigned += PartitionsAssigned;
-            _clusterClient.PartitionsRevoked += PartitionsRevoked;
+            _clusterClient.PartitionsAssigned += OnPartitionsAssigned;
+            _clusterClient.PartitionsRevoked += OnPartitionsRevoked;
             _messagesSub = _clusterClient.Messages.Where(CheckRecord).Select(ToRecord).Subscribe(_messages.OnNext);
         }
 
@@ -305,6 +305,16 @@ namespace Kafka.Public
                 MessageReceived(ToRecord(kr));
         }
 
+        private void OnPartitionsAssigned(IDictionary<string, ISet<int>> assignedPartitions)
+        {
+            PartitionsAssigned.Invoke(assignedPartitions);
+        }
+
+        private void OnPartitionsRevoked()
+        {
+            PartitionsRevoked.Invoke();
+        }
+
         private bool _disposed;
 
         public void Dispose()
@@ -318,9 +328,11 @@ namespace Kafka.Public
                 {
                     _clusterClient.StopConsume(_topic);
                     _clusterClient.MessageReceived -= OnClusterMessage;
+                    _clusterClient.PartitionsRevoked -= OnPartitionsRevoked;
+                    _clusterClient.PartitionsAssigned -= OnPartitionsAssigned;
                 }
 
-                if (_messagesSub != null ) _messagesSub.Dispose();
+                if (_messagesSub != null) _messagesSub.Dispose();
                 _messages.OnCompleted();
 
                 if (_topic != null)

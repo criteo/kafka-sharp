@@ -30,7 +30,7 @@ namespace tests_kafka_sharp
             node.Setup(n => n.Offset(It.IsAny<OffsetMessage>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
-                .Returns(Task.FromResult(new[] {0, 1, 2}));
+                .Returns(Task.FromResult(new[] { 0, 1, 2 }));
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(() =>
                     Task.FromResult(
@@ -46,7 +46,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                         })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
             var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, Partitions.All, offset);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(t => t == TOPIC)), Times.AtLeastOnce());
@@ -68,7 +68,7 @@ namespace tests_kafka_sharp
             node.Setup(n => n.Offset(It.IsAny<OffsetMessage>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC))
-                .Returns(Task.FromResult(new[] {0, 1, 2}));
+                .Returns(Task.FromResult(new[] { 0, 1, 2 }));
             cluster.Setup(c => c.RequireNewRoutingTable())
                 .Returns(() =>
                     Task.FromResult(
@@ -84,7 +84,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                         })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
             var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, Partitions.All, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.Is<string>(t => t == TOPIC)), Times.AtLeastOnce());
@@ -161,7 +161,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                         })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
             var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, offset);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
@@ -193,7 +193,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                         })));
-            cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC)).Returns(Task.FromResult(new[] {0, 1, 2}));
+            cluster.Setup(c => c.RequireAllPartitionsForTopic(TOPIC)).Returns(Task.FromResult(new[] { 0, 1, 2 }));
             var configuration = new Configuration
             {
                 TaskScheduler = new CurrentThreadTaskScheduler(),
@@ -230,7 +230,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                         })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
             var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
@@ -663,9 +663,11 @@ namespace tests_kafka_sharp
 
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse
                 {
-                    TopicsResponse = new[]
+                    FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse = new[]
                     {
                         new TopicData<FetchPartitionResponse>
                         {
@@ -687,7 +689,8 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                }},
+                    }
+                },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -700,9 +703,11 @@ namespace tests_kafka_sharp
             // Should be ignored
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse
                 {
-                    TopicsResponse = new[]
+                    FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse = new[]
                     {
                         new TopicData<FetchPartitionResponse>
                         {
@@ -722,7 +727,8 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                }},
+                    }
+                },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -767,9 +773,11 @@ namespace tests_kafka_sharp
 
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse <FetchPartitionResponse>
+                Response = new FetchResponse
                 {
-                    TopicsResponse = new[]
+                    FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse = new[]
                     {
                         new TopicData<FetchPartitionResponse>
                         {
@@ -791,7 +799,8 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                }},
+                    }
+                },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -810,9 +819,11 @@ namespace tests_kafka_sharp
             // Should trigger new Fetch
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse
                 {
-                    TopicsResponse = new[]
+                    FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse = new[]
                     {
                         new TopicData<FetchPartitionResponse>
                         {
@@ -832,7 +843,8 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                }},
+                    }
+                },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -940,7 +952,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                         })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
             var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
             consumer.StartConsume(TOPIC, PARTITION + 1, Offsets.Earliest);
@@ -1021,16 +1033,18 @@ namespace tests_kafka_sharp
                                 }
                             }
                         })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
             var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Earliest);
             consumer.StartConsume(TOPIC, PARTITION + 1, Offsets.Earliest);
             consumer.StartConsume(TOPIC2, PARTITION, Offsets.Earliest);
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse
                 {
-                    TopicsResponse = new[]
+                    FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse = new[]
                     {
                         new TopicData<FetchPartitionResponse>
                         {
@@ -1080,7 +1094,8 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                }},
+                    }
+                },
                 ReceivedDate = DateTime.UtcNow
             });
             node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(3));
@@ -1123,7 +1138,7 @@ namespace tests_kafka_sharp
                                 }
                             }
                         })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
             var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             consumer.StopConsume(TOPIC, PARTITION, OFFSET + 1);
@@ -1138,9 +1153,11 @@ namespace tests_kafka_sharp
             };
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                Response = new FetchResponse
                 {
-                    TopicsResponse = new[]
+                    FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse = new[]
                     {
                         new TopicData<FetchPartitionResponse>
                         {
@@ -1163,7 +1180,8 @@ namespace tests_kafka_sharp
                             }
                         }
                     }
-                }},
+                    }
+                },
                 ReceivedDate = DateTime.UtcNow
             });
 
@@ -1237,7 +1255,7 @@ namespace tests_kafka_sharp
             };
 
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
-            
+
             Assert.AreEqual(TOPIC, topic);
             Assert.AreEqual(PARTITION, partition);
         }
@@ -1302,7 +1320,7 @@ namespace tests_kafka_sharp
                     },
                 ReceivedDate = DateTime.UtcNow
             });
-            
+
             Assert.AreEqual(42, throttled);
         }
     }
