@@ -10,7 +10,7 @@ namespace tests_kafka_sharp
 
     using NUnit.Framework;
 
-    public class KafkaConsumerTests
+    public class TestKafkaConsumer
     {
         [Test]
         public void RaisesPartitionsAssignedEvent()
