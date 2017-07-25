@@ -17,33 +17,34 @@ namespace tests_kafka_sharp
         {
             var clusterClientStub = CreateClusterClientStub();
 
-            var sut = new KafkaConsumer<object, object>("ANYTOPIC", clusterClientStub.Object);
+            using (var sut = new KafkaConsumer<object, object>("ANYTOPIC", clusterClientStub.Object))
+            {
+                var assignments = new Dictionary<string, ISet<int>>();
 
-            var assignments = new Dictionary<string, ISet<int>>();
+                var eventRisen = false;
 
-            var eventRisen = false;
+                sut.PartitionsAssigned += x => eventRisen = true;
 
-            sut.PartitionsAssigned += x => eventRisen = true;
+                clusterClientStub.Raise(x => x.PartitionsAssigned += null, assignments);
 
-            clusterClientStub.Raise(x => x.PartitionsAssigned += null, assignments);
-
-            Assert.That(eventRisen, Is.True);
+                Assert.That(eventRisen, Is.True);
+            }
         }
 
         [Test]
         public void RaisesPartitionsRevokedEvent()
         {
             var clusterClientStub = CreateClusterClientStub();
+            using (var sut = new KafkaConsumer<object, object>("ANYTOPIC", clusterClientStub.Object))
+            {
+                var eventRisen = false;
 
-            var sut = new KafkaConsumer<object, object>("ANYTOPIC", clusterClientStub.Object);
+                sut.PartitionsRevoked += () => eventRisen = true;
 
-            var eventRisen = false;
+                clusterClientStub.Raise(x => x.PartitionsRevoked += null);
 
-            sut.PartitionsRevoked += () => eventRisen = true;
-
-            clusterClientStub.Raise(x => x.PartitionsRevoked += null);
-
-            Assert.That(eventRisen, Is.True);
+                Assert.That(eventRisen, Is.True);
+            }
         }
 
         private Mock<IClusterClient> CreateClusterClientStub()
