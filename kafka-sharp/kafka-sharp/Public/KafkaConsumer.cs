@@ -25,6 +25,16 @@ namespace Kafka.Public
         event Action<KafkaRecord<TKey, TValue>> MessageReceived;
 
         /// <summary>
+        /// Signaled when partitions have been assigned by group coordinator
+        /// </summary>
+        event Action<IDictionary<string, ISet<int>>> PartitionsAssigned;
+
+        /// <summary>
+        /// Signaled when partitions have been revoked
+        /// </summary>
+        event Action PartitionsRevoked;
+
+        /// <summary>
         /// Raised when a fetch request has been throttled server side.
         /// </summary>
         event Action<int> Throttled;
@@ -177,11 +187,17 @@ namespace Kafka.Public
 
             _clusterClient.MessageReceived += OnClusterMessage;
             _clusterClient.ConsumeThrottled += t => Throttled(t);
+            _clusterClient.PartitionsAssigned += PartitionsAssigned;
+            _clusterClient.PartitionsRevoked += PartitionsRevoked;
             _messagesSub = _clusterClient.Messages.Where(CheckRecord).Select(ToRecord).Subscribe(_messages.OnNext);
         }
 
         public event Action<KafkaRecord<TKey, TValue>> MessageReceived = _ => { };
         public event Action<int> Throttled = _ => { };
+
+        public event Action<IDictionary<string, ISet<int>>> PartitionsAssigned = x => { };
+
+        public event Action PartitionsRevoked = () => { };
 
         public IObservable<KafkaRecord<TKey, TValue>> Messages
         {

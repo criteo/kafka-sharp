@@ -358,7 +358,7 @@ namespace tests_kafka_sharp
         public async Task TestConsumerGroup_Commit()
         {
             var mocks = InitCluster();
-            var group = new ConsumerGroup("the group", new ConsumerGroupConfiguration {OffsetRetentionTimeMs = 27000}, mocks.Cluster.Object);
+            var group = new ConsumerGroup("the group", new ConsumerGroupConfiguration { OffsetRetentionTimeMs = 27000 }, mocks.Cluster.Object);
             var assignments = await group.Join(new[] { "the topic" });
             await
                 group.Commit(new[]
@@ -762,10 +762,71 @@ namespace tests_kafka_sharp
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
+            var partitionsRevokedEventIsCalled = false;
+
+            consumer.PartitionsRevoked += () => partitionsRevokedEventIsCalled = true;
+
             await consumer.Stop();
 
             mocks.Group.Verify(g => g.LeaveGroup(), Times.Once);
             mocks.Group.Verify(g => g.Commit(It.IsAny<IEnumerable<TopicData<OffsetCommitPartitionData>>>()));
+
+            Assert.That(partitionsRevokedEventIsCalled, Is.True);
+        }
+
+        [Test]
+        public async Task TestConsumer_RaisesPartitionsAssignedEventOnJoin()
+        {
+            var mocks = InitCluster();
+
+            var consumer = new ConsumeRouter(
+                cluster: mocks.Cluster.Object,
+                configuration: new Configuration
+                {
+                    TaskScheduler = new CurrentThreadTaskScheduler(),
+                    ConsumeBatchSize = 1
+                },
+                resolution: 1);
+
+            var partitionsAssignedEventIsCalled = false;
+
+            consumer.PartitionsAssigned += _ => partitionsAssignedEventIsCalled = true;
+
+            consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
+
+            await consumer.Stop();
+
+            Assert.That(partitionsAssignedEventIsCalled, Is.True);
+        }
+
+        [Test]
+        public async Task TestConsumer_RaisesPartitionsRevokedOnRebalance()
+        {
+            var mocks = InitCluster();
+
+            mocks.Group.Setup(g => g.Heartbeat()).ReturnsAsync(ErrorCode.RebalanceInProgress);
+
+            mocks.Group.SetupGet(g => g.Configuration).Returns(
+                new ConsumerGroupConfiguration { AutoCommitEveryMs = -1, SessionTimeoutMs = 10 });
+
+            var consumer = new ConsumeRouter(
+                cluster: mocks.Cluster.Object,
+                configuration: new Configuration
+                {
+                    TaskScheduler = new CurrentThreadTaskScheduler(),
+                    ConsumeBatchSize = 1
+                },
+                resolution: 1);
+
+            var partitionsRevokedEventIsCalled = false;
+            consumer.PartitionsRevoked += () => partitionsRevokedEventIsCalled = true;
+
+            consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
+            Thread.Sleep(20);
+
+            Assert.That(partitionsRevokedEventIsCalled, Is.True);
+
+            await consumer.Stop();
         }
     }
 }

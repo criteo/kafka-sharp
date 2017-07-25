@@ -101,6 +101,16 @@ namespace Kafka.Routing
         /// Signaled when a fetch response has been throttled
         /// </summary>
         event Action<int> Throttled;
+
+        /// <summary>
+        /// Signaled when partitions have been assigned by group coordinator
+        /// </summary>
+        event Action<IDictionary<string, ISet<int>>> PartitionsAssigned;
+
+        /// <summary>
+        /// Signaled when partitions have been revoked
+        /// </summary>
+        event Action PartitionsRevoked;
     }
 
     // Magic values for Offset APIs. Some from Kafka protocol, some special to us
@@ -343,6 +353,10 @@ namespace Kafka.Routing
 
         public event Action<int> Throttled = t => { };
 
+        public event Action<IDictionary<string, ISet<int>>> PartitionsAssigned = x => { };
+
+        public event Action PartitionsRevoked = () => { };
+
         /// <summary>
         /// Raised in case of unexpected internal error.
         /// </summary>
@@ -401,6 +415,7 @@ namespace Kafka.Routing
             _offsetBatchStrategy.Dispose();
             if (_consumerGroup != null)
             {
+                PartitionsRevoked();
                 await CommitAll();
                 await _consumerGroup.LeaveGroup();
                 _heartbeatTimer.Dispose();
@@ -627,6 +642,9 @@ namespace Kafka.Routing
                         }
                     }
                 }
+
+                PartitionsAssigned(
+                    joined.Assignments.ToDictionary(x => x.Key, x => (ISet<int>)new HashSet<int>(x.Value.Select(y => y.Partition))));
 
                 _partitionAssignments = joined.Assignments;
             }
@@ -934,6 +952,8 @@ namespace Kafka.Routing
                     mustRejoin = true;
                     if (result == ErrorCode.RebalanceInProgress)
                     {
+                        PartitionsRevoked();
+
                         // Save offsets before rejoining
                         await CommitAll();
                     }
