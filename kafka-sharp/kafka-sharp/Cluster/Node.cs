@@ -1284,11 +1284,9 @@ namespace Kafka.Cluster
             return true;
         }
 
-        private static readonly Task SuccessTask = Task.FromResult(true);
-
         private Task ReadyToSendRequest()
         {
-            return RequestSlotAvailable() ? SuccessTask : WaitRequestSlot();
+            return RequestSlotAvailable() ? Task.CompletedTask : WaitRequestSlot();
         }
 
         private async Task WaitRequestSlot()
