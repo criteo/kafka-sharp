@@ -365,11 +365,11 @@ namespace Kafka.Cluster
         private void ProcessNodeError(INode node, Exception exception)
         {
             Statistics.UpdateErrors();
-            var ex = exception as TransportException;
+            var transportException = exception as TransportException;
             var n = GetNodeName(node);
-            if (ex != null)
+            if (transportException != null)
             {
-                switch (ex.Error)
+                switch (transportException.Error)
                 {
                     case TransportError.ConnectError:
                         Logger.LogWarning(string.Format("Failed to connect to {0}, retrying.", n));
@@ -381,16 +381,20 @@ namespace Kafka.Cluster
                     // dead nodes (see 'ProcessDeadNode')
                     case TransportError.ReadError:
                     case TransportError.WriteError:
-                        Logger.LogWarning(string.Format("Transport error to {0}: {1}", n, ex));
+                        Logger.LogWarning(string.Format("Transport error to {0}: {1}", n, transportException));
                         break;
 
                     // We cannot get there, but just in case and because dumb
                     // static checkers like Sonar are complaining:
                     default:
                         Logger.LogError("Unknown transport error");
-                        InternalError(ex);
+                        InternalError(transportException);
                         break;
                 }
+            }
+            else if (exception is TimeoutException)
+            {
+                Logger.LogWarning(string.Format("Timeout in node {0}: {1}", n, exception));
             }
             else
             {
