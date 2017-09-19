@@ -75,7 +75,7 @@
     <Compile Include="Batching\Grouping.cs" />
     <Compile Include="Cluster\Cluster.cs" />
     <Compile Include="Cluster\Node.cs" />
-    <Compile Include="Common\FastActivitor.cs" />
+    <Compile Include="Common\Activator.cs" />
     <Compile Include="Protocol\KafkaLz4.cs" />
     <Compile Include="Common\Timestamp.cs" />
     <Compile Include="Protocol\ConsumerGroupRequests.cs" />

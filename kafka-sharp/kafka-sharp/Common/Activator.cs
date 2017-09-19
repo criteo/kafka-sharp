@@ -1,4 +1,5 @@
 ﻿using System.Linq.Expressions;
+using System.Reflection;
 using System.Reflection.Emit;
 
 namespace System
@@ -34,7 +35,11 @@ namespace System
                     name: "lambda",
                     returnType: newExpr.Type,
                     parameterTypes: new Type[0],
+#if NETSTANDARD1_6
+                    m: typeof(DynamicModuleLambdaCompiler).GetTypeInfo().Module,
+#else
                     m: typeof(DynamicModuleLambdaCompiler).Module,
+#endif
                     skipVisibility: true);
 
                 ILGenerator ilGen = method.GetILGenerator();
