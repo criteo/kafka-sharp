@@ -906,6 +906,10 @@ namespace Kafka.Routing
         // Raise the MessageExpired event and release a message.
         private void OnMessageExpired(ProduceMessage message)
         {
+            _cluster.Logger.LogError(string.Format(
+                "[Producer] Not able to send message before reaching TTL for [topic: {0} / partition: {1}], message expired.",
+                message.Topic, message.RequiredPartition));
+
             message.Message = CheckReleaseMessage(message.Message);
             MessageExpired(message.Topic, message.Message);
         }
