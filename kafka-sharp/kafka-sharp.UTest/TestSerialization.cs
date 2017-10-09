@@ -79,7 +79,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageWithPreserializedKeyValue()
         {
             var message = new Message { Key = Key, Value = Value };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), null);
             Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
@@ -113,7 +113,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageIMemorySerializableWithPreserializedKeyValue()
         {
             var message = new Message { Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value) };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), null);
             Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
@@ -211,7 +211,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneEmptyMessageWithPreserializedKeyValue(MessageVersion messageVersion)
         {
             var message = new Message { Key = new byte[0], Value = new byte[0] };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), null);
             Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
@@ -233,6 +233,36 @@ namespace tests_kafka_sharp
                 Assert.AreEqual(0, BigEndianConverter.ReadInt32(serialized));
                 Assert.AreEqual(0, BigEndianConverter.ReadInt32(serialized));
             }
+        }
+
+        [Test]
+        public void TestSerializeMessageWithInvalidPreserializedKeyValue()
+        {
+            var logger = new TestLogger();
+            var message = new Message { Key = Key, Value = Value };
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), logger);
+
+            // Simulate a buffer with no data
+            message.SerializedKeyValue = new ReusableMemoryStream(null);
+            Assert.IsNotNull(message.SerializedKeyValue);
+            Assert.AreEqual(0, message.SerializedKeyValue.Length);
+
+            // Verify that serialization is able to process the message anyway
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                message.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null), MessageVersion.V0);
+                Assert.AreEqual(GetExpectedMessageSize(0, 0, MessageVersion.V0), serialized.Length);
+                Assert.AreEqual(0, serialized.GetBuffer()[4]); // magic byte is 0
+                Assert.AreEqual(0, serialized.GetBuffer()[5]); // attributes is 0
+                serialized.Position = 6;
+                // SerializedKeyValue invalid => Key & value should be interpreted as null
+                Assert.AreEqual(-1, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(-1, BigEndianConverter.ReadInt32(serialized));
+            }
+
+            Assert.AreEqual(1, logger.ErrorLog.Count());
+
+            message.SerializedKeyValue.Dispose();
         }
 
         [Test]

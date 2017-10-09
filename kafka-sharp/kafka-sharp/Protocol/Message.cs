@@ -20,15 +20,20 @@ namespace Kafka.Protocol
         public long TimeStamp;
         public ReusableMemoryStream SerializedKeyValue;
 
-        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers)
+        private ILogger _logger;
+        private const int MinimumValidSizeForSerializedKeyValue = 2 * 4; // At least 4 bytes for key size and 4 bytes for value size
+
+        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers, ILogger logger)
         {
+            _logger = logger;
             SerializedKeyValue = target;
             DoSerializeKeyValue(SerializedKeyValue, serializers);
             Key = null;
             Value = null;
         }
 
-        public void Serialize(ReusableMemoryStream stream, CompressionCodec compressionCodec, Tuple<ISerializer, ISerializer> serializers, MessageVersion msgVersion)
+        public void Serialize(ReusableMemoryStream stream, CompressionCodec compressionCodec,
+            Tuple<ISerializer, ISerializer> serializers, MessageVersion msgVersion)
         {
             var crcPos = stream.Position;
             stream.Write(Basics.MinusOne32, 0, 4); // crc placeholder
@@ -43,13 +48,20 @@ namespace Kafka.Protocol
             else // V1 message format
             {
                 stream.WriteByte(1); // magic byte
-                stream.WriteByte((byte)compressionCodec); // attributes
+                stream.WriteByte((byte) compressionCodec); // attributes
                 BigEndianConverter.Write(stream, TimeStamp);
             }
 
             if (SerializedKeyValue != null)
             {
-                stream.Write(SerializedKeyValue.GetBuffer(), 0, (int)SerializedKeyValue.Length);
+                if (SerializedKeyValue.Length < MinimumValidSizeForSerializedKeyValue)
+                {
+                    HandleInvalidSerializedKeyValue(stream);
+                }
+                else
+                {
+                    stream.Write(SerializedKeyValue.GetBuffer(), 0, (int) SerializedKeyValue.Length);
+                }
             }
             else
             {
@@ -62,6 +74,16 @@ namespace Kafka.Protocol
             stream.Position = crcPos;
             BigEndianConverter.Write(stream, (int) crc);
             stream.Position = curPos;
+        }
+
+        private void HandleInvalidSerializedKeyValue(ReusableMemoryStream stream)
+        {
+            _logger?.LogError("Invalid SerializedKeyValue. Length is only " + SerializedKeyValue.Length
+                + " bytes. Message cannot be serialized : " + SerializedKeyValue.GetBuffer());
+
+            // Simulate an empty key & message to not send a corrupted message
+            stream.Write(Basics.MinusOne32, 0, 4);
+            stream.Write(Basics.MinusOne32, 0, 4);
         }
 
         private void DoSerializeKeyValue(ReusableMemoryStream stream, Tuple<ISerializer, ISerializer> serializers)
