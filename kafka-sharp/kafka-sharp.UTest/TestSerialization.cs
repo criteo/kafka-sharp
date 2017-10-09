@@ -24,7 +24,19 @@ namespace tests_kafka_sharp
         private static readonly Pool<ReusableMemoryStream> Pool =
             new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(Pool), (m, b) => { m.SetLength(0); });
 
-        private static readonly int FullMessageSize = 4 + 1 + 1 + 4 + Key.Length + 4 + Value.Length;
+        private static int GetExpectedMessageSize(int keyLength, int valueLength, MessageVersion messageVersion)
+        {
+            var timestampLength = messageVersion == MessageVersion.V1 ? 8 : 0; // Timestamp in v1 only (long => 8 bytes)
+            return 4    // CRC
+                + 1     // Magic byte (version)
+                + 1     // Attributes
+                + timestampLength
+                + 4     // Key size
+                + keyLength
+                + 4     // Data size
+                + valueLength;
+        }
+
         private static readonly int NullKeyMessageSize = 4 + 1 + 1 + 4 + 4 + Value.Length;
 
         static void CompareArrays<T>(T[] expected, T[] compared, int offset)
@@ -116,7 +128,7 @@ namespace tests_kafka_sharp
             using (var serialized = new ReusableMemoryStream(null))
             {
                 message.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null), MessageVersion.V1);
-                Assert.AreEqual(FullMessageSize + 8, serialized.Length); // There is a timestamp added (long => 8 bytes)
+                Assert.AreEqual(GetExpectedMessageSize(Key.Length, Value.Length, MessageVersion.V1), serialized.Length);
                 Assert.AreEqual(1, serialized.GetBuffer()[4]); // magic byte is 1
                 Assert.AreEqual(0, serialized.GetBuffer()[5]); // attributes is 0
                 serialized.Position = 6;
@@ -133,7 +145,7 @@ namespace tests_kafka_sharp
             using (var serialized = new ReusableMemoryStream(null))
             {
                 message.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null), MessageVersion.V0);
-                Assert.AreEqual(FullMessageSize, serialized.Length);
+                Assert.AreEqual(GetExpectedMessageSize(Key.Length, Value.Length, MessageVersion.V0), serialized.Length);
                 Assert.AreEqual(0, serialized.GetBuffer()[4]); // magic byte is 0
                 Assert.AreEqual(0, serialized.GetBuffer()[5]); // attributes is 0
                 serialized.Position = 6;
@@ -175,6 +187,51 @@ namespace tests_kafka_sharp
                 message.Serialize(serialized, CompressionCodec.Gzip, new Tuple<ISerializer, ISerializer>(null, null), MessageVersion.V0);
                 Assert.AreEqual(0, serialized.GetBuffer()[4]); // magic byte is 0
                 Assert.AreEqual(1, serialized.GetBuffer()[5]); // attributes is 1
+            }
+        }
+
+        [TestCase(MessageVersion.V0)]
+        [TestCase(MessageVersion.V1)]
+        public void TestSerializeOneEmptyByteMessage(MessageVersion messageversion)
+        {
+            var message = new Message { Key = new byte[0], Value = new byte[0] };
+            TestSerializeOneEmptyMessageCommon(message, messageversion);
+        }
+
+        [TestCase(MessageVersion.V0)]
+        [TestCase(MessageVersion.V1)]
+        public void TestSerializeOneEmptySerializableMessage(MessageVersion messageversion)
+        {
+            var message = new Message { Key = new SimpleSerializable(new byte[0]), Value = new SimpleSerializable(new byte[0]) };
+            TestSerializeOneEmptyMessageCommon(message, messageversion);
+        }
+
+        [TestCase(MessageVersion.V0)]
+        [TestCase(MessageVersion.V1)]
+        public void TestSerializeOneEmptyMessageWithPreserializedKeyValue(MessageVersion messageVersion)
+        {
+            var message = new Message { Key = new byte[0], Value = new byte[0] };
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
+            Assert.IsNull(message.Key);
+            Assert.IsNull(message.Value);
+            Assert.IsNotNull(message.SerializedKeyValue);
+            TestSerializeOneEmptyMessageCommon(message, messageVersion);
+            message.SerializedKeyValue.Dispose();
+        }
+
+        private static void TestSerializeOneEmptyMessageCommon(Message message, MessageVersion messageVersion)
+        {
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                message.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null), messageVersion);
+                Assert.AreEqual(GetExpectedMessageSize(0, 0, messageVersion), serialized.Length);
+                serialized.Position = 6;
+                if (messageVersion == MessageVersion.V1)
+                {
+                    Assert.AreEqual(message.TimeStamp, BigEndianConverter.ReadInt64(serialized));
+                }
+                Assert.AreEqual(0, BigEndianConverter.ReadInt32(serialized));
+                Assert.AreEqual(0, BigEndianConverter.ReadInt32(serialized));
             }
         }
 
