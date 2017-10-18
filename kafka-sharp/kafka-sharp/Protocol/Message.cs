@@ -20,12 +20,10 @@ namespace Kafka.Protocol
         public long TimeStamp;
         public ReusableMemoryStream SerializedKeyValue;
 
-        private ILogger _logger;
         private const int MinimumValidSizeForSerializedKeyValue = 2 * 4; // At least 4 bytes for key size and 4 bytes for value size
 
-        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers, ILogger logger)
+        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers)
         {
-            _logger = logger;
             SerializedKeyValue = target;
             DoSerializeKeyValue(SerializedKeyValue, serializers);
             Key = null;
@@ -78,7 +76,7 @@ namespace Kafka.Protocol
 
         private void HandleInvalidSerializedKeyValue(ReusableMemoryStream stream)
         {
-            _logger?.LogError("Invalid SerializedKeyValue. Length is only " + SerializedKeyValue.Length
+            stream.Logger?.LogError("Invalid SerializedKeyValue. Length is only " + SerializedKeyValue.Length
                 + " bytes. Message cannot be serialized : " + SerializedKeyValue.GetBuffer());
 
             // Simulate an empty key & message to not send a corrupted message

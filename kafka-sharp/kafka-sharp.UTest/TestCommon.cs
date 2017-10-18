@@ -16,7 +16,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestReusableMemoryStream()
         {
-            var pool = new Pools(new Statistics());
+            var pool = new Pools(new Statistics(), logger: null);
             pool.InitRequestsBuffersPool();
             using (var stream = pool.RequestsBuffersPool.Reserve())
             {

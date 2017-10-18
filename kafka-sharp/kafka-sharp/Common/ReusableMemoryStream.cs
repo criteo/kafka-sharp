@@ -19,11 +19,13 @@ namespace Kafka.Common
         private static int _nextId;
         private readonly int _id; // Useful to track leaks while debugging
         private readonly Pool<ReusableMemoryStream> _myPool;
+        public readonly ILogger Logger;
 
-        public ReusableMemoryStream(Pool<ReusableMemoryStream> myPool)
+        public ReusableMemoryStream(Pool<ReusableMemoryStream> myPool, ILogger logger = null)
         {
             _id = Interlocked.Increment(ref _nextId);
             _myPool = myPool;
+            Logger = logger;
         }
 
         public Pool<ReusableMemoryStream> Pool

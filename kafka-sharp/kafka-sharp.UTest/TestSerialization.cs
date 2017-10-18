@@ -79,7 +79,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageWithPreserializedKeyValue()
         {
             var message = new Message { Key = Key, Value = Value };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), null);
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
             Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
@@ -113,7 +113,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageIMemorySerializableWithPreserializedKeyValue()
         {
             var message = new Message { Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value) };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), null);
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
             Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
@@ -211,7 +211,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneEmptyMessageWithPreserializedKeyValue(MessageVersion messageVersion)
         {
             var message = new Message { Key = new byte[0], Value = new byte[0] };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), null);
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
             Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
@@ -240,15 +240,15 @@ namespace tests_kafka_sharp
         {
             var logger = new TestLogger();
             var message = new Message { Key = Key, Value = Value };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), logger);
+            message.SerializeKeyValue(new ReusableMemoryStream(null, logger), new Tuple<ISerializer, ISerializer>(null, null));
 
             // Simulate a buffer with no data
-            message.SerializedKeyValue = new ReusableMemoryStream(null);
+            message.SerializedKeyValue = new ReusableMemoryStream(null, logger);
             Assert.IsNotNull(message.SerializedKeyValue);
             Assert.AreEqual(0, message.SerializedKeyValue.Length);
 
             // Verify that serialization is able to process the message anyway
-            using (var serialized = new ReusableMemoryStream(null))
+            using (var serialized = new ReusableMemoryStream(null, logger))
             {
                 message.Serialize(serialized, CompressionCodec.None, new Tuple<ISerializer, ISerializer>(null, null), MessageVersion.V0);
                 Assert.AreEqual(GetExpectedMessageSize(0, 0, MessageVersion.V0), serialized.Length);

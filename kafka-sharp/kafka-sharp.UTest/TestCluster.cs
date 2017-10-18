@@ -667,7 +667,7 @@ namespace tests_kafka_sharp
         public void TestPools()
         {
             var stats = new Statistics();
-            var pools = new Pools(stats);
+            var pools = new Pools(stats, logger: null);
             pools.InitMessageBuffersPool(1, 16);
 
             var m1 = pools.MessageBuffersPool.Reserve();

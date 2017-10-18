@@ -173,7 +173,7 @@ namespace Kafka.Cluster
             Statistics = statistics ?? new Statistics();
             _timeoutScheduler = new TimeoutScheduler(configuration.ClientRequestTimeoutMs / 2);
 
-            _pools = InitPools(Statistics, configuration);
+            _pools = InitPools(Statistics, configuration, logger);
 
             // Producer init
             ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration, _pools.MessageBuffersPool);
@@ -241,9 +241,9 @@ namespace Kafka.Cluster
             return this;
         }
 
-        private static Pools InitPools(IStatistics statistics, Configuration configuration)
+        private static Pools InitPools(IStatistics statistics, Configuration configuration, ILogger logger)
         {
-            var pools = new Pools(statistics);
+            var pools = new Pools(statistics, logger);
             pools.InitSocketBuffersPool(Math.Max(configuration.SendBufferSize, configuration.ReceiveBufferSize));
             pools.InitRequestsBuffersPool();
             var limit = configuration.SerializationConfig.MaxPooledMessages;
