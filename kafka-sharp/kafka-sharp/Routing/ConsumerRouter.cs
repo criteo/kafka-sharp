@@ -1087,59 +1087,72 @@ namespace Kafka.Routing
         {
             var state = _partitionsStates[topic][partitionResponse.Partition];
 
-            if (CheckActivity(state, topic, partitionResponse.Partition))
+            if (partitionResponse.ErrorCode == ErrorCode.OffsetOutOfRange)
             {
-                // Filter messages under required offset, this may happen when receiving
-                // compressed messages. The Kafka protocol specifies it's up to the client
-                // to filter out those messages. We also filter messages with offset greater
-                // than the required stop offset if set.
-                long firstRequired = state.NextOffset;
-                foreach (var message in
-                    partitionResponse.Messages.Where(
-                        message =>
-                            message.Offset >= firstRequired
-                                && (state.StopAt < 0 || message.Offset <= state.StopAt)))
+                _cluster.Logger.LogWarning(
+                    string.Format(
+                        "Offset {3} out of range for topic {0} / partition {1}, will read from {2} offset instead.", topic,
+                        partitionResponse.Partition,
+                        _configuration.OffsetOutOfRangeStrategy == Public.Offset.Earliest ? "earliest" : "latest", state.NextOffset));
+                state.Active = false;
+                StartConsume(topic, partitionResponse.Partition, (long)_configuration.OffsetOutOfRangeStrategy);
+            }
+            else
+            {
+                if (CheckActivity(state, topic, partitionResponse.Partition))
                 {
-                    MessageReceived(new RawKafkaRecord
+                    // Filter messages under required offset, this may happen when receiving
+                    // compressed messages. The Kafka protocol specifies it's up to the client
+                    // to filter out those messages. We also filter messages with offset greater
+                    // than the required stop offset if set.
+                    long firstRequired = state.NextOffset;
+                    foreach (var message in
+                        partitionResponse.Messages.Where(
+                            message =>
+                                message.Offset >= firstRequired && (state.StopAt < 0 || message.Offset <= state.StopAt))
+                        )
                     {
-                        Topic = topic,
-                        Key = message.Message.Key,
-                        Value = message.Message.Value,
-                        Offset = message.Offset,
-                        Lag = partitionResponse.HighWatermarkOffset - message.Offset,
-                        Partition = partitionResponse.Partition,
-                        Timestamp = Timestamp.FromUnixTimestamp(message.Message.TimeStamp)
-                    });
-                    state.NextOffset = message.Offset + 1;
+                        MessageReceived(new RawKafkaRecord
+                        {
+                            Topic = topic,
+                            Key = message.Message.Key,
+                            Value = message.Message.Value,
+                            Offset = message.Offset,
+                            Lag = partitionResponse.HighWatermarkOffset - message.Offset,
+                            Partition = partitionResponse.Partition,
+                            Timestamp = Timestamp.FromUnixTimestamp(message.Message.TimeStamp)
+                        });
+                        state.NextOffset = message.Offset + 1;
 
-                    await CheckHeartbeat();
-                    await CheckCommit(null);
+                        await CheckHeartbeat();
+                        await CheckCommit(null);
 
-                    // Recheck status (may have changed if heartbeat triggered rebalance)
-                    // TODO: is it really useful to check for heartbeat/commit after each message ?
-                    // It's merely a defense versus bad message handler, maybe we don't care and
-                    // just better check only at the beginning of partition processing.
-                    if (!CheckActivity(state, topic, partitionResponse.Partition))
-                    {
-                        break;
+                        // Recheck status (may have changed if heartbeat triggered rebalance)
+                        // TODO: is it really useful to check for heartbeat/commit after each message ?
+                        // It's merely a defense versus bad message handler, maybe we don't care and
+                        // just better check only at the beginning of partition processing.
+                        if (!CheckActivity(state, topic, partitionResponse.Partition))
+                        {
+                            break;
+                        }
                     }
                 }
+
+                ResponseMessageListPool.Release(partitionResponse.Messages);
+
+                await CheckCommit(null);
+
+                // Stop if we have seen the last required offset
+                // TODO: what if we never see it?
+                if (!state.Active || (state.StopAt != Offsets.Never && state.NextOffset > state.StopAt))
+                {
+                    state.Active = false;
+                    return;
+                }
+
+                // Loop fetch request
+                await Fetch(topic, partitionResponse.Partition, state.NextOffset);
             }
-
-            ResponseMessageListPool.Release(partitionResponse.Messages);
-
-            await CheckCommit(null);
-
-            // Stop if we have seen the last required offset
-            // TODO: what if we never see it?
-            if (!state.Active || (state.StopAt != Offsets.Never && state.NextOffset > state.StopAt))
-            {
-                state.Active = false;
-                return;
-            }
-
-            // Loop fetch request
-            await Fetch(topic, partitionResponse.Partition, state.NextOffset);
         }
 
         private async Task Fetch(string topic, int partition, long offset)
