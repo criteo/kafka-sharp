@@ -66,10 +66,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="KafkaConsumerTests.cs" />
     <Compile Include="TestBatching.cs" />
     <Compile Include="TestClient.cs" />
     <Compile Include="TestConsumerGroup.cs" />
+    <Compile Include="TestKafkaConsumer.cs" />
     <Compile Include="TestSerialization.cs" />
     <Compile Include="AsyncCountdownEvent.cs" />
     <Compile Include="Mocks.cs" />
