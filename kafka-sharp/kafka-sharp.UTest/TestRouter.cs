@@ -743,7 +743,7 @@ namespace tests_kafka_sharp
             _produceRouter.MessageDiscarded += (t, m) => discarded += 1;
             var pm = ProduceMessage.New("test1p", Partitions.Any, new Message(), DateTime.UtcNow.AddMinutes(5));
             pm.Retried = 42;
-            _produceRouter.ReEnqueue(pm);
+            _produceRouter.ReEnqueueAfterError(pm);
             Assert.AreEqual(1, discarded);
         }
 
@@ -758,10 +758,10 @@ namespace tests_kafka_sharp
             int discarded = 0;
             _produceRouter.MessageDiscarded += (t, m) => discarded += 1;
             var pm = ProduceMessage.New("test1p", Partitions.Any, new Message(), DateTime.UtcNow.AddMinutes(5));
-            _produceRouter.ReEnqueue(pm);
-            _produceRouter.ReEnqueue(pm);
+            _produceRouter.ReEnqueueAfterError(pm);
+            _produceRouter.ReEnqueueAfterError(pm);
             pm.Retried = int.MaxValue;
-            _produceRouter.ReEnqueue(pm);
+            _produceRouter.ReEnqueueAfterError(pm);
             Assert.AreEqual(0, discarded);
         }
 
@@ -789,7 +789,7 @@ namespace tests_kafka_sharp
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
 
             _produceRouter.Route("test1p", new Message(), Partitions.Any, DateTime.UtcNow.AddMinutes(5));
-            _produceRouter.ReEnqueue(ProduceMessage.New("test1p", Partitions.Any, new Message(), DateTime.UtcNow.AddMinutes(5)));
+            _produceRouter.ReEnqueueAfterError(ProduceMessage.New("test1p", Partitions.Any, new Message(), DateTime.UtcNow.AddMinutes(5)));
             await Task.Delay(TimeSpan.FromMilliseconds(100));
 
             Assert.AreEqual(1, _messagesSentByTopic["test1p"]);
