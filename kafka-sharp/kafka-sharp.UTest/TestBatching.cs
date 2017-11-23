@@ -56,13 +56,18 @@ namespace tests_kafka_sharp
             using (var accumulator = new AccumulatorByTopic<Tuple<string, int>>(t => t.Item1, 5,
                 TimeSpan.FromMilliseconds(15)))
             {
+                var latch = new ManualResetEventSlim();
                 IBatchByTopic<Tuple<string, int>> batch = null;
-                accumulator.NewBatch += b => batch = b;
+                accumulator.NewBatch += b =>
+                {
+                    latch.Set();
+                    batch = b;
+                };
                 Assert.IsTrue(accumulator.Add(Tuple.Create("a", 1)));
                 Assert.IsTrue(accumulator.Add(Tuple.Create("b", 2)));
                 Assert.IsTrue(accumulator.Add(Tuple.Create("c", 3)));
 
-                while (batch == null) ;
+                latch.Wait();
 
                 Assert.That(batch.Count, Is.EqualTo(3));
                 Assert.That(batch.Count(g => g.Key == "a"), Is.EqualTo(1));
@@ -130,13 +135,18 @@ namespace tests_kafka_sharp
                     5,
                     TimeSpan.FromMilliseconds(150)))
             {
+                var latch = new ManualResetEventSlim();
                 IBatchByTopicByPartition<Tuple<string, int, int>> batch = null;
-                accumulator.NewBatch += b => batch = b;
+                accumulator.NewBatch += b =>
+                {
+                    batch = b;
+                    latch.Set();
+                };
                 Assert.IsTrue(accumulator.Add(Tuple.Create("a", 1, 1)));
                 Assert.IsTrue(accumulator.Add(Tuple.Create("b", 1, 2)));
                 Assert.IsTrue(accumulator.Add(Tuple.Create("c", 1, 3)));
 
-                while (batch == null) ;
+                latch.Wait();
 
                 Assert.That(batch.Count, Is.EqualTo(3));
                 Assert.That(batch.Count(g => g.Key == "a"), Is.EqualTo(1));
