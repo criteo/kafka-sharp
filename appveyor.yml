@@ -1,0 +1,30 @@
+version: '{build}'
+pull_requests:
+  do_not_increment_build_number: true
+nuget:
+  disable_publish_on_pr: true
+configuration:
+- Release
+artifacts:  
+- path: .\artifacts\*.nupkg
+  name: NuGet
+environment:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+before_build:
+- appveyor-retry dotnet restore "kafka-sharp/kafka-sharp-netstd.sln" --verbosity Minimal
+build_script:
+- dotnet build "kafka-sharp/kafka-sharp-netstd.sln" -c %CONFIGURATION%
+after_build:
+- dotnet pack /p:PackageVersion="%APPVEYOR_REPO_TAG_NAME%" "kafka-sharp/kafka-sharp/Kafka.netstandard.csproj" -c %CONFIGURATION% --no-build -o %APPVEYOR_BUILD_FOLDER%\artifacts
+test_script:
+- dotnet test "kafka-sharp/kafka-sharp.UTest/kafka.UTest.netstandard.csproj" -c %CONFIGURATION%
+cache:
+- '%USERPROFILE%\.nuget\packages'
+deploy:
+- provider: NuGet
+  name: production
+  api_key:
+    secure: eG/1njQ1jmg8cuYYVjmO2+7cB/gfRx3QvUnKNK7J0NXL1yLtvCn+aBSmiJtFSJwv
+  on:
+    branch: master
+    appveyor_repo_tag: true
