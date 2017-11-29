@@ -567,11 +567,11 @@ namespace Kafka.Cluster
                     RequestValue =
                         new RequestValue
                         {
-                            HeartbeatRequest =
-                                new Requested<HeartbeatRequest, ErrorCode>
+                            LeaveGroupRequest =
+                                new Requested<LeaveGroupRequest, ErrorCode>
                                 {
                                     Request =
-                                        new HeartbeatRequest
+                                        new LeaveGroupRequest
                                         {
                                             GroupId = groupId,
                                             MemberId = memberId
@@ -1796,7 +1796,7 @@ namespace Kafka.Cluster
                     break;
 
                 case RequestType.JoinConsumerGroup:
-                    SignalCompletion(request.RequestValue.SyncConsumerGroupRequest.Promise, exception);
+                    SignalCompletion(request.RequestValue.JoinConsumerGroupRequest.Promise, exception);
                     break;
 
                 case RequestType.SyncConsumerGroup:
