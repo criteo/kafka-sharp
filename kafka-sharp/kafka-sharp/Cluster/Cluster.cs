@@ -309,6 +309,7 @@ namespace Kafka.Cluster
             node.Dead += n => OnNodeEvent(() => ProcessDeadNode(n));
             node.ConnectionError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
+            node.InternalError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.RequestSent += _ => Statistics.UpdateRequestSent();
             node.ResponseReceived += (n, l) => Statistics.UpdateResponseReceived(GetNodeId(n), l);
             node.ProduceBatchSent += (_, c, s) =>
