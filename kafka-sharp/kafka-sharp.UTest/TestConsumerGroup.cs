@@ -31,6 +31,7 @@ namespace tests_kafka_sharp
             public Mock<ICluster> Cluster;
             public Mock<INode> Node;
             public Mock<IConsumerGroup> Group;
+            public AutoResetEvent HeartbeatCalled { get; set; }
         }
 
         Mocks InitCluster()
@@ -174,7 +175,17 @@ namespace tests_kafka_sharp
             group.SetupGet(g => g.Configuration)
                 .Returns(new ConsumerGroupConfiguration { AutoCommitEveryMs = 10, SessionTimeoutMs = 10 });
 
-            return new Mocks { Cluster = cluster, Node = node, Group = group };
+            var heartbeatEvent = new AutoResetEvent(false);
+            group.Setup(g => g.Heartbeat())
+                .Callback(() => heartbeatEvent.Set());
+
+            return new Mocks { Cluster = cluster, Node = node, Group = group, HeartbeatCalled = heartbeatEvent};
+        }
+
+        private void WaitForCallToHeartbeat(Mocks mock)
+        {
+            if (!mock.HeartbeatCalled.WaitOne(TimeSpan.FromSeconds(1)))
+                Assert.Fail("We waited 1 sec for a hearbeat to happen, but it never did.");
         }
 
         [Test]
@@ -481,6 +492,10 @@ namespace tests_kafka_sharp
         public void TestConsumer_ConsumerGroupStartConsume()
         {
             var mocks = InitCluster();
+            var commitEvent = new AutoResetEvent(false);
+            mocks.Group.Setup(g => g.Commit(It.IsAny<IEnumerable<TopicData<OffsetCommitPartitionData>>>()))
+                .Callback(() => commitEvent.Set());
+
             var consumer = new ConsumeRouter(mocks.Cluster.Object,
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
 
@@ -490,7 +505,7 @@ namespace tests_kafka_sharp
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Once); // 1 partition with specific offset
             mocks.Node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Once); // 1 partition with offset -1
 
-            Thread.Sleep(20); // wait for at least one heartbeat to be sent
+            WaitForCallToHeartbeat(mocks);
 
             mocks.Group.Verify(g => g.Heartbeat());
 
@@ -525,6 +540,8 @@ namespace tests_kafka_sharp
             }});
 
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2)); // response should have triggered one more fetch
+            if (!commitEvent.WaitOne(TimeSpan.FromSeconds(1)))
+                Assert.Fail("We waited 1 sec for a commit from the group, it did not happen");
             mocks.Group.Verify(g => g.Commit(It.IsAny<IEnumerable<TopicData<OffsetCommitPartitionData>>>())); // should have auto commited
 
             consumer.Stop().Wait();
@@ -543,7 +560,7 @@ namespace tests_kafka_sharp
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Once); // 1 partition with specific offset
             mocks.Node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Once); // 1 partition with offset -1
 
-            Thread.Sleep(20); // wait for at least one heartbeat to be sent
+            WaitForCallToHeartbeat(mocks);
 
             mocks.Group.Verify(g => g.Heartbeat());
 
@@ -640,7 +657,7 @@ namespace tests_kafka_sharp
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
-            Thread.Sleep(10); // wait for at least one heartbeat to be sent
+            WaitForCallToHeartbeat(mocks);
 
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
@@ -721,11 +738,12 @@ namespace tests_kafka_sharp
             var consumer = new ConsumeRouter(mocks.Cluster.Object,
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
 
-            mocks.Group.Setup(g => g.Heartbeat()).ReturnsAsync(ErrorCode.RebalanceInProgress);
+            mocks.Group.Setup(g => g.Heartbeat()).ReturnsAsync(ErrorCode.RebalanceInProgress)
+                .Callback(() => mocks.HeartbeatCalled.Set());
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
-            Thread.Sleep(50); // wait for at least one heartbeat to be sent
+            WaitForCallToHeartbeat(mocks);
 
             // At least 2 Join (one on start, one on next heartbeat)
             mocks.Group.Verify(g => g.Join(It.IsAny<IEnumerable<string>>()), Times.AtLeast(2));
@@ -736,13 +754,14 @@ namespace tests_kafka_sharp
             mocks = InitCluster();
             mocks.Group.SetupGet(g => g.Configuration)
                 .Returns(new ConsumerGroupConfiguration { AutoCommitEveryMs = -1, SessionTimeoutMs = 10 });
-            mocks.Group.Setup(g => g.Heartbeat()).ThrowsAsync(new Exception());
+            mocks.Group.Setup(g => g.Heartbeat()).ThrowsAsync(new Exception())
+                .Callback(() => mocks.HeartbeatCalled.Set());
             consumer = new ConsumeRouter(mocks.Cluster.Object,
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
-            Thread.Sleep(20); // wait for at least one heartbeat to be sent
+            WaitForCallToHeartbeat(mocks);
 
             mocks.Group.Verify(g => g.Join(It.IsAny<IEnumerable<string>>()), Times.AtLeast(2));
             // No Commit tried in case of ""hard" heartbeat errors

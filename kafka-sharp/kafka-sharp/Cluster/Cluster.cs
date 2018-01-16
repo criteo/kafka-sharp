@@ -173,7 +173,7 @@ namespace Kafka.Cluster
             Statistics = statistics ?? new Statistics();
             _timeoutScheduler = new TimeoutScheduler(configuration.ClientRequestTimeoutMs / 2);
 
-            _pools = InitPools(Statistics, configuration);
+            _pools = InitPools(Statistics, configuration, logger);
 
             // Producer init
             ProduceRouter = producerFactory != null ? producerFactory() : new ProduceRouter(this, configuration, _pools.MessageBuffersPool);
@@ -200,7 +200,7 @@ namespace Kafka.Cluster
 
             // Consumer init
             ConsumeRouter = consumerFactory != null ? consumerFactory() : new ConsumeRouter(this, configuration);
-            ConsumeRouter.MessageReceived += _ => Statistics.UpdateReceived();
+            ConsumeRouter.MessageReceived += UpdateConsumerMessageStatistics;
             if (ConsumeRouter is ConsumeRouter)
             {
                 (ConsumeRouter as ConsumeRouter).InternalError +=
@@ -235,15 +235,21 @@ namespace Kafka.Cluster
             }
         }
 
+        private void UpdateConsumerMessageStatistics(RawKafkaRecord kr)
+        {
+            Statistics.UpdateReceived();
+            Statistics.UpdateConsumerLag(kr.Topic, kr.Lag);
+        }
+
         public Cluster SetResolution(double resolution)
         {
             _resolution = resolution;
             return this;
         }
 
-        private static Pools InitPools(IStatistics statistics, Configuration configuration)
+        private static Pools InitPools(IStatistics statistics, Configuration configuration, ILogger logger)
         {
-            var pools = new Pools(statistics);
+            var pools = new Pools(statistics, logger);
             pools.InitSocketBuffersPool(Math.Max(configuration.SendBufferSize, configuration.ReceiveBufferSize));
             pools.InitRequestsBuffersPool();
             var limit = configuration.SerializationConfig.MaxPooledMessages;
@@ -309,6 +315,7 @@ namespace Kafka.Cluster
             node.Dead += n => OnNodeEvent(() => ProcessDeadNode(n));
             node.ConnectionError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.DecodeError += (n, e) => OnNodeEvent(() => ProcessDecodeError(n, e));
+            node.InternalError += (n, e) => OnNodeEvent(() => ProcessNodeError(n, e));
             node.RequestSent += _ => Statistics.UpdateRequestSent();
             node.ResponseReceived += (n, l) => Statistics.UpdateResponseReceived(GetNodeId(n), l);
             node.ProduceBatchSent += (_, c, s) =>
@@ -365,11 +372,11 @@ namespace Kafka.Cluster
         private void ProcessNodeError(INode node, Exception exception)
         {
             Statistics.UpdateErrors();
-            var ex = exception as TransportException;
+            var transportException = exception as TransportException;
             var n = GetNodeName(node);
-            if (ex != null)
+            if (transportException != null)
             {
-                switch (ex.Error)
+                switch (transportException.Error)
                 {
                     case TransportError.ConnectError:
                         Logger.LogWarning(string.Format("Failed to connect to {0}, retrying.", n));
@@ -381,16 +388,20 @@ namespace Kafka.Cluster
                     // dead nodes (see 'ProcessDeadNode')
                     case TransportError.ReadError:
                     case TransportError.WriteError:
-                        Logger.LogWarning(string.Format("Transport error to {0}: {1}", n, ex));
+                        Logger.LogWarning(string.Format("Transport error to {0}: {1}", n, transportException));
                         break;
 
                     // We cannot get there, but just in case and because dumb
                     // static checkers like Sonar are complaining:
                     default:
                         Logger.LogError("Unknown transport error");
-                        InternalError(ex);
+                        InternalError(transportException);
                         break;
                 }
+            }
+            else if (exception is TimeoutException)
+            {
+                Logger.LogWarning(string.Format("Timeout in node {0}: {1}", n, exception));
             }
             else
             {

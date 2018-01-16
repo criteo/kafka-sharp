@@ -236,6 +236,7 @@ namespace tests_kafka_sharp
         public event Action<INode, double> ResponseReceived = (n, l) => { };
         public event Action<INode, Exception> ConnectionError = (n, e) => { };
         public event Action<INode, Exception> DecodeError = (n, e) => { };
+        public event Action<INode, Exception> InternalError = (n, e) => { };
         public event Action<INode> Dead = _ => { };
         public event Action<INode> Connected = _ => { };
         public event Action<INode> RequestTimeout = _ => { };

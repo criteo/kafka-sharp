@@ -828,8 +828,6 @@ namespace Kafka.Routing
             }
         }
 
-        private static readonly Task DoneTask = Task.FromResult(true);
-
         private DateTime _lastHeartBeat;
 
         private Task CheckHeartbeat()
@@ -840,12 +838,12 @@ namespace Kafka.Routing
             {
                 return HandleHeartbeat();
             }
-            return DoneTask;
+            return Task.CompletedTask;
         }
 
         private Task CheckCommit(CommitMsg commit)
         {
-            return commit != null ? CommitOne(commit) : _commitRequired ? CommitAll() : DoneTask;
+            return commit != null ? CommitOne(commit) : _commitRequired ? CommitAll() : Task.CompletedTask;
         }
 
         private async Task CommitOne(CommitMsg commit)

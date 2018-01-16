@@ -37,7 +37,7 @@ namespace tests_kafka_sharp
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
             const int expectedLatency = 5;
-            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, false, false, expectedLatency);
+            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, forceErrors: false, forceConnectionErrors: false, responseDelay: expectedLatency);
 
             cluster.Produce("topic1", "key", "value");
             SpinWait.SpinUntil(() => cluster.Statistics.Exited == 1);
@@ -62,7 +62,7 @@ namespace tests_kafka_sharp
             var logger = new TestLogger();
 
             const int expectedLatency = 1;
-            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, false, false, expectedLatency);
+            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, forceErrors: false, forceConnectionErrors: false, responseDelay: expectedLatency);
 
             cluster.Produce("topic1", "key", "value");
             cluster.Produce("topic2", "key", "value");
@@ -150,7 +150,7 @@ namespace tests_kafka_sharp
                 ErrorStrategy = ErrorStrategy.Discard,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
-            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, true);
+            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, forceErrors: true);
 
             cluster.Produce("topic1", "key", "value");
             cluster.Produce("topic2", "key", "value");
@@ -196,7 +196,7 @@ namespace tests_kafka_sharp
                 MaxSuccessiveNodeErrors = 10,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
-            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, false, true);
+            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, forceErrors: false, forceConnectionErrors: true);
 
             cluster.Produce("topic1", "key", "value");
             cluster.Produce("topic2", "key", "value");
@@ -245,7 +245,7 @@ namespace tests_kafka_sharp
                 ErrorStrategy = ErrorStrategy.Retry,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
-            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, true, true);
+            var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, forceErrors: true, forceConnectionErrors: true);
 
             cluster.Produce("topic1", "key", "value");
             cluster.Produce("topic2", "key", "value");

@@ -123,6 +123,11 @@ namespace Kafka.Public
         /// </summary>
         long MessagePostponed { get; }
 
+        /// <summary>
+        /// Lag observed by the consumer for the latest request
+        /// </summary>
+        long LatestConsumerLag { get; }
+
         void UpdateSuccessfulSent(long nb);
 
         void UpdateRequestSent();
@@ -166,6 +171,8 @@ namespace Kafka.Public
         void UpdateMessageRetry(string topic);
 
         void UpdateMessagePostponed(string topic);
+
+        void UpdateConsumerLag(string topic, long nb);
     }
 
     public class Statistics : IStatistics
@@ -192,6 +199,7 @@ namespace Kafka.Public
         private long _brokerTimeoutError;
         private long _messageRetry;
         private long _messagePostponed;
+        private long _latestConsumerLag;
 
         public long SuccessfulSent { get { return _successfulSent; } }
 
@@ -237,6 +245,8 @@ namespace Kafka.Public
 
         public long MessagePostponed { get { return _messagePostponed; } }
 
+        public long LatestConsumerLag { get { return _latestConsumerLag; } }
+
         public override string ToString()
         {
             return string.Format(@"Messages successfully sent: {0} - Messages received: {8}
@@ -248,10 +258,10 @@ namespace Kafka.Public
                     Raw produced: {9} - Raw produced bytes: {10}
                     Raw received: {11} - Raw received bytes: {12}
                     Socket buffers: {13} - Requests buffers: {14} - MessageBuffers: {15}
-                    Message retry: {19} - Message postponed: {20}",
-                SuccessfulSent, RequestSent, ResponseReceived, Errors, NodeDead, Expired, Discarded, Exited, Received, RawProduced,
-                RawProducedBytes, RawReceived, RawReceivedBytes, SocketBuffers, RequestsBuffers, MessageBuffers, Entered,
-                RequestTimeout, BrokerTimeoutError, MessageRetry, MessagePostponed);
+                    Message retry: {19} - Message postponed: {20} - Consumer lag: {21}", SuccessfulSent, RequestSent, ResponseReceived,
+                Errors, NodeDead, Expired, Discarded, Exited, Received, RawProduced, RawProducedBytes, RawReceived,
+                RawReceivedBytes, SocketBuffers, RequestsBuffers, MessageBuffers, Entered, RequestTimeout,
+                BrokerTimeoutError, MessageRetry, MessagePostponed, LatestConsumerLag);
         }
 
         public void UpdateSuccessfulSent(long nb)
@@ -363,6 +373,11 @@ namespace Kafka.Public
         public void UpdateMessagePostponed(string topic)
         {
             Interlocked.Increment(ref _messagePostponed);
+        }
+
+        public void UpdateConsumerLag(string topic, long nb)
+        {
+            Interlocked.Exchange(ref _latestConsumerLag, nb);
         }
     }
 }

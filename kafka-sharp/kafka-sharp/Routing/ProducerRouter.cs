@@ -366,11 +366,12 @@ namespace Kafka.Routing
         }
 
         /// <summary>
-        /// Reenqueue a message. Check for expiration date and raise MessageExpired if needed.
+        /// Prepare an existing message for routing.
+        /// Check for expiration date and raise MessageExpired if needed.
         /// Raise the MessageReEnqueued if message effectively reenqueued.
         /// </summary>
         /// <param name="message"></param>
-        internal void ReEnqueue(ProduceMessage message)
+        private void ReEnqueueMessage(ProduceMessage message)
         {
             if (message.ExpirationDate < DateTime.UtcNow)
             {
@@ -379,16 +380,33 @@ namespace Kafka.Routing
             }
 
             message.Partition = Partitions.None; // so that round robined msgs are re robined
-            if ((_configuration.MaxRetry < 0 || ++message.Retried <= _configuration.MaxRetry) && Post(message))
+            if (Post(message))
             {
                 MessageReEnqueued(message.Topic);
             }
             else
             {
-                _cluster.Logger.LogError(
-                    string.Format(
-                        "[Producer] Not able to re-enqueue, discarding message for topic '{0}' after {1} retry",
-                        message.Topic, message.Retried));
+                _cluster.Logger.LogWarning(string.Format(
+                    "[Producer] Failed to reenqueue message, discarding message for topic '{0}'", message.Topic));
+                OnMessageDiscarded(message);
+            }
+        }
+
+        /// <summary>
+        /// Try to send again a message following an error.
+        /// Check for retry if needed.
+        /// </summary>
+        internal void ReEnqueueAfterError(ProduceMessage message)
+        {
+            if (_configuration.MaxRetry < 0 || ++message.Retried <= _configuration.MaxRetry)
+            {
+                ReEnqueueMessage(message);
+            }
+            else
+            {
+                _cluster.Logger.LogError(string.Format(
+                    "[Producer] Not able to reenqueue: too many retry ({1}). Discarding message for topic '{0}'",
+                    message.Topic, message.Retried));
                 OnMessageDiscarded(message);
             }
         }
@@ -569,7 +587,7 @@ namespace Kafka.Routing
             }
             else
             {
-                ReEnqueue(produceMessage);
+                ReEnqueueMessage(produceMessage);
             }
         }
 
@@ -584,11 +602,14 @@ namespace Kafka.Routing
         {
             foreach (var message in acknowledgement.OriginalBatch.SelectMany(gt => gt.SelectMany(gp => gp)))
             {
-                if (_configuration.ErrorStrategy == ErrorStrategy.Retry ||
-                    acknowledgement.ReceiveDate == default(DateTime))
+                if (acknowledgement.ReceiveDate == default(DateTime))
                 {
-                    // Repost
-                    ReEnqueue(message);
+                    // Message was not sent
+                    ReEnqueueMessage(message);
+                }
+                else if (_configuration.ErrorStrategy == ErrorStrategy.Retry)
+                {
+                    ReEnqueueAfterError(message);
                 }
                 else
                 {
@@ -724,7 +745,7 @@ namespace Kafka.Routing
                 {
                     if (recPartitions.Contains(pm.Partition))
                     {
-                        ReEnqueue(pm);
+                        ReEnqueueAfterError(pm);
                     }
                     else
                     {
@@ -766,7 +787,7 @@ namespace Kafka.Routing
                 {
                     while (postponed.Count > 0)
                     {
-                        ReEnqueue(postponed.Dequeue());
+                        ReEnqueueAfterError(postponed.Dequeue());
                         --_numberOfPostponedMessages;
                     }
                 }
@@ -906,6 +927,10 @@ namespace Kafka.Routing
         // Raise the MessageExpired event and release a message.
         private void OnMessageExpired(ProduceMessage message)
         {
+            _cluster.Logger.LogError(string.Format(
+                "[Producer] Not able to send message before reaching TTL for [topic: {0} / partition: {1}], message expired.",
+                message.Topic, message.RequiredPartition));
+
             message.Message = CheckReleaseMessage(message.Message);
             MessageExpired(message.Topic, message.Message);
         }

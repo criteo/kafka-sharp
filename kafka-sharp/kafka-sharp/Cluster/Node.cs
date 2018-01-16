@@ -207,6 +207,11 @@ namespace Kafka.Cluster
         event Action<INode, Exception> DecodeError;
 
         /// <summary>
+        /// An error occured inside the node
+        /// </summary>
+        event Action<INode, Exception> InternalError;
+
+        /// <summary>
         /// The node is dead.
         /// </summary>
         event Action<INode> Dead;
@@ -567,11 +572,11 @@ namespace Kafka.Cluster
                     RequestValue =
                         new RequestValue
                         {
-                            HeartbeatRequest =
-                                new Requested<HeartbeatRequest, ErrorCode>
+                            LeaveGroupRequest =
+                                new Requested<LeaveGroupRequest, ErrorCode>
                                 {
                                     Request =
-                                        new HeartbeatRequest
+                                        new LeaveGroupRequest
                                         {
                                             GroupId = groupId,
                                             MemberId = memberId
@@ -1284,11 +1289,9 @@ namespace Kafka.Cluster
             return true;
         }
 
-        private static readonly Task SuccessTask = Task.FromResult(true);
-
         private Task ReadyToSendRequest()
         {
-            return RequestSlotAvailable() ? SuccessTask : WaitRequestSlot();
+            return RequestSlotAvailable() ? Task.CompletedTask : WaitRequestSlot();
         }
 
         private async Task WaitRequestSlot()
@@ -1313,145 +1316,137 @@ namespace Kafka.Cluster
         /// </summary>
         private void ProcessResponse(Response response)
         {
-            switch (response.ResponseType)
+            try
             {
-                case ResponseType.Stop:
-                    CleanUpConnection(response.Connection);
-                    break;
+                switch (response.ResponseType)
+                {
+                    case ResponseType.Stop:
+                        CleanUpConnection(response.Connection);
+                        break;
 
-                case ResponseType.Exception:
-                    CleanUpConnection(response.Connection, response.ResponseValue.ResponseException.Exception);
-                    break;
+                    case ResponseType.Exception:
+                        CleanUpConnection(response.Connection, response.ResponseValue.ResponseException.Exception);
+                        break;
 
-                case ResponseType.Data:
-                    ConcurrentQueue<Pending> pendings;
-                    if (!_pendings.TryGetValue(response.Connection, out pendings))
-                    {
-                        // Some race condition occured between send and receive error.
-                        // It can theoretically happen but should be very rare.
-                        // In that case we do nothing, the error is already being taken care of.
-                        return;
-                    }
-                    Pending pending;
-                    if (!pendings.TryDequeue(out pending))
-                    {
-                        // The request is not found in the correlation queue.
-                        // This means that an error has previously occured and
-                        // we already took care of that.
-                        return;
-                    }
-
-                    DecrementPendings();
-
-                    using (var data = response.ResponseValue.ResponseData.Data)
-                    {
-                        if (pending.CorrelationId != response.ResponseValue.ResponseData.CorrelationId)
+                    case ResponseType.Data:
+                        ConcurrentQueue<Pending> pendings;
+                        if (!_pendings.TryGetValue(response.Connection, out pendings))
                         {
-                            // This is an error but it should not happen because the underlying connection
-                            // is already supposed to have managed that.
-                            CleanUpConnection(response.Connection);
+                            // Some race condition occured between send and receive error.
+                            // It can theoretically happen but should be very rare.
+                            // In that case we do nothing, the error is already being taken care of.
+                            return;
+                        }
+                        Pending pending;
+                        if (!pendings.TryDequeue(out pending))
+                        {
+                            // The request is not found in the correlation queue.
+                            // This means that an error has previously occured and
+                            // we already took care of that.
                             return;
                         }
 
-                        var latencyMs = DateTime.UtcNow.Subtract(pending.TimeStamp).TotalMilliseconds;
-                        OnResponseReceived(latencyMs);
+                        DecrementPendings();
 
-                        switch (pending.Request.RequestType)
+                        using (var data = response.ResponseValue.ResponseData.Data)
                         {
-                            case RequestType.BatchedProduce:
-                                ProcessProduceResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.ProduceBatchRequest);
+                            if (pending.CorrelationId != response.ResponseValue.ResponseData.CorrelationId)
+                            {
+                                // This is an error but it should not happen because the underlying connection
+                                // is already supposed to have managed that.
+                                CleanUpConnection(response.Connection);
+                                return;
+                            }
 
-                                break;
+                            var latencyMs = DateTime.UtcNow.Subtract(pending.TimeStamp).TotalMilliseconds;
+                            OnResponseReceived(latencyMs);
 
-                            case RequestType.Metadata:
-                                ProcessMetadataResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.MetadataRequest);
-                                break;
+                            switch (pending.Request.RequestType)
+                            {
+                                case RequestType.BatchedProduce:
+                                    ProcessProduceResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.ProduceBatchRequest);
 
-                            case RequestType.SingleOffset:
-                                ProcessSingleOffsetResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.OneOffsetRequest);
-                                break;
+                                    break;
 
-                            case RequestType.BatchedFetch:
-                                ProcessFetchResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.FetchBatchRequest);
-                                break;
+                                case RequestType.Metadata:
+                                    ProcessMetadataResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.MetadataRequest);
+                                    break;
 
-                            case RequestType.BatchedOffset:
-                                ProcessOffsetResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.OffsetBatchRequest);
-                                break;
+                                case RequestType.SingleOffset:
+                                    ProcessSingleOffsetResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.OneOffsetRequest);
+                                    break;
 
-                            case RequestType.GroupCoordinator:
-                                ProcessPromiseResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.GroupCoordinatorRequest);
-                                break;
+                                case RequestType.BatchedFetch:
+                                    ProcessFetchResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.FetchBatchRequest);
+                                    break;
 
-                            case RequestType.JoinConsumerGroup:
-                                ProcessPromiseResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.JoinConsumerGroupRequest);
-                                break;
+                                case RequestType.BatchedOffset:
+                                    ProcessOffsetResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.OffsetBatchRequest);
+                                    break;
 
-                            case RequestType.SyncConsumerGroup:
-                                ProcessPromiseResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.SyncConsumerGroupRequest);
-                                break;
+                                case RequestType.GroupCoordinator:
+                                    ProcessPromiseResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.GroupCoordinatorRequest);
+                                    break;
 
-                            case RequestType.OffsetCommit:
-                                ProcessPromiseResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.OffsetCommitRequest);
-                                break;
+                                case RequestType.JoinConsumerGroup:
+                                    ProcessPromiseResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.JoinConsumerGroupRequest);
+                                    break;
 
-                            case RequestType.OffsetFetch:
-                                ProcessPromiseResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.OffsetFetchRequest);
-                                break;
+                                case RequestType.SyncConsumerGroup:
+                                    ProcessPromiseResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.SyncConsumerGroupRequest);
+                                    break;
 
-                            case RequestType.Heartbeat:
-                                ProcessSimpleResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.HeartbeatRequest);
-                                break;
+                                case RequestType.OffsetCommit:
+                                    ProcessPromiseResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.OffsetCommitRequest);
+                                    break;
 
-                            case RequestType.LeaveGroup:
-                                ProcessSimpleResponse(
-                                    pending.CorrelationId,
-                                    data,
-                                    pending.Request.RequestValue.LeaveGroupRequest);
-                                break;
+                                case RequestType.OffsetFetch:
+                                    ProcessPromiseResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.OffsetFetchRequest);
+                                    break;
+
+                                case RequestType.Heartbeat:
+                                    ProcessSimpleResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.HeartbeatRequest);
+                                    break;
+
+                                case RequestType.LeaveGroup:
+                                    ProcessSimpleResponse(pending.CorrelationId, data,
+                                        pending.Request.RequestValue.LeaveGroupRequest);
+                                    break;
+                            }
                         }
-                    }
-                    break;
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                OnInternalError(ex);
             }
         }
 
         // Clean up the mess
         private void CleanUpConnection(IConnection connection, Exception exception = null)
         {
-            ClearConnection(connection);
+            try
+            {
+                ClearConnection(connection);
+            }
+            catch (Exception ex)
+            {
+                OnConnectionError(ex);
+            }
+
+            // Make sure we will always clean the connection's pending requests
             ClearCorrelationIds(connection, exception);
         }
 
@@ -1798,7 +1793,7 @@ namespace Kafka.Cluster
                     break;
 
                 case RequestType.JoinConsumerGroup:
-                    SignalCompletion(request.RequestValue.SyncConsumerGroupRequest.Promise, exception);
+                    SignalCompletion(request.RequestValue.JoinConsumerGroupRequest.Promise, exception);
                     break;
 
                 case RequestType.SyncConsumerGroup:
@@ -1865,9 +1860,17 @@ namespace Kafka.Cluster
         }
 
         public event Action<INode, Exception> DecodeError = (n, e) => { };
+
         private void OnDecodeError(Exception ex)
         {
             DecodeError(this, ex);
+        }
+
+        public event Action<INode, Exception> InternalError = (n, e) => { };
+
+        private void OnInternalError(Exception ex)
+        {
+            InternalError(this, ex);
         }
 
         public event Action<INode> Dead = n => { };

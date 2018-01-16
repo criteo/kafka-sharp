@@ -12,10 +12,12 @@ namespace Kafka.Cluster
     class Pools
     {
         private readonly IStatistics _stats;
+        private readonly ILogger _logger;
 
-        public Pools(IStatistics stats)
+        public Pools(IStatistics stats, ILogger logger)
         {
             _stats = stats;
+            _logger = logger;
         }
 
         public Pool<byte[]> SocketBuffersPool { get; private set; }
@@ -39,7 +41,7 @@ namespace Kafka.Cluster
                 () =>
                 {
                     _stats.UpdateMessageBuffers(1);
-                    return new ReusableMemoryStream(MessageBuffersPool);
+                    return new ReusableMemoryStream(MessageBuffersPool, _logger);
                 },
                 (b, reused) =>
                 {
@@ -66,7 +68,7 @@ namespace Kafka.Cluster
                 () =>
                 {
                     _stats.UpdateRequestsBuffers(1);
-                    return new ReusableMemoryStream(RequestsBuffersPool);
+                    return new ReusableMemoryStream(RequestsBuffersPool, _logger);
                 },
                 (b, reused) =>
                 {
