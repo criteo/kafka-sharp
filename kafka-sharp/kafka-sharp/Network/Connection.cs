@@ -365,7 +365,6 @@ namespace Kafka.Network
             _bufferPool.Release(_sendContext.Buffer);
             _sendContext.Buffer = null;
             _sendContext.Data = null;
-            _sendContext.Promise = null;
         }
 
         // Async send loop body
@@ -381,9 +380,9 @@ namespace Kafka.Network
 
             if (saea.SocketError != SocketError.Success)
             {
+                connection.CleanSend();
                 connection._sendContext.Promise.SetException(new TransportException(TransportError.WriteError,
                     new SocketException((int) saea.SocketError)));
-                connection.CleanSend();
                 return;
             }
 
@@ -402,8 +401,8 @@ namespace Kafka.Network
                 }
                 else
                 {
-                    connection._sendContext.Promise.SetResult(SuccessResult);
                     connection.CleanSend();
+                    connection._sendContext.Promise.SetResult(SuccessResult);
                 }
             }
         }
