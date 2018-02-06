@@ -625,23 +625,30 @@ namespace Kafka.Routing
 
         private static readonly HashSet<int> NullHash = new HashSet<int>(); // A sentinel object
 
-        private void ClearMessage(Message message)
+        /// <summary>
+        /// Free message resources
+        /// </summary>
+        /// <remarks>
+        /// Key & Value should not be disposed in case of error as they will be returned in the lost message event
+        /// </remarks>
+        private void ClearMessage(Message message, bool shouldClearKeyValue = true)
         {
             if (_configuration.SerializationConfig.SerializeOnProduce)
             {
-                message.SerializedKeyValue.Dispose();
+                message.ReleaseSerializedKeyValue();
             }
             else
             {
-                var key = message.Key as IDisposable;
-                if (key != null)
+                if (shouldClearKeyValue)
                 {
-                    key.Dispose();
-                }
-                var value = message.Value as IDisposable;
-                if (value != null)
-                {
-                    value.Dispose();
+                    if (message.Key is IDisposable key)
+                    {
+                        key.Dispose();
+                    }
+                    if (message.Value is IDisposable value)
+                    {
+                        value.Dispose();
+                    }
                 }
             }
         }
@@ -931,25 +938,15 @@ namespace Kafka.Routing
                 "[Producer] Not able to send message before reaching TTL for [topic: {0} / partition: {1}], message expired.",
                 message.Topic, message.RequiredPartition));
 
-            message.Message = CheckReleaseMessage(message.Message);
+            ClearMessage(message.Message, shouldClearKeyValue: false);
             MessageExpired(message.Topic, message.Message);
         }
 
         // Raise the MessageDiscarded event and release a message.
         private void OnMessageDiscarded(ProduceMessage message)
         {
-            message.Message = CheckReleaseMessage(message.Message);
+            ClearMessage(message.Message, shouldClearKeyValue: false);
             MessageDiscarded(message.Topic, message.Message);
-        }
-
-        private Message CheckReleaseMessage(Message message)
-        {
-            if (message.SerializedKeyValue != null)
-            {
-                message.SerializedKeyValue.Dispose();
-                message.SerializedKeyValue = null;
-            }
-            return message;
         }
     }
 }
