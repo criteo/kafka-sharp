@@ -182,10 +182,21 @@ namespace tests_kafka_sharp
             return new Mocks { Cluster = cluster, Node = node, Group = group, HeartbeatCalled = heartbeatEvent};
         }
 
-        private void WaitForCallToHeartbeat(Mocks mock)
+        private void WaitOneSecondMaxForEvent(string name, AutoResetEvent ev)
         {
-            if (!mock.HeartbeatCalled.WaitOne(TimeSpan.FromSeconds(1)))
-                Assert.Fail("We waited 1 sec for a hearbeat to happen, but it never did.");
+            if (!ev.WaitOne(TimeSpan.FromSeconds(1)))
+            {
+                Assert.Fail("We waited 1 sec for " + name + " to happen, but it never did.");
+            }
+        }
+
+        private async Task HeartbeatFinishedProcessing(Mocks mock, ConsumeRouter router)
+        {
+            // First we wait to be sure that a heartbeat has started being processed
+            WaitOneSecondMaxForEvent("heatbeat", mock.HeartbeatCalled);
+            // Then we wait to be sure that the current message is finished processing
+            // (this message being the heartbeat or a following message)
+            await router.StopProcessingTask();
         }
 
         [Test]
@@ -505,7 +516,7 @@ namespace tests_kafka_sharp
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Once); // 1 partition with specific offset
             mocks.Node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Once); // 1 partition with offset -1
 
-            WaitForCallToHeartbeat(mocks);
+            WaitOneSecondMaxForEvent("heatbeat", mocks.HeartbeatCalled);
 
             mocks.Group.Verify(g => g.Heartbeat());
 
@@ -540,19 +551,22 @@ namespace tests_kafka_sharp
             }});
 
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2)); // response should have triggered one more fetch
-            if (!commitEvent.WaitOne(TimeSpan.FromSeconds(1)))
-                Assert.Fail("We waited 1 sec for a commit from the group, it did not happen");
+            WaitOneSecondMaxForEvent("commit", commitEvent);
             mocks.Group.Verify(g => g.Commit(It.IsAny<IEnumerable<TopicData<OffsetCommitPartitionData>>>())); // should have auto commited
 
             consumer.Stop().Wait();
         }
 
         [Test]
-        public void TestConsumer_ConsumerGroupRestartConsume()
+        public async Task TestConsumer_ConsumerGroupRestartConsume()
         {
             var mocks = InitCluster();
             var consumer = new ConsumeRouter(mocks.Cluster.Object,
                 new Configuration { TaskScheduler = new CurrentThreadTaskScheduler(), ConsumeBatchSize = 1 }, 1);
+
+            var consumerStartEvent = new AutoResetEvent(false);
+            var consumerStopEvent = new AutoResetEvent(false);
+            consumer.ConsumerStopped += () => { consumerStopEvent.Set(); };
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
@@ -560,7 +574,7 @@ namespace tests_kafka_sharp
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Once); // 1 partition with specific offset
             mocks.Node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Once); // 1 partition with offset -1
 
-            WaitForCallToHeartbeat(mocks);
+            WaitOneSecondMaxForEvent("heatbeat", mocks.HeartbeatCalled);
 
             mocks.Group.Verify(g => g.Heartbeat());
 
@@ -594,9 +608,11 @@ namespace tests_kafka_sharp
                     }
             }});
 
-            mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2)); // response should have triggered one more fetch
 
             consumer.StopConsume("the topic", Partitions.All, Offsets.Now);
+            WaitOneSecondMaxForEvent("stop", consumerStopEvent);
+            mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()),
+                Times.Exactly(2)); // response should have triggered one more fetch
 
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
@@ -628,8 +644,10 @@ namespace tests_kafka_sharp
                     }
             }});
 
+            consumer.ConsumerStarted += () => { consumerStartEvent.Set(); };
             consumer.StartConsume("the topic", Partitions.All, Offsets.Now);
 
+            WaitOneSecondMaxForEvent("start", consumerStartEvent);
             mocks.Node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(3));
 
             consumer.Stop().Wait();
@@ -657,7 +675,7 @@ namespace tests_kafka_sharp
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
-            WaitForCallToHeartbeat(mocks);
+            WaitOneSecondMaxForEvent("heatbeat", mocks.HeartbeatCalled);
 
             consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
             {
@@ -730,7 +748,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public void TestConsumer_ConsumerGroupHeartbeatErrors()
+        public async Task TestConsumer_ConsumerGroupHeartbeatErrors()
         {
             var mocks = InitCluster();
             mocks.Group.SetupGet(g => g.Configuration)
@@ -743,7 +761,7 @@ namespace tests_kafka_sharp
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
-            WaitForCallToHeartbeat(mocks);
+            await HeartbeatFinishedProcessing(mocks, consumer);
 
             // At least 2 Join (one on start, one on next heartbeat)
             mocks.Group.Verify(g => g.Join(It.IsAny<IEnumerable<string>>()), Times.AtLeast(2));
@@ -761,7 +779,7 @@ namespace tests_kafka_sharp
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
-            WaitForCallToHeartbeat(mocks);
+            WaitOneSecondMaxForEvent("heatbeat", mocks.HeartbeatCalled);
 
             mocks.Group.Verify(g => g.Join(It.IsAny<IEnumerable<string>>()), Times.AtLeast(2));
             // No Commit tried in case of ""hard" heartbeat errors
@@ -823,7 +841,9 @@ namespace tests_kafka_sharp
         {
             var mocks = InitCluster();
 
-            mocks.Group.Setup(g => g.Heartbeat()).ReturnsAsync(ErrorCode.RebalanceInProgress);
+            mocks.Group.Setup(g => g.Heartbeat())
+                .ReturnsAsync(ErrorCode.RebalanceInProgress)
+                .Callback(() => mocks.HeartbeatCalled.Set());
 
             mocks.Group.SetupGet(g => g.Configuration).Returns(
                 new ConsumerGroupConfiguration { AutoCommitEveryMs = -1, SessionTimeoutMs = 10 });
@@ -841,7 +861,8 @@ namespace tests_kafka_sharp
             consumer.PartitionsRevoked += () => partitionsRevokedEventIsCalled = true;
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
-            Thread.Sleep(20);
+
+            await HeartbeatFinishedProcessing(mocks, consumer);
 
             Assert.That(partitionsRevokedEventIsCalled, Is.True);
 

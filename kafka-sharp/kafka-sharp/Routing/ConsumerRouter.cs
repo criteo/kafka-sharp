@@ -372,6 +372,11 @@ namespace Kafka.Routing
         /// </summary>
         public event Action RoutingTableRequired = () => { };
 
+        // The two following events are for test only.
+        internal event Action ConsumerStarted = () => { };
+
+        internal event Action ConsumerStopped = () => { };
+
         public ConsumeRouter(ICluster cluster, Configuration configuration, int resolution = 1000)
         {
             _resolution = resolution;
@@ -407,10 +412,21 @@ namespace Kafka.Routing
             }
         }
 
-        public async Task Stop()
+        /// <summary>
+        /// Wait for the actor to finish processing the current message it is reading,
+        ///  and make him not accept anymore request.
+        /// This is mostly useful for test, to have a way to be sure that a message has been processed.
+        /// </summary>
+        /// <returns></returns>
+        internal async Task StopProcessingTask()
         {
             _innerActor.Complete();
             await _innerActor.Completion;
+        }
+
+        public async Task Stop()
+        {
+            await StopProcessingTask();
             _fetchBatchStrategy.Dispose();
             _offsetBatchStrategy.Dispose();
             if (_consumerGroup != null)
@@ -726,6 +742,7 @@ namespace Kafka.Routing
                     state.StopAt = Offsets.Never;
                 }
             }
+            ConsumerStarted();
         }
 
         private async Task HandleStartPartition(int partition, PartitionState state, TopicOnOff startInfo)
@@ -826,6 +843,7 @@ namespace Kafka.Routing
                     state.StopAt = topicOnOff.Offset;
                 }
             }
+            ConsumerStopped();
         }
 
         private DateTime _lastHeartBeat;
