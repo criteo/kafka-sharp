@@ -55,7 +55,7 @@ namespace Kafka.Public
     }
 
     /// <summary>
-    /// In case of network errors
+    /// In case of network or protocol errors
     /// </summary>
     public enum ErrorStrategy
     {
@@ -65,7 +65,8 @@ namespace Kafka.Public
         Discard,
 
         /// <summary>
-        /// Retry sending messsages (this may end up in duplicate messages)
+        /// Retry sending messsages (this may end up in duplicate messages) for Producer.
+        /// Retry fetching messages (this may end up in an infinite loop) for Consumer.
         /// </summary>
         Retry
     }
@@ -142,9 +143,14 @@ namespace Kafka.Public
         public TimeSpan TemporaryIgnorePartitionTime = TimeSpan.FromSeconds(42);
 
         /// <summary>
-        /// Strategy in case opf network errors.
+        /// Strategy in case opf network errors for Producer.
         /// </summary>
         public ErrorStrategy ErrorStrategy = ErrorStrategy.Discard;
+
+        /// <summary>
+        /// Strategy in case of deserialization Error for Consumer.
+        /// </summary>
+        public ErrorStrategy ConsumerErrorStrategy = ErrorStrategy.Discard;
 
         /// <summary>
         /// Time slice for batching messages. We wait  that much time at most before processing

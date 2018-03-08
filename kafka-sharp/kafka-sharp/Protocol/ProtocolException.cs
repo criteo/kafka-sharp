@@ -5,6 +5,10 @@ namespace Kafka.Protocol
 {
     class ProtocolException : Exception
     {
+        // Fields to identify the faulty message (useful in case the exception stops a batch)
+        internal string Topic;
+        internal int Partition;
+
         public ProtocolException(string message) : base(message)
         {
         }

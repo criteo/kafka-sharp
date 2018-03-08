@@ -1113,6 +1113,15 @@ namespace Kafka.Routing
                 state.Active = false;
                 StartConsume(topic, partitionResponse.Partition, (long)_configuration.OffsetOutOfRangeStrategy);
             }
+            else if (partitionResponse.ErrorCode == ErrorCode.DeserializationError
+                && _configuration.ConsumerErrorStrategy == ErrorStrategy.Discard)
+            {
+                _cluster.Logger.LogError(
+                    $"Could not deserialize a message for topic {topic} / partition {partitionResponse.Partition}."
+                    + " Because our configuration is set to 'ConsumerErrorStrategy == Discard', we will now read from latest offset.");
+                state.Active = false;
+                StartConsume(topic, partitionResponse.Partition, (long)Public.Offset.Latest);
+            }
             else
             {
                 if (CheckActivity(state, topic, partitionResponse.Partition))

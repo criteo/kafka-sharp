@@ -81,7 +81,15 @@ namespace Kafka.Protocol
             Partition = BigEndianConverter.ReadInt32(stream);
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
             HighWatermarkOffset = BigEndianConverter.ReadInt64(stream);
-            Messages = DeserializeMessageSet(stream, extra as Deserializers);
+            try
+            {
+                Messages = DeserializeMessageSet(stream, extra as Deserializers);
+            }
+            catch (ProtocolException pEx)
+            {
+                pEx.Partition = Partition;
+                throw;
+            }
         }
 
         internal static List<ResponseMessage> DeserializeMessageSet(ReusableMemoryStream stream, Deserializers deserializers)

@@ -37,12 +37,20 @@ namespace Kafka.Protocol
                 var config = extra as SerializationConfig;
                 pdExtra = config.GetDeserializersForTopic(TopicName);
             }
-            for (int i = 0; i < count; ++i)
+            try
             {
-                array[i] = new TPartitionData();
-                array[i].Deserialize(stream, pdExtra, version);
+                for (int i = 0; i < count; ++i)
+                {
+                    array[i] = new TPartitionData();
+                    array[i].Deserialize(stream, pdExtra, version);
+                }
+                PartitionsData = array;
             }
-            PartitionsData = array;
+            catch (ProtocolException pEx)
+            {
+                pEx.Topic = TopicName;
+                throw;
+            }
         }
 
         #endregion
