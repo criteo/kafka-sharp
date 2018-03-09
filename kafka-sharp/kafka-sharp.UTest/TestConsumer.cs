@@ -207,6 +207,23 @@ namespace tests_kafka_sharp
         }
 
         [Test]
+        public void TestConsumeFromLatestWhenDeserializationError()
+        {
+            var (node, _, cluster, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
+            cluster.SetupGet(c => c.Logger).Returns(new DevNullLogger());
+            node.Setup(n => n.Fetch(It.IsAny<FetchMessage>())).Returns(true);
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+
+            node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Never);
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(errorCode:ErrorCode.DeserializationError));
+
+            node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Once);
+            node.Verify(
+                n => n.Offset(It.Is<OffsetMessage>(om => om.Partition == PARTITION && om.Topic == TOPIC
+                    && om.Time == (long) Offset.Latest)), Times.Once());
+        }
+
+        [Test]
         [TestCase(Offset.Earliest)]
         [TestCase(Offset.Latest)]
         public void TestStart_OffsetsOutOfRange(Offset offsetStrategy)
