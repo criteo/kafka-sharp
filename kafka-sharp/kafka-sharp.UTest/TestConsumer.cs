@@ -144,25 +144,7 @@ namespace tests_kafka_sharp
         [TestCase(Offsets.Earliest)]
         public void TestStart_OnePartition_OffsetUnknown(long offset)
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, cluster, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, PARTITION, offset);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -213,25 +195,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestStart_OnePartition_KnownOffset()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, configuration, cluster, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -318,25 +282,7 @@ namespace tests_kafka_sharp
         [TestCase(OFFSET + 1)]
         public void TestStopConsumeBeforeFetchLoop(long offset)
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Latest);
             consumer.StopConsume(TOPIC, PARTITION, offset);
 
@@ -382,25 +328,7 @@ namespace tests_kafka_sharp
         [TestCase(Offsets.Now)]
         public void TestStopConsumeAfterFetchLoop(long offset)
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             consumer.StopConsume(TOPIC, PARTITION, offset);
 
@@ -462,25 +390,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestStopConsumeAfterFetchLoopMultiple()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, 0, OFFSET);
             consumer.StartConsume(TOPIC, 1, OFFSET);
             consumer.StopConsume(TOPIC, Partitions.All, Offsets.Now);
@@ -568,25 +478,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestStopAndStartConsume_SpecificOffsets()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
 
             var offsets = new List<long>();
             consumer.MessageReceived += r => offsets.Add(r.Offset);
@@ -706,25 +598,7 @@ namespace tests_kafka_sharp
         // i.e. Restart is sent after Stop has been fully completed
         public void TestResume_NoOperationPending()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
 
             var offsets = new List<long>();
             consumer.MessageReceived += r => offsets.Add(r.Offset);
@@ -810,25 +684,7 @@ namespace tests_kafka_sharp
         // i.e. Restart is sent while previous stop operation is not fully completed
         public void TestResume_FetchPending()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
 
             var offsets = new List<long>();
             consumer.MessageReceived += r => offsets.Add(r.Offset);
@@ -918,25 +774,7 @@ namespace tests_kafka_sharp
         // while we were waiting for a list operation to complete
         public void TestResume_OffsetPending()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
 
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Latest);
 
@@ -1375,5 +1213,33 @@ namespace tests_kafka_sharp
             
             Assert.AreEqual(42, throttled);
         }
+
+        #region helpers
+
+        // Setup Node and cluster mocks with 1 topic 3 partitions, then create a consumer and returns them all.
+        private (Mock<INode>, Configuration, Mock<ICluster>, ConsumeRouter) CreateMocksAndConsumerWithOneTopic3Partitions()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            return (node, configuration, cluster, consumer);
+        }
+        #endregion  
     }
 }
