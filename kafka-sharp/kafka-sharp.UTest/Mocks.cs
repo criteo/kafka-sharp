@@ -367,6 +367,8 @@ namespace tests_kafka_sharp
         private static int _count;
         private readonly int _responseDelayMs;
 
+        private readonly Queue<Timer> _timers = new Queue<Timer>();
+
         public static void Reset()
         {
             _count = 1;
@@ -406,11 +408,16 @@ namespace tests_kafka_sharp
                 if (_responseDelayMs > 0)
                 {
                     var tcs = new TaskCompletionSource<bool>();
-                    new Timer(_ =>
+                    var timer = new Timer(_ =>
                     {
                         OnResponse(correlationId, response);
                         tcs.SetResult(true);
                     }, null, _responseDelayMs, -1);
+                    while (_timers.Count > 100) // We should have only a few request pending at a time. It should be safe to dispose the old timers at this point.
+                    {
+                        _timers.Dequeue();
+                    }
+                    _timers.Enqueue(timer);
                     return tcs.Task;
                 }
 
