@@ -779,7 +779,7 @@ namespace tests_kafka_sharp
 
             consumer.StartConsumeSubscription(mocks.Group.Object, new[] { "the topic" });
 
-            WaitOneSecondMaxForEvent("heatbeat", mocks.HeartbeatCalled);
+            await HeartbeatFinishedProcessing(mocks, consumer);
 
             mocks.Group.Verify(g => g.Join(It.IsAny<IEnumerable<string>>()), Times.AtLeast(2));
             // No Commit tried in case of ""hard" heartbeat errors
