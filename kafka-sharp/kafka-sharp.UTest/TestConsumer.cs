@@ -144,25 +144,7 @@ namespace tests_kafka_sharp
         [TestCase(Offsets.Earliest)]
         public void TestStart_OnePartition_OffsetUnknown(long offset)
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, cluster, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, PARTITION, offset);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -213,25 +195,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestStart_OnePartition_KnownOffset()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration {TaskScheduler = new CurrentThreadTaskScheduler()};
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, configuration, cluster, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             cluster.Verify(c => c.RequireAllPartitionsForTopic(It.IsAny<string>()), Times.Never());
             cluster.Verify(c => c.RequireNewRoutingTable(), Times.AtLeastOnce());
@@ -240,6 +204,23 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.Offset != OFFSET)), Times.Never());
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.MaxBytes != configuration.FetchMessageMaxBytes)),
                 Times.Never());
+        }
+
+        [Test]
+        public void TestConsumeFromLatestWhenDeserializationError()
+        {
+            var (node, _, cluster, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
+            cluster.SetupGet(c => c.Logger).Returns(new DevNullLogger());
+            node.Setup(n => n.Fetch(It.IsAny<FetchMessage>())).Returns(true);
+            consumer.StartConsume(TOPIC, PARTITION, OFFSET);
+
+            node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Never);
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(errorCode:ErrorCode.DeserializationError));
+
+            node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Once);
+            node.Verify(
+                n => n.Offset(It.Is<OffsetMessage>(om => om.Partition == PARTITION && om.Topic == TOPIC
+                    && om.Time == (long) Offset.Latest)), Times.Once());
         }
 
         [Test]
@@ -277,36 +258,7 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(fm => fm.MaxBytes != configuration.FetchMessageMaxBytes)),
                 Times.Never());
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
-            {
-                Response =
-                    new FetchResponse
-                    {
-                        FetchPartitionResponse =
-                            new CommonResponse<FetchPartitionResponse>
-                            {
-                                TopicsResponse =
-                                    new[]
-                                    {
-                                        new TopicData<FetchPartitionResponse>
-                                        {
-                                            TopicName = TOPIC,
-                                            PartitionsData =
-                                                new[]
-                                                {
-                                                    new FetchPartitionResponse
-                                                    {
-                                                        ErrorCode = ErrorCode.OffsetOutOfRange,
-                                                        Partition = PARTITION,
-                                                        HighWatermarkOffset = 432515L,
-                                                    }
-                                                }
-                                        }
-                                    }
-                            }
-                    },
-                ReceivedDate = DateTime.UtcNow
-            });
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(errorCode:ErrorCode.OffsetOutOfRange));
 
             node.Verify(n => n.Offset(It.IsAny<OffsetMessage>()), Times.Exactly(1));
             node.Verify(n => n.Offset(It.Is<OffsetMessage>(om => om.Partition == PARTITION && om.Topic == TOPIC && om.Time == (long)configuration.OffsetOutOfRangeStrategy)), Times.Once());
@@ -318,25 +270,7 @@ namespace tests_kafka_sharp
         [TestCase(OFFSET + 1)]
         public void TestStopConsumeBeforeFetchLoop(long offset)
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Latest);
             consumer.StopConsume(TOPIC, PARTITION, offset);
 
@@ -382,78 +316,17 @@ namespace tests_kafka_sharp
         [TestCase(Offsets.Now)]
         public void TestStopConsumeAfterFetchLoop(long offset)
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
             consumer.StopConsume(TOPIC, PARTITION, offset);
 
             // Now simulate a fetch response getting out of range, this should not trigger any new fetch request.
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(messages: new List<ResponseMessage>
             {
-                Response =
-                    new FetchResponse
-                    {
-                        FetchPartitionResponse =
-                            new CommonResponse<FetchPartitionResponse>
-                            {
-                                TopicsResponse =
-                                    new[]
-                                    {
-                                        new TopicData<FetchPartitionResponse>
-                                        {
-                                            TopicName = TOPIC,
-                                            PartitionsData =
-                                                new[]
-                                                {
-                                                    new FetchPartitionResponse
-                                                    {
-                                                        ErrorCode = ErrorCode.NoError,
-                                                        Partition = PARTITION,
-                                                        HighWatermarkOffset = 432515L,
-                                                        Messages =
-                                                            new List<ResponseMessage>
-                                                            {
-                                                                new ResponseMessage
-                                                                {
-                                                                    Offset = OFFSET,
-                                                                    Message = new Message()
-                                                                },
-                                                                new ResponseMessage
-                                                                {
-                                                                    Offset = OFFSET + 1,
-                                                                    Message = new Message()
-                                                                },
-                                                                new ResponseMessage
-                                                                {
-                                                                    Offset = OFFSET + 2,
-                                                                    Message = new Message()
-                                                                },
-                                                            }
-                                                    }
-                                                }
-                                        }
-                                    }
-                            }
-                    },
-                ReceivedDate = DateTime.UtcNow
-            });
+                new ResponseMessage { Offset = OFFSET, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 1, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 2, Message = new Message() },
+            }));
 
             // Check
             node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Once());
@@ -462,25 +335,7 @@ namespace tests_kafka_sharp
         [Test]
         public void TestStopConsumeAfterFetchLoopMultiple()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
             consumer.StartConsume(TOPIC, 0, OFFSET);
             consumer.StartConsume(TOPIC, 1, OFFSET);
             consumer.StopConsume(TOPIC, Partitions.All, Offsets.Now);
@@ -568,80 +423,19 @@ namespace tests_kafka_sharp
         [Test]
         public void TestStopAndStartConsume_SpecificOffsets()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
 
             var offsets = new List<long>();
             consumer.MessageReceived += r => offsets.Add(r.Offset);
 
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(messages: new List<ResponseMessage>
             {
-                Response =
-                    new FetchResponse
-                    {
-                        FetchPartitionResponse =
-                            new CommonResponse<FetchPartitionResponse>
-                            {
-                                TopicsResponse =
-                                    new[]
-                                    {
-                                        new TopicData<FetchPartitionResponse>
-                                        {
-                                            TopicName = TOPIC,
-                                            PartitionsData =
-                                                new[]
-                                                {
-                                                    new FetchPartitionResponse
-                                                    {
-                                                        ErrorCode = ErrorCode.NoError,
-                                                        Partition = PARTITION,
-                                                        HighWatermarkOffset = 432515L,
-                                                        Messages =
-                                                            new List<ResponseMessage>
-                                                            {
-                                                                new ResponseMessage
-                                                                {
-                                                                    Offset = OFFSET,
-                                                                    Message = new Message()
-                                                                },
-                                                                new ResponseMessage
-                                                                {
-                                                                    Offset = OFFSET + 1,
-                                                                    Message = new Message()
-                                                                },
-                                                                new ResponseMessage
-                                                                {
-                                                                    Offset = OFFSET + 2,
-                                                                    Message = new Message()
-                                                                },
-                                                            }
-                                                    }
-                                                }
-                                        }
-                                    }
-                            }
-                    },
-                ReceivedDate = DateTime.UtcNow
-            });
+                new ResponseMessage { Offset = OFFSET, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 1, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 2, Message = new Message() },
+            }));
 
             consumer.StopConsume(TOPIC, PARTITION, OFFSET + 1); // Should correspond to OFFSET + 2
 
@@ -650,45 +444,10 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Once);
 
             // Should be ignored
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(messages: new List<ResponseMessage>
             {
-                Response =
-                    new FetchResponse
-                    {
-                        FetchPartitionResponse =
-                            new CommonResponse<FetchPartitionResponse>
-                            {
-                                TopicsResponse =
-                                    new[]
-                                    {
-                                        new TopicData<FetchPartitionResponse>
-                                        {
-                                            TopicName = TOPIC,
-                                            PartitionsData =
-                                                new[]
-                                                {
-                                                    new FetchPartitionResponse
-                                                    {
-                                                        ErrorCode = ErrorCode.NoError,
-                                                        Partition = PARTITION,
-                                                        HighWatermarkOffset = 432515L,
-                                                        Messages =
-                                                            new List<ResponseMessage>
-                                                            {
-                                                                new ResponseMessage
-                                                                {
-                                                                    Offset = OFFSET + 3,
-                                                                    Message = new Message()
-                                                                },
-                                                            }
-                                                    }
-                                                }
-                                        }
-                                    }
-                            }
-                    },
-                ReceivedDate = DateTime.UtcNow
-            });
+                new ResponseMessage { Offset = OFFSET + 3, Message = new Message() },
+            }));
 
             // No operation is pending, everything has been acknowledged, let's resume
             consumer.StartConsume(TOPIC, PARTITION, OFFSET + 1); // Should trigger fetch on OFFSET + 1 again
@@ -706,60 +465,19 @@ namespace tests_kafka_sharp
         // i.e. Restart is sent after Stop has been fully completed
         public void TestResume_NoOperationPending()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
 
             var offsets = new List<long>();
             consumer.MessageReceived += r => offsets.Add(r.Offset);
 
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(messages: new List<ResponseMessage>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
-                    {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
-                            {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = PARTITION,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
-                                    {
-                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }},
-                ReceivedDate = DateTime.UtcNow
-            });
+                new ResponseMessage { Offset = OFFSET, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 1, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 2, Message = new Message() },
+            }));
 
             consumer.StopConsume(TOPIC, PARTITION, Offsets.Now); // Should correspond to OFFSET + 2
 
@@ -768,33 +486,10 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.Is<FetchMessage>(f => f.Offset == OFFSET + 3)), Times.Once);
 
             // Should be ignored
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(messages: new List<ResponseMessage>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
-                    {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
-                            {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = PARTITION,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
-                                    {
-                                        new ResponseMessage {Offset = OFFSET + 3, Message = new Message()},
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }},
-                ReceivedDate = DateTime.UtcNow
-            });
+                new ResponseMessage { Offset = OFFSET + 3, Message = new Message() },
+            }));
 
             // No operation is pending, everything has been acknowledged, let's resume
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Now); // Should trigger fetch on OFFSET + 3 again
@@ -810,60 +505,19 @@ namespace tests_kafka_sharp
         // i.e. Restart is sent while previous stop operation is not fully completed
         public void TestResume_FetchPending()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
 
             var offsets = new List<long>();
             consumer.MessageReceived += r => offsets.Add(r.Offset);
 
             consumer.StartConsume(TOPIC, PARTITION, OFFSET);
 
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(messages: new List<ResponseMessage>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse <FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
-                    {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
-                            {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = PARTITION,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
-                                    {
-                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }},
-                ReceivedDate = DateTime.UtcNow
-            });
+                new ResponseMessage { Offset = OFFSET, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 1, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 2, Message = new Message() },
+            }));
 
             consumer.StopConsume(TOPIC, PARTITION, Offsets.Now); // Should correspond to OFFSET + 2
 
@@ -878,33 +532,10 @@ namespace tests_kafka_sharp
             node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(2));
 
             // Should trigger new Fetch
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(messages: new List<ResponseMessage>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
-                    {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
-                            {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = PARTITION,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
-                                    {
-                                        new ResponseMessage {Offset = OFFSET + 3, Message = new Message()},
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }},
-                ReceivedDate = DateTime.UtcNow
-            });
+                new ResponseMessage { Offset = OFFSET + 3, Message = new Message() },
+            }));
 
             // Check
             node.Verify(n => n.Fetch(It.IsAny<FetchMessage>()), Times.Exactly(3));
@@ -918,25 +549,7 @@ namespace tests_kafka_sharp
         // while we were waiting for a list operation to complete
         public void TestResume_OffsetPending()
         {
-            var node = new Mock<INode>();
-            var cluster = new Mock<ICluster>();
-            cluster.Setup(c => c.RequireNewRoutingTable())
-                .Returns(() =>
-                    Task.FromResult(
-                        new RoutingTable(new Dictionary<string, Partition[]>
-                        {
-                            {
-                                TOPIC,
-                                new[]
-                                {
-                                    new Partition {Id = 0, Leader = node.Object},
-                                    new Partition {Id = 1, Leader = node.Object},
-                                    new Partition {Id = 2, Leader = node.Object}
-                                }
-                            }
-                        })));
-            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
-            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            var (node, _, _, consumer) = CreateMocksAndConsumerWithOneTopic3Partitions();
 
             consumer.StartConsume(TOPIC, PARTITION, Offsets.Latest);
 
@@ -1206,36 +819,13 @@ namespace tests_kafka_sharp
                 partitions.Add(kr.Partition);
                 topics.Add(kr.Topic);
             };
-            consumer.Acknowledge(new CommonAcknowledgement<FetchResponse>
+            consumer.Acknowledge(CreateSingleTopicSinglePartitionFetchReponse(messages: new List<ResponseMessage>
             {
-                Response = new FetchResponse { FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
-                {
-                    TopicsResponse = new[]
-                    {
-                        new TopicData<FetchPartitionResponse>
-                        {
-                            TopicName = TOPIC,
-                            PartitionsData = new[]
-                            {
-                                new FetchPartitionResponse
-                                {
-                                    ErrorCode = ErrorCode.NoError,
-                                    Partition = PARTITION,
-                                    HighWatermarkOffset = 432515L,
-                                    Messages = new List<ResponseMessage>
-                                    {
-                                        new ResponseMessage {Offset = OFFSET - 1, Message = new Message()}, // Will be filtered
-                                        new ResponseMessage {Offset = OFFSET, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 1, Message = new Message()},
-                                        new ResponseMessage {Offset = OFFSET + 2, Message = new Message()},
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }},
-                ReceivedDate = DateTime.UtcNow
-            });
+                new ResponseMessage { Offset = OFFSET - 1, Message = new Message() }, // Will be filtered
+                new ResponseMessage { Offset = OFFSET, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 1, Message = new Message() },
+                new ResponseMessage { Offset = OFFSET + 2, Message = new Message() },
+            }));
 
             Assert.That(offsets, Is.EquivalentTo(new[] { OFFSET, OFFSET + 1 }));
             Assert.That(partitions, Is.EquivalentTo(new[] { PARTITION, PARTITION }));
@@ -1375,5 +965,66 @@ namespace tests_kafka_sharp
             
             Assert.AreEqual(42, throttled);
         }
+
+        #region helpers
+
+        // Setup Node and cluster mocks with 1 topic 3 partitions, then create a consumer and returns them all.
+        private (Mock<INode>, Configuration, Mock<ICluster>, ConsumeRouter) CreateMocksAndConsumerWithOneTopic3Partitions()
+        {
+            var node = new Mock<INode>();
+            var cluster = new Mock<ICluster>();
+            cluster.Setup(c => c.RequireNewRoutingTable())
+                .Returns(() =>
+                    Task.FromResult(
+                        new RoutingTable(new Dictionary<string, Partition[]>
+                        {
+                            {
+                                TOPIC,
+                                new[]
+                                {
+                                    new Partition {Id = 0, Leader = node.Object},
+                                    new Partition {Id = 1, Leader = node.Object},
+                                    new Partition {Id = 2, Leader = node.Object}
+                                }
+                            }
+                        })));
+            var configuration = new Configuration { TaskScheduler = new CurrentThreadTaskScheduler() };
+            var consumer = new ConsumeRouter(cluster.Object, configuration, 1);
+            return (node, configuration, cluster, consumer);
+        }
+
+        // Creates an acknowledgement of a fetch response containing messages for only 1 topic and 1 partition
+        private CommonAcknowledgement<FetchResponse> CreateSingleTopicSinglePartitionFetchReponse(string topic = TOPIC,
+            ErrorCode errorCode = ErrorCode.NoError, int partition = PARTITION, List<ResponseMessage> messages = null)
+        {
+            return new CommonAcknowledgement<FetchResponse>
+            {
+                Response = new FetchResponse
+                {
+                    FetchPartitionResponse = new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse = new[]
+                        {
+                            new TopicData<FetchPartitionResponse>
+                            {
+                                TopicName = topic,
+                                PartitionsData = new[]
+                                {
+                                    new FetchPartitionResponse
+                                    {
+                                        ErrorCode = errorCode,
+                                        Partition = partition,
+                                        HighWatermarkOffset = 432515L,
+                                        Messages = messages
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                ReceivedDate = DateTime.UtcNow
+            };
+        }
+        #endregion  
     }
 }

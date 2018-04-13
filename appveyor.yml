@@ -15,7 +15,7 @@ before_build:
 build_script:
 - dotnet build "kafka-sharp/kafka-sharp-netstd.sln" -c %CONFIGURATION%
 after_build:
-- dotnet pack /p:PackageVersion="%APPVEYOR_REPO_TAG_NAME%" "kafka-sharp/kafka-sharp/Kafka.netstandard.csproj" -c %CONFIGURATION% --no-build -o %APPVEYOR_BUILD_FOLDER%\artifacts
+- cmd: IF "%APPVEYOR_REPO_TAG%" == "true" (dotnet pack /p:PackageVersion="%APPVEYOR_REPO_TAG_NAME%" "kafka-sharp/kafka-sharp/Kafka.netstandard.csproj" -c %CONFIGURATION% --no-build -o %APPVEYOR_BUILD_FOLDER%\artifacts)
 test_script:
 - dotnet test "kafka-sharp/kafka-sharp.UTest/kafka.UTest.netstandard.csproj" -c %CONFIGURATION%
 cache:

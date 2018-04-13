@@ -7,18 +7,20 @@ using Kafka.Public;
 
 namespace Kafka.Protocol
 {
-    enum MessageVersion
+    internal enum MessageVersion
     {
         V0 = 0,
         V1 = 1
     }
 
-    struct Message
+    internal struct Message
     {
         public object Key;
         public object Value;
         public long TimeStamp;
-        public ReusableMemoryStream SerializedKeyValue;
+
+        // Visible for tests
+        internal ReusableMemoryStream SerializedKeyValue;
 
         private const int MinimumValidSizeForSerializedKeyValue = 2 * 4; // At least 4 bytes for key size and 4 bytes for value size
 
@@ -28,6 +30,13 @@ namespace Kafka.Protocol
             DoSerializeKeyValue(SerializedKeyValue, serializers);
             Key = null;
             Value = null;
+        }
+
+        public void ReleaseSerializedKeyValue()
+        {
+            // Make sure that the buffer cannot be disposed twice (not good for buffer pooling)
+            SerializedKeyValue?.Dispose();
+            SerializedKeyValue = null;
         }
 
         public void Serialize(ReusableMemoryStream stream, CompressionCodec compressionCodec,

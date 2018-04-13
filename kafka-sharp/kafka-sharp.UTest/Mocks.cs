@@ -367,9 +367,12 @@ namespace tests_kafka_sharp
         private static int _count;
         private readonly int _responseDelayMs;
 
+        private static ConcurrentQueue<Timer> _timers = new ConcurrentQueue<Timer>();
+
         public static void Reset()
         {
             _count = 1;
+            _timers = new ConcurrentQueue<Timer>();
         }
 
         public EchoConnectionMock(bool forceErrors = false, int responseDelayMs = 0)
@@ -406,11 +409,12 @@ namespace tests_kafka_sharp
                 if (_responseDelayMs > 0)
                 {
                     var tcs = new TaskCompletionSource<bool>();
-                    new Timer(_ =>
+                    var timer = new Timer(_ =>
                     {
                         OnResponse(correlationId, response);
                         tcs.SetResult(true);
                     }, null, _responseDelayMs, -1);
+                    _timers.Enqueue(timer);
                     return tcs.Task;
                 }
 

@@ -230,5 +230,10 @@ namespace Kafka.Protocol
 
         // Local error, not from brokers
         LocalError = -42,
+
+        /// <summary>
+        /// Deserialization on one message failed (bad Crc, magic number or compression)
+        /// </summary>
+        DeserializationError = -43,
     }
 }

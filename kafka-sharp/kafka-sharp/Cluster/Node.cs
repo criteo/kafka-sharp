@@ -1454,8 +1454,10 @@ namespace Kafka.Cluster
         private static readonly long[] NoOffset = new long[0];
 
         // Build an empty response from a given Fetch request with error set to LocalError.
-        private static FetchResponse BuildEmptyFetchResponseFromOriginal(
-            IBatchByTopic<FetchMessage> originalRequest)
+        // If the partition and topic match the parameters it means that the deserialization of a message
+        // for said (topic, partition) failed. The error is set to DeserializationError in this case.
+        private static FetchResponse BuildEmptyFetchResponseFromOriginal(IBatchByTopic<FetchMessage> originalRequest,
+            string faultyTopic = null, int faultyPartition = -1)
         {
             return new FetchResponse
             {
@@ -1473,7 +1475,9 @@ namespace Kafka.Cluster
                                                 fm =>
                                                     new FetchPartitionResponse
                                                     {
-                                                        ErrorCode = ErrorCode.LocalError,
+                                                        ErrorCode = b.Key == faultyTopic && fm.Partition == faultyPartition
+                                                            ? ErrorCode.DeserializationError
+                                                            : ErrorCode.LocalError,
                                                         HighWatermarkOffset = -1,
                                                         Partition = fm.Partition,
                                                         Messages = ResponseMessageListPool.EmptyList
@@ -1552,6 +1556,11 @@ namespace Kafka.Cluster
             {
                 response.Response = _serialization.DeserializeResponse<FetchResponse>(correlationId, responseData,
                     _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
+            }
+            catch (ProtocolException pex)
+            {
+                OnDecodeError(pex);
+                response.Response = BuildEmptyFetchResponseFromOriginal(originalRequest, pex.Topic, pex.Partition);
             }
             catch (Exception ex)
             {
