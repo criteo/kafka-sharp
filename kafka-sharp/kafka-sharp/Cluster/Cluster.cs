@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -388,7 +389,15 @@ namespace Kafka.Cluster
                     // dead nodes (see 'ProcessDeadNode')
                     case TransportError.ReadError:
                     case TransportError.WriteError:
-                        Logger.LogWarning(string.Format("Transport error to {0}: {1}", n, transportException));
+                        if (transportException.InnerException is SocketException se && se.SocketErrorCode == SocketError.ConnectionAborted)
+                        {
+                            // Those are "normal" behaviour, no need to offuscate the warnings logs
+                            Logger.LogInformation($"Transport error to {n}: {transportException}");
+                        }
+                        else
+                        {
+                            Logger.LogWarning($"Transport error to {n}: {transportException}");
+                        }
                         break;
 
                     // We cannot get there, but just in case and because dumb
