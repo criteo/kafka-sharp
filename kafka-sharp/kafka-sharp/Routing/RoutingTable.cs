@@ -72,7 +72,7 @@ namespace Kafka.Routing
                 _routes.Add(kv.Key, tmp.ToArray());
                 tmp.Clear();
             }
-            LastRefreshed = DateTime.UtcNow;
+            LastRefreshed = fromTable.LastRefreshed;
         }
 
         /// <summary>
