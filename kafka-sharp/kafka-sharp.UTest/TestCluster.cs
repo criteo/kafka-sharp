@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Kafka.Cluster;
 using Kafka.Network;
@@ -151,11 +152,18 @@ namespace tests_kafka_sharp
         {
             var failed = new TaskCompletionSource<MetadataResponse>();
             failed.SetException(new TimeoutException());
+            var numberOfFailure = 0;
+            _cluster.Start();
             foreach (var node in _nodeMocks)
             {
-                node.Setup(n => n.FetchMetadata()).Returns(failed.Task);
+                node.Setup(n => n.FetchMetadata()).Returns(() =>
+                {
+                    if (Interlocked.Increment(ref numberOfFailure) <= 4)
+                        return failed.Task;
+                    else
+                        return Task.FromResult(TestData.TestMetadataResponse);
+                });
             }
-            _cluster.Start();
 
             Assert.ThrowsAsync<TimeoutException>(async () => await _cluster.RequireNewRoutingTable());
             Assert.ThrowsAsync<TimeoutException>(async () => await _cluster.RequireNewRoutingTable());
@@ -490,9 +498,16 @@ namespace tests_kafka_sharp
         {
             var tcs = new TaskCompletionSource<MetadataResponse>();
             tcs.SetException(new Exception("testEx"));
+            var numberOfFailure = 0;
             foreach (var nodeMock in _nodeMocks)
             {
-                nodeMock.Setup(n => n.FetchMetadata()).Returns(tcs.Task);
+                nodeMock.Setup(n => n.FetchMetadata()).Returns(() =>
+                {
+                    if (Interlocked.Increment(ref numberOfFailure) <= 1)
+                        return tcs.Task;
+                    else
+                        return Task.FromResult(TestData.TestMetadataResponse);
+                });
             }
 
             _cluster.Start();

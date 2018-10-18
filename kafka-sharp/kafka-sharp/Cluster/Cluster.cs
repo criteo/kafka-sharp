@@ -747,6 +747,7 @@ namespace Kafka.Cluster
                     {
                         promise.SetException(ex);
                     }
+                    RefreshMetadata();
                 }
                 catch (TimeoutException ex)
                 {
@@ -755,6 +756,7 @@ namespace Kafka.Cluster
                     {
                         promise.SetException(ex);
                     }
+                    RefreshMetadata();
                 }
                 catch (Exception ex)
                 {
@@ -762,6 +764,7 @@ namespace Kafka.Cluster
                     {
                         promise.SetCanceled();
                     }
+                    RefreshMetadata();
                     InternalError(ex);
                 }
             }
