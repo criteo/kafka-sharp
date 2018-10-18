@@ -913,7 +913,7 @@ namespace tests_kafka_sharp
         }
 
         [Test]
-        public async Task TestNodeFailingConnectionsMakesMetadataRequestCancelled()
+        public async Task TestNodeFailingConnectionsMakesMetadataRequestFailWithTransport()
         {
             var config = new Configuration {ProduceBatchSize = 1, ProduceBufferingTime = TimeSpan.FromMilliseconds(15)};
             var node =
@@ -924,6 +924,22 @@ namespace tests_kafka_sharp
                 Assert.AreEqual(node, _);
                 dead = true;
             };
+            // One metadata request should fail directly.
+            // After 3 request fail, the node should be considered dead.
+            for (int i = 0; i < 3; i++)
+            {
+                try
+                {
+                    await node.FetchMetadata();
+                    Assert.IsFalse(true);
+                }
+                catch (Exception e)
+                {
+                    Assert.IsInstanceOf<TransportException>(e);
+                }
+                Assert.IsFalse(dead);
+            }
+            // After next request the node should be considered Dead.
             try
             {
                 await node.FetchMetadata();
@@ -931,7 +947,7 @@ namespace tests_kafka_sharp
             }
             catch (Exception e)
             {
-                Assert.IsInstanceOf<OperationCanceledException>(e);
+                Assert.IsInstanceOf<TaskCanceledException>(e);
             }
             Assert.IsTrue(dead);
         }

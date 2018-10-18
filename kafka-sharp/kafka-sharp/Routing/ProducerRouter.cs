@@ -452,7 +452,22 @@ namespace Kafka.Routing
             RoutingTableRequired();
             try
             {
-                ChangeRoutingTable(await _cluster.RequireNewRoutingTable());
+                var timeout = TimeSpan.FromMilliseconds(_configuration.ClientRequestTimeoutMs);
+                var taskFetchingMetadata = _cluster.RequireNewRoutingTable();
+                // We are going to wait for either the task to finish, or the timeout.
+                // This task is blocking the entire (producer) driver, so we can not allow it to run a long
+                // time.
+                if (await (Task.WhenAny(taskFetchingMetadata, Task.Delay(timeout))) == taskFetchingMetadata)
+                {
+                    // The task finished
+                    ChangeRoutingTable(taskFetchingMetadata.Result);
+                }
+                else
+                {
+                    // The Timeout finished first
+                    _cluster.Logger.LogError(
+                        $"Could not get routing table! The node we queried took more than {timeout.TotalSeconds} seconds to answer.");
+                }
             }
             catch (Exception ex)
             {

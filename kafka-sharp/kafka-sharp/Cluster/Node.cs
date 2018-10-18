@@ -1257,7 +1257,17 @@ namespace Kafka.Cluster
                 // the request, which will retry to connect eventually.
                 if (ex.Error == TransportError.ConnectError)
                 {
-                    RepostOrDrain(request);
+                    // But we do not want to retry on the same node a request for Metadata,
+                    // because the node might be dead and Metadata requests are blocking the
+                    // whole driver.
+                    if (request.RequestType == RequestType.Metadata)
+                    {
+                        Drain(request, false, ex);
+                    }
+                    else
+                    {
+                        RepostOrDrain(request);
+                    }
                 }
                 HandleConnectionError(connection, ex);
             }
