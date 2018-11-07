@@ -721,6 +721,11 @@ namespace Kafka.Cluster
                     var response = await node.FetchMetadata();
                     Logger.LogInformation("[Metadata][Brokers] " +
                                           string.Join("/", response.BrokersMeta.Select(bm => bm.ToString())));
+                    if (response.BrokersMeta.Length == 0)
+                    {
+                        Logger.LogError($"The metadata that node {node.Name} gave us was empty. We need to fetch metadata again.");
+                        throw new Exception("Metadata response with empty list of brokers");
+                    }
                     foreach (var tm in response.TopicsMeta.Where(tm => _seenTopics.Contains(tm.TopicName)))
                     {
                         Logger.LogInformation(TopicInfo(tm));

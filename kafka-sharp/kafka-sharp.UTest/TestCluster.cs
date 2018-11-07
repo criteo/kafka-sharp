@@ -536,20 +536,6 @@ namespace tests_kafka_sharp
                 TopicsMeta = new TopicMeta[0]
             };
 
-            foreach (var nodeMock in _nodeMocks)
-            {
-                nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(emptyMetadataResponse));
-            }
-
-            _cluster.Start();
-
-            _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Once());
-
-            var emptyRoutingTable = new RoutingTable(new Dictionary<string, Partition[]>());
-            AssertRouting(_routingTable, emptyRoutingTable);
-
-            //next we check that even if the routing table is empty we can still refresh metadata by reloading the node from seeds
-
             var metadataResponseWithNodes = new MetadataResponse
             {
                 BrokersMeta = new[]
@@ -566,14 +552,27 @@ namespace tests_kafka_sharp
                     }}
                 }
             };
+            var numberOfMetadataRequest = 0;
+            var numberOfErrorExpected = 4;
 
+            // The first 4 request will return empty, and the 5 (and successive ones) will return something
             foreach (var nodeMock in _nodeMocks)
             {
-                nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(metadataResponseWithNodes));
+                nodeMock.Setup(n => n.FetchMetadata()).Returns(() =>
+                {
+                    if (++numberOfMetadataRequest > numberOfErrorExpected)
+                    {
+                        return Task.FromResult(metadataResponseWithNodes);
+                    }
+                    return Task.FromResult(emptyMetadataResponse);
+                });
             }
 
+            _cluster.Start();
+
+            _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Exactly(5));
+
             var routing = await _cluster.RequireNewRoutingTable();
-            _nodeMocks[0].Verify(n => n.FetchMetadata(), Times.Exactly(2));
 
             var routingTableWithNodes = new RoutingTable(new Dictionary<string, Partition[]>
                 {
@@ -585,7 +584,7 @@ namespace tests_kafka_sharp
                 });
 
             AssertRouting(routing, routingTableWithNodes);
-            Assert.AreEqual(0, _internalErrors);
+            Assert.AreEqual(numberOfErrorExpected, _internalErrors);
         }
 
         [Test]
