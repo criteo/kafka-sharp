@@ -102,7 +102,7 @@ namespace Kafka.Cluster
             public Tuple<TaskCompletionSource<IDictionary<string, int[]>>, IEnumerable<string>> TopicPromise;
 
             [FieldOffset(0)]
-            public Action NodeEventProcessing;
+            public Func<Task> NodeEventProcessing;
 
             [FieldOffset(0)]
             public string SeenTopic;
@@ -126,7 +126,8 @@ namespace Kafka.Cluster
         private readonly Dictionary<string, INode> _nodesByHostPort = new Dictionary<string, INode>();
         private readonly ActionBlock<ClusterMessage> _agent; // inner actor
         private readonly Random _random = new Random((int)(DateTime.Now.Ticks & 0xffffffff));
-        private readonly string _seeds; // Addresses of the nodes to use for bootstrapping the cluster
+        private string _seeds; // Addresses of the nodes to use for bootstrapping the cluster
+        private readonly Func<string> _seedsGetter; // Dynamic alternative to _seeds
         private readonly TimeoutScheduler _timeoutScheduler; // Timeout checker
 
         private HashSet<string> _seenTopics = new HashSet<string>(); // Gather seen topics for feedback filtering
@@ -170,6 +171,7 @@ namespace Kafka.Cluster
         {
             _configuration = configuration;
             _seeds = configuration.Seeds;
+            _seedsGetter = configuration.SeedsGetter;
             Logger = logger;
             Statistics = statistics ?? new Statistics();
             _timeoutScheduler = new TimeoutScheduler(configuration.ClientRequestTimeoutMs / 2);
@@ -232,7 +234,8 @@ namespace Kafka.Cluster
             BuildNodesFromSeeds();
             if (_nodes.Count == 0)
             {
-                throw new ArgumentException("Invalid seeds: " + _seeds);
+                var message = _seedsGetter != null ? "Invalid seeds Getter" : "Invalid seeds: " + _seeds;
+                throw new ArgumentException(message);
             }
         }
 
@@ -341,12 +344,27 @@ namespace Kafka.Cluster
 
         // Events processing are serialized on to the internal actor
         // to avoid concurrency management.
-        private void OnNodeEvent(Action processing)
+        private void OnNodeEvent(Func<Task> processing)
         {
             _agent.Post(new ClusterMessage
             {
                 MessageType = MessageType.NodeEvent,
                 MessageValue = new MessageValue { NodeEventProcessing = processing }
+            });
+        }
+
+        // Events processing are serialized on to the internal actor
+        // to avoid concurrency management.
+        private void OnNodeEvent(Action processing)
+        {
+            _agent.Post(new ClusterMessage
+            {
+                MessageType = MessageType.NodeEvent,
+                MessageValue = new MessageValue { NodeEventProcessing = () =>
+                {
+                    processing();
+                    return Task.CompletedTask;
+                } }
             });
         }
 
@@ -425,6 +443,7 @@ namespace Kafka.Cluster
 
         private void BuildNodesFromSeeds()
         {
+            _seeds = _seedsGetter?.Invoke() ?? _seeds;
             foreach (var seed in _seeds.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var hostPort = seed.Split(':');
@@ -582,17 +601,27 @@ namespace Kafka.Cluster
             return promise.Task;
         }
 
-        private void CheckNoMoreNodes()
+        private async Task CheckNoMoreNodes()
         {
             if (_nodes.Count == 0)
             {
                 Logger.LogError("All nodes are dead, retrying from bootstrap seeds.");
                 BuildNodesFromSeeds();
             }
+
+            var random = new Random();
+            while (_nodes.Count == 0)
+            {
+                var timeToWaitMs = random.Next(20_000);
+                Logger.LogError($"Bootstrapping from seeds failed. Retrying in {timeToWaitMs} ms.");
+                await Task.Delay(TimeSpan.FromMilliseconds(timeToWaitMs));
+                Logger.LogError("All nodes are dead, retrying from bootstrap seeds.");
+                BuildNodesFromSeeds();
+            }
         }
 
         // Remove the node from current nodes and refresh the metadata.
-        private void ProcessDeadNode(INode deadNode)
+        private async Task ProcessDeadNode(INode deadNode)
         {
             Statistics.UpdateNodeDead(GetNodeId(deadNode));
             BrokerMeta m;
@@ -612,7 +641,7 @@ namespace Kafka.Cluster
             deadNode.Stop();
             _nodesByHostPort.Remove(BuildKey(m.Host, m.Port));
             _nodesById.Remove(m.Id);
-            CheckNoMoreNodes();
+            await CheckNoMoreNodes();
             RefreshMetadata();
         }
 
@@ -737,7 +766,7 @@ namespace Kafka.Cluster
                         promise.SetResult(_routingTable);
                     }
                     RoutingTableChange(_routingTable);
-                    CheckNoMoreNodes();
+                    await CheckNoMoreNodes();
                 }
                 catch (OperationCanceledException ex)
                 {
