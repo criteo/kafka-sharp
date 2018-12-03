@@ -529,13 +529,13 @@ namespace Kafka.Network
                 return;
             }
 
-            if (saea.SocketError != SocketError.Success || saea.BytesTransferred == 0)
+            if (saea.SocketError != SocketError.Success
+                || saea.BytesTransferred == 0) // We get 0 byte transferred when remote has closed the connection:
+                                               // https://docs.microsoft.com/en-us/dotnet/api/system.net.sockets.socketasynceventargs.bytestransferred?view=netframework-4.7.2
             {
                 connection.CleanReceive(true);
                 connection.OnReceiveError(new TransportException(TransportError.ReadError,
-                    new SocketException(saea.SocketError != SocketError.Success
-                        ? (int) saea.SocketError
-                        : (int) SocketError.ConnectionAborted)));
+                    new SocketException((int) saea.SocketError)));
                 return;
             }
 

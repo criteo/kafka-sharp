@@ -571,6 +571,47 @@ namespace tests_kafka_sharp
             var exception = Assert.ThrowsAsync<TransportException>(async () => await connection.ConnectAsync());
             Assert.That(exception.Error, Is.EqualTo(TransportError.ConnectError));
         }
+
+        [Test]
+        public async Task TestConnectionRemotelyClosedThrowsError()
+        {
+            var socket = new Mock<ISocket>();
+            socket.Setup(s => s.ConnectAsync()).Returns(Task.FromResult(true));
+            socket.Setup(s => s.CreateEventArgs()).Returns(() =>
+            {
+                var saea = new Mock<ISocketAsyncEventArgs>();
+                saea.Setup(a => a.SocketError).Returns(SocketError.Success);
+                saea.Setup(a => a.BytesTransferred)
+                    .Returns(() =>
+                        0); // SocketError == Success && BytesTransferred == 0 means that remote closed connection.
+                saea.SetupProperty(a =>
+                    a.UserToken);
+                return saea.Object;
+            });
+            var connection = new Connection(new IPEndPoint(0, 0), _ => socket.Object, BPool, RPool, 1024, 1024);
+            var numberOfConnectionError = 0;
+            var numberOfError = 0;
+            connection.ReceiveError += (connection1, exception) =>
+            {
+                // We can not use assert here because there is a catch in the calling method
+                numberOfError++;
+                if (exception is TransportException te)
+                {
+                    if (te.InnerException is SocketException se)
+                    {
+                        if (se.ErrorCode == (int)SocketError.Success)
+                        {
+                            numberOfConnectionError++;
+                        }
+                    }
+                }
+            };
+            await connection.ConnectAsync();
+            socket.Verify(s => s.ConnectAsync(), Times.Once());
+            socket.Verify(s => s.ReceiveAsync(It.IsAny<ISocketAsyncEventArgs>()), Times.Once());
+            Assert.AreEqual(1, numberOfError, "Only 1 error should have happened");
+            Assert.AreEqual(1, numberOfConnectionError, "The only error that should have happened is a connection remotely closed");
+        }
     }
 
 }

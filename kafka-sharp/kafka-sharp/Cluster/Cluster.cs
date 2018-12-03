@@ -407,10 +407,10 @@ namespace Kafka.Cluster
                     // dead nodes (see 'ProcessDeadNode')
                     case TransportError.ReadError:
                     case TransportError.WriteError:
-                        if (transportException.InnerException is SocketException se && se.SocketErrorCode == SocketError.ConnectionAborted)
+                        if (transportException.InnerException is SocketException se && se.SocketErrorCode == SocketError.Success)
                         {
-                            // Those are "normal" behaviour, no need to offuscate the warnings logs
-                            Logger.LogInformation($"Transport error to {n}: {transportException}");
+                            // It means we the connection was closed by remote
+                            Logger.LogInformation($"{n} remotely closed idle connection.");
                         }
                         else
                         {
