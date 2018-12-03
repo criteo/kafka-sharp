@@ -653,7 +653,7 @@ namespace Kafka.Cluster
                 {
                     // Event occured on a node
                     case MessageType.NodeEvent:
-                        message.MessageValue.NodeEventProcessing();
+                        await message.MessageValue.NodeEventProcessing();
                         break;
 
                     // Single topic metadata, this is generally for the consumer
