@@ -699,6 +699,11 @@ namespace Kafka.Cluster
 
         private INode ChooseRefreshNode()
         {
+            if (_nodes.Count == 0)
+            {
+                Logger.LogError("We are trying to find a node to use to refresh metadata, but we think that no nodes are up. This should not have happened");
+                BuildNodesFromSeeds();
+            }
             return _nodes.Keys.ElementAt(_random.Next(_nodes.Count));
         }
 
