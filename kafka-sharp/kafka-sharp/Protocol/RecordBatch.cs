@@ -269,12 +269,10 @@ namespace Kafka.Protocol
                 var value = valueLength == -1 ? null : deserializers.Item1.Deserialize(input, valueLength);
 
                 var headersCount = VarIntConverter.ReadInt32(input);
-                var headers = new List<RecordHeader>();
+                var headers = new List<KafkaRecordHeader>(headersCount);
                 for (var j = 0; j < headersCount; j++)
                 {
-                    var header = new RecordHeader();
-                    header.Deserialize(input);
-                    headers.Add(header);
+                    headers.Add(Record.DeserializeHeader(input));
                 }
 
                 yield return new Record
@@ -301,7 +299,7 @@ namespace Kafka.Protocol
 
         public long Offset;
 
-        public ICollection<RecordHeader> Headers;
+        public ICollection<KafkaRecordHeader> Headers;
 
         public ReusableMemoryStream Serialize(ReusableMemoryStream target, long baseTimestamp, long offsetDelta)
         {
@@ -324,9 +322,9 @@ namespace Kafka.Protocol
             else
             {
                 VarIntConverter.Write(target, Headers.Count);
-                foreach (RecordHeader header in Headers)
+                foreach (KafkaRecordHeader header in Headers)
                 {
-                    header.Serialize(target);
+                    SerializeHeader(target, header);
                 }
             }
 
@@ -371,9 +369,9 @@ namespace Kafka.Protocol
             else
             {
                 var headersCount = 0;
-                foreach (RecordHeader header in Headers)
+                foreach (KafkaRecordHeader header in Headers)
                 {
-                    size += (int)header.SerializedSize();
+                    size += (int)SerializedSizeOfHeader(header);
                     ++headersCount;
                 }
 
@@ -382,51 +380,29 @@ namespace Kafka.Protocol
 
             return size;
         }
-    }
 
-    internal struct RecordHeader
-    {
-        public string Key;
-        public object Value;
-
-        public ISizableSerializer ValueSerializer;
-
-        public ReusableMemoryStream Serialize(ReusableMemoryStream target)
+        public static ReusableMemoryStream SerializeHeader(ReusableMemoryStream target, KafkaRecordHeader header)
         {
-            CheckValues();
-
-            Basics.SerializeStringWithVarIntSize(target, Key);
-            Basics.WriteObject(target, Value, ValueSerializer);
-
+            header.Validate();
+            Basics.SerializeStringWithVarIntSize(target, header.Key);
+            Basics.SerializeBytesWithVarIntSize(target, header.Value);
             return target;
         }
 
-        public void Deserialize(ReusableMemoryStream stream)
+        public static KafkaRecordHeader DeserializeHeader(ReusableMemoryStream stream)
         {
-            Key = Basics.DeserializeStringWithVarIntSize(stream);
-            Value = Basics.DeserializeBytesWithVarIntSize(stream);
+            return new KafkaRecordHeader()
+            {
+                Key = Basics.DeserializeStringWithVarIntSize(stream),
+                Value = Basics.DeserializeBytesWithVarIntSize(stream)
+            };
         }
 
-        public long SerializedSize()
+        public static long SerializedSizeOfHeader(KafkaRecordHeader header)
         {
-            CheckValues();
-
-            var keySize = Basics.SizeOfSerializedString(Key);
-            var valueSize = Basics.SizeOfSerializedObject(Value, ValueSerializer);
-            return keySize + valueSize + VarIntConverter.SizeOfVarInt(keySize)  + VarIntConverter.SizeOfVarInt(valueSize);
-        }
-
-        private void CheckValues()
-        {
-            if (Key == null)
-            {
-                throw new ArgumentNullException("Key");
-            }
-
-            if (Value == null)
-            {
-                throw new ArgumentNullException("Value");
-            }
+            header.Validate();
+            var keySize = Basics.SizeOfSerializedString(header.Key);
+            return keySize + header.Value.Length + VarIntConverter.SizeOfVarInt(keySize) + VarIntConverter.SizeOfVarInt(header.Value.Length);
         }
     }
 }

@@ -2,6 +2,7 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Generic;
 using Kafka.Common;
 using Kafka.Public;
 
@@ -18,6 +19,7 @@ namespace Kafka.Protocol
     {
         public object Key;
         public object Value;
+        public ICollection<KafkaRecordHeader> Headers;
         public long TimeStamp;
 
         // Visible for tests

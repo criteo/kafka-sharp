@@ -123,4 +123,39 @@ namespace Kafka.Public
         /// </summary>
         public DateTime Timestamp { get; internal set; }
     }
+
+    /// <summary>
+    /// Header in a record, as got from consuming a topic.
+    /// An header is only available for records encoded using the "Message format" V3
+    /// or more (starting kafka 0.11).
+    /// </summary>
+    public struct KafkaRecordHeader
+    {
+        /// <summary>
+        /// Key of the header.
+        /// </summary>
+        public string Key { get; set; }
+
+        /// <summary>
+        /// Raw value of the header.
+        /// </summary>
+        public byte[] Value { get; set; }
+
+        /// <summary>
+        /// Throws an exception if the values of the objects are invalid.
+        /// In particular, both the key and value must not be null.
+        /// </summary>
+        public void Validate()
+        {
+            if (Key == null)
+            {
+                throw new ArgumentNullException(nameof(Key));
+            }
+
+            if (Value == null)
+            {
+                throw new ArgumentNullException(nameof(Value));
+            }
+        }
+    }
 }

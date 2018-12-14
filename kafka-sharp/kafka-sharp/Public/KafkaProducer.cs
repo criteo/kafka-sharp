@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 
@@ -18,28 +19,35 @@ namespace Kafka.Public
         where TValue : class
     {
         /// <summary>
-        /// Send a value to a Kafka cluster.
+        /// Send a record to a Kafka cluster with the given value and headers.
         /// If kafka compatibility mode is set to 0.10+, the timestamp will
         /// be set to Now().
+        /// If kafka compatibility mode is set to a version before 0.11, the
+        /// headers are silently discarded.
         /// </summary>
-        /// <param name="data">Message value</param>
-        bool Produce(TValue data);
+        /// <param name="data">Record value</param>
+        /// <param name="headers">Record headers</param>
+        bool Produce(TValue data, ICollection<KafkaRecordHeader> headers = null);
 
         /// <summary>
         /// Send a value to a Kafka cluster and a given timestamp.
         /// The timestamp is only used in Kafka compatibility mode 0.10+
         /// </summary>
-        /// <param name="data">Message value</param>
+        /// <param name="data">Record value</param>
+        /// <param name="timestamp">Record timestamp</param>
+
         bool Produce(TValue data, DateTime timestamp);
 
         /// <summary>
-        /// Send a value to a Kafka Cluster, using the given key.
-        /// If kafka compatibility mode is set to 0.10+, the timestamp will
-        /// be set to Now().
+        /// Send a record to a kafka cluster with the given key, value and headers.
+        /// If kafka compatibility mode is set to a version before 0.11, the
+        /// headers are silently discarded.
         /// </summary>
-        /// <param name="key">Message key</param>
-        /// <param name="data">Message value</param>
-        bool Produce(TKey key, TValue data);
+        /// <param name="key">Record key</param>
+        /// <param name="data">Record value</param>
+        /// <param name="headers">Record headers</param>
+        /// <returns></returns>
+        bool Produce(TKey key, TValue data, ICollection<KafkaRecordHeader> headers = null);
 
         /// <summary>
         /// Send a value to a Kafka Cluster, using the given key and a given timestamp.
@@ -71,6 +79,22 @@ namespace Kafka.Public
         /// <param name="data">Message value</param>
         /// <param name="partition">Target partition</param>
         bool Produce(TKey key, TValue data, int partition, DateTime timestamp);
+
+        /// <summary>
+        /// Send a record to a kafka cluster, directed to the given partition,
+        /// using the given key, value, headers and timestamp.
+        /// If kafka compatibility mode is set to version 0.10, the timestamp will
+        /// be discarded.
+        /// If kafka compatibility mode is set to a version before 0.11, the
+        /// headers are silently discarded.
+        /// </summary>
+        /// <param name="key">Record key</param>
+        /// <param name="data">Record value</param>
+        /// <param name="headers">Record headers</param>
+        /// <param name="partition">Target partition</param>
+        /// <param name="timestamp">Record timestamp</param>
+        /// <returns></returns>
+        bool Produce(TKey key, TValue data, ICollection<KafkaRecordHeader> headers, int partition, DateTime timestamp);
 
         /// <summary>
         /// This is raised when a produce message has expired.
@@ -175,9 +199,9 @@ namespace Kafka.Public
             _expiredSub = _clusterClient.ExpiredMessages.Where(CheckRecord).Select(ToRecord).Subscribe(_expired.OnNext);
         }
 
-        public bool Produce(TValue data)
+        public bool Produce(TValue data, ICollection<KafkaRecordHeader> headers = null)
         {
-            return Produce(null, data);
+            return Produce(null, data, headers);
         }
 
         public bool Produce(TValue data, DateTime timestamp)
@@ -185,9 +209,9 @@ namespace Kafka.Public
             return Produce(null, data, timestamp);
         }
 
-        public bool Produce(TKey key, TValue data)
+        public bool Produce(TKey key, TValue data, ICollection<KafkaRecordHeader> headers = null)
         {
-            return Produce(key, data, Partitions.Any);
+            return Produce(key, data, headers, Partitions.Any, DateTime.UtcNow);
         }
 
         public bool Produce(TKey key, TValue data, DateTime timestamp)
@@ -197,12 +221,17 @@ namespace Kafka.Public
 
         public bool Produce(TKey key, TValue data, int partition)
         {
-            return !_disposed && _clusterClient.Produce(_topic, key, data, partition);
+            return Produce(key, data, null, partition, DateTime.UtcNow);
         }
 
         public bool Produce(TKey key, TValue data, int partition, DateTime timestamp)
         {
-            return !_disposed && _clusterClient.Produce(_topic, key, data, partition, timestamp);
+            return Produce(key, data, null, partition, timestamp);
+        }
+
+        public bool Produce(TKey key, TValue data, ICollection<KafkaRecordHeader> headers, int partition, DateTime timestamp)
+        {
+            return !_disposed && _clusterClient.Produce(_topic, key, data, headers, partition, timestamp);
         }
 
         public event Action<KafkaRecord<TKey, TValue>> MessageExpired = _ => { };

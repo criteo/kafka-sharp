@@ -323,10 +323,11 @@ namespace tests_kafka_sharp
                 producer.Produce("key", "data");
                 producer.Produce("key", "data", 42);
 
-                client.Verify(c => c.Produce(It.IsAny<string>(), It.IsAny<object>(), It.IsAny<object>(), It.IsAny<int>()), Times.Exactly(3));
-                client.Verify(c => c.Produce("topic", null, "data", Partitions.Any), Times.Once());
-                client.Verify(c => c.Produce("topic", "key", "data", Partitions.Any), Times.Once());
-                client.Verify(c => c.Produce("topic", "key", "data", 42), Times.Once());
+                client.Verify(c => c.Produce(It.IsAny<string>(), It.IsAny<object>(), It.IsAny<object>(),
+                    It.IsAny<ICollection<KafkaRecordHeader>>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Exactly(3));
+                client.Verify(c => c.Produce("topic", null, "data", null, Partitions.Any, It.IsAny<DateTime>()), Times.Once());
+                client.Verify(c => c.Produce("topic", "key", "data", null, Partitions.Any, It.IsAny<DateTime>()), Times.Once());
+                client.Verify(c => c.Produce("topic", "key", "data", null, 42, It.IsAny<DateTime>()), Times.Once());
 
                 // Discarded/Expired messages are correctly transmitted
                 bool discardedThroughEvent = false;

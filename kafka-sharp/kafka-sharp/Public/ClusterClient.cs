@@ -18,14 +18,17 @@ namespace Kafka.Public
     public interface IClusterClient : IDisposable
     {
         /// <summary>
-        /// Send some data to a Kafka Cluster, with no key.
+        /// Send some data to a kafka Cluster, with the given headers and no key.
         /// If kafka compatibility mode is set to 0.10+, the timestamp will
         /// be set to Now().
+        /// If kafka compatibility mode is set to a version before 0.11, the
+        /// headers are discarded.
         /// </summary>
-        /// <param name="topic">Kafka message topic</param>
-        /// <param name="data">Message value</param>
+        /// <param name="topic">Kafka record topic</param>
+        /// <param name="data">Record value</param>
+        /// <param name="headers">Record headers</param>
         /// <returns>false if an overflow occured</returns>
-        bool Produce(string topic, object data);
+        bool Produce(string topic, object data, ICollection<KafkaRecordHeader> headers = null);
 
         /// <summary>
         /// Send some data to a Kafka Cluster, with no key and a given timestamp.
@@ -38,15 +41,18 @@ namespace Kafka.Public
         bool Produce(string topic, object data, DateTime timestamp);
 
         /// <summary>
-        /// Send an array of bytes to a Kafka Cluster, using the given key.
+        /// Send some data to a kafka Cluster, with the given headers and key.
         /// If kafka compatibility mode is set to 0.10+, the timestamp will
         /// be set to Now().
+        /// If kafka compatibility mode is set to a version before 0.11, the
+        /// headers are discarded.
         /// </summary>
-        /// <param name="topic">Kafka message topic</param>
-        /// <param name="key">Message key</param>
-        /// <param name="data">Message value</param>
+        /// <param name="topic">Kafka record topic</param>
+        /// <param name="key">Record key</param>
+        /// <param name="data">Record value</param>
+        /// <param name="headers">Record headers</param>
         /// <returns>false if an overflow occured</returns>
-        bool Produce(string topic, object key, object data);
+        bool Produce(string topic, object key, object data, ICollection<KafkaRecordHeader> headers = null);
 
         /// <summary>
         /// Send an array of bytes to a Kafka Cluster, using the given key and a given timestamp.
@@ -86,6 +92,23 @@ namespace Kafka.Public
         /// <param name="timestamp">The timestamp of the message.</param>
         /// <returns>false if an overflow occured</returns>
         bool Produce(string topic, object key, object data, int partition, DateTime timestamp);
+
+        /// <summary>
+        /// Send some data to a kafka Cluster, with the given headers and key.
+        /// The message will be routed to the target partition. This allows
+        /// clients to partition data according to a specific scheme.
+        /// The timestamp is only used in Kafka compatibility mode 0.10+.
+        /// If kafka compatibility mode is set to a version before 0.11, the
+        /// headers are discarded.
+        /// </summary>
+        /// <param name="topic">Kafka record topic</param>
+        /// <param name="key">Record key</param>
+        /// <param name="data">Record value</param>
+        /// <param name="headers">Record headers</param>
+        /// <param name="partition">Target partition</param>
+        /// <param name="timestamp">Record timestamp</param>
+        /// <returns>false if an overflow occured</returns>
+        bool Produce(string topic, object key, object data, ICollection<KafkaRecordHeader> headers, int partition, DateTime timestamp);
 
         /// <summary>
         /// Consume messages from the given topic, from all partitions, and starting from
@@ -521,34 +544,39 @@ namespace Kafka.Public
             return _cluster.ConsumeRouter.CommitAsync(topic, partition, offset);
         }
 
-        public bool Produce(string topic, object data)
+        public bool Produce(string topic, object data, ICollection<KafkaRecordHeader> headers = null)
         {
-            return Produce(topic, data, DateTime.UtcNow);
+            return Produce(topic, null, data, headers, Partitions.Any, DateTime.UtcNow);
         }
 
         public bool Produce(string topic, object data, DateTime timestamp)
         {
-            return Produce(topic, null, data, timestamp);
+            return Produce(topic, null, data, null, Partitions.Any, timestamp);
         }
 
-        public bool Produce(string topic, object key, object data)
+        public bool Produce(string topic, object key, object data, ICollection<KafkaRecordHeader> headers = null)
         {
-            return Produce(topic, key, data, DateTime.UtcNow);
+            return Produce(topic, key, data, headers, Partitions.Any, DateTime.UtcNow);
         }
 
         public bool Produce(string topic, object key, object data, DateTime timestamp)
         {
-            return Produce(topic, key, data, Partitions.Any, timestamp);
+            return Produce(topic, key, data, null, Partitions.Any, timestamp);
         }
 
         public bool Produce(string topic, object key, object data, int partition)
         {
-            return Produce(topic, key, data, partition, DateTime.UtcNow);
+            return Produce(topic, key, data, null, partition, DateTime.UtcNow);
         }
 
         private readonly object _lock = new object();
 
         public bool Produce(string topic, object key, object data, int partition, DateTime timestamp)
+        {
+            return Produce(topic, key, data, null, partition, timestamp);
+        }
+
+        public bool Produce(string topic, object key, object data, ICollection<KafkaRecordHeader> headers, int partition, DateTime timestamp)
         {
             if (_configuration.MaxBufferedMessages > 0)
             {
@@ -580,6 +608,7 @@ namespace Kafka.Public
                 {
                     Key = key,
                     Value = data,
+                    Headers = _configuration.Compatibility >= Compatibility.V0_11_0 ? headers : null,
                     TimeStamp =
                         _configuration.Compatibility >= Compatibility.V0_10_1 ? Timestamp.ToUnixTimestamp(timestamp) : 0
                 },

@@ -86,6 +86,7 @@ namespace Kafka.Protocol
                 {
                     Key = EnsureSizedSerializable(message.Key, keySerializer),
                     Value = EnsureSizedSerializable(message.Value, valueSerializer),
+                    Headers = message.Headers,
                     Timestamp = message.TimeStamp,
                     // If the serializer is not compatible, we already resolved this
                     // previously, so it's ok if the cast returns null

@@ -703,7 +703,7 @@ namespace tests_kafka_sharp
             }
         }
 
-        private static TopicData<PartitionData> CreateTopicDataPartitionData(CompressionCodec codec)
+        private static TopicData<PartitionData> CreateTopicDataPartitionData(CompressionCodec codec, ICollection<KafkaRecordHeader> headers = null)
         {
             return new TopicData<PartitionData>
             {
@@ -714,7 +714,11 @@ namespace tests_kafka_sharp
                     {
                         Partition = 22,
                         CompressionCodec = codec,
-                        Messages = new[] { new Message { Value = TheValue }, new Message { Value = TheValue } },
+                        Messages = new[]
+                        {
+                            new Message { Value = TheValue, Headers = headers },
+                            new Message { Value = TheValue, Headers = headers }
+                        },
                     }
                 }
             };
@@ -796,7 +800,13 @@ namespace tests_kafka_sharp
                 Timeout = 1223,
                 RequiredAcks = 1,
                 TransactionalID = transactionalId,
-                TopicsData = new[] { CreateTopicDataPartitionData(codec) }
+                TopicsData = new[] {
+                    CreateTopicDataPartitionData(codec, new List<KafkaRecordHeader>
+                    {
+                        new KafkaRecordHeader { Key = TheKey, Value = Value },
+                        new KafkaRecordHeader { Key = TheKey, Value = Value }
+                    })
+                }
             };
 
             var config = new SerializationConfig();
@@ -842,6 +852,7 @@ namespace tests_kafka_sharp
                 // First record
                 var firstRecordLength = VarIntConverter.ReadInt64(records);
                 var startOfFirstRecord = records.Position;
+                var recordsCount = 0L;
                 Assert.AreEqual(0, records.ReadByte()); // attributes
                 Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // TimeStampDelta
                 Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // offsetDelta
@@ -849,8 +860,13 @@ namespace tests_kafka_sharp
                 // Since the keyLength is -1, we do not read the key
                 Assert.AreEqual(Value.Length, VarIntConverter.ReadInt64(records)); //value length
                 Assert.AreEqual(TheValue, deserializer.Deserialize(records, Value.Length));
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // Headers count
-                // Since the header count is 0, we do not read headers
+                recordsCount = VarIntConverter.ReadInt64(records);
+                Assert.AreEqual(2L, recordsCount); // Headers count
+                for (var i = 0; i < recordsCount; ++i)
+                {
+                    Assert.AreEqual(TheKey, Basics.DeserializeStringWithVarIntSize(records));
+                    CollectionAssert.AreEqual(Value, Basics.DeserializeBytesWithVarIntSize(records));
+                }
                 var endOfFirstRecord = records.Position;
                 Assert.AreEqual(firstRecordLength, endOfFirstRecord - startOfFirstRecord);
 
@@ -864,8 +880,13 @@ namespace tests_kafka_sharp
                 // Since the keyLength is -1, we do not read the key
                 Assert.AreEqual(Value.Length, VarIntConverter.ReadInt64(records)); //value length
                 Assert.AreEqual(TheValue, deserializer.Deserialize(records, Value.Length));
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // Headers count
-                // Since the header count is 0, we do not read headers
+                recordsCount = VarIntConverter.ReadInt64(records);
+                Assert.AreEqual(2L, recordsCount); // Headers count
+                for (var i = 0; i < recordsCount; ++i)
+                {
+                    Assert.AreEqual(TheKey, Basics.DeserializeStringWithVarIntSize(records));
+                    CollectionAssert.AreEqual(Value, Basics.DeserializeBytesWithVarIntSize(records));
+                }
                 var endOfSecondRecord = records.Position;
                 Assert.AreEqual(secondRecordLength, endOfSecondRecord - startOfSecondRecord);
 
@@ -906,6 +927,37 @@ namespace tests_kafka_sharp
             }
 
             throw new ArgumentException("invalid codec", nameof(codec));
+        }
+
+        [Test]
+        public void TestSerializeHeaders()
+        {
+            var header = new KafkaRecordHeader { Key = "foo", Value = Value };
+
+            using (var serialized = Pool.Reserve())
+            {
+                Record.SerializeHeader(serialized, header);
+                serialized.Position = 0;
+                var actual = Record.DeserializeHeader(serialized);
+                Assert.AreEqual(header.Key, actual.Key);
+                CollectionAssert.AreEqual(header.Value, actual.Value);
+
+                header = new KafkaRecordHeader { Key = null, Value = Value };
+                Assert.Throws<ArgumentNullException>(() => Record.SerializeHeader(serialized, header));
+
+                header = new KafkaRecordHeader { Key = "foo", Value = null };
+                Assert.Throws<ArgumentNullException>(() => Record.SerializeHeader(serialized, header));
+            }
+        }
+
+        [Test]
+        public void TestSerializedSizeOfHeader()
+        {
+            var header = new KafkaRecordHeader { Key = null, Value = Value };
+            Assert.Throws<ArgumentNullException>(() => Record.SerializedSizeOfHeader(header));
+
+            header = new KafkaRecordHeader { Key = "foo", Value = null };
+            Assert.Throws<ArgumentNullException>(() => Record.SerializedSizeOfHeader(header));
         }
 
         [Test]
