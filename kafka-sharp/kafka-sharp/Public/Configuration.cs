@@ -51,7 +51,15 @@ namespace Kafka.Public
         /// Use latest versions of all API, as supported by Kafka 0.10.1. This means that producer
         /// will use v1 message format, and consumer will be able to read v0 and v1 message format.
         /// </summary>
-        V0_10_1
+        V0_10_1,
+
+        /// <summary>
+        /// Use latest versions of some API, as supported by Kafka 0..0. This means that producer
+        /// will use v2 message format, and consumer will be able to read v0, v1 and v2 message format.
+        /// For now, only api key Produce (0) and Fetch (1) are updated, mostly to take advantage of
+        /// the new message format.
+        /// </summary>
+        V0_11_0
     }
 
     /// <summary>
@@ -303,6 +311,13 @@ namespace Kafka.Public
         /// data to accumulate before answering the request.
         /// </summary>
         public int FetchMinBytes = 1;
+
+        /// <summary>
+        /// The maximum amount of data brokers should return for a fetch request.
+        /// If the first message to be sent takes more size than this limit, then the
+        /// broker will still send it (alone) so that the consumer is not blocked.
+        /// </summary>
+        public int FetchMaxBytes = 50 * 1024 * 1024;
 
         /// <summary>
         /// The number of bytes of messages to attempt to fetch for each topic-partition

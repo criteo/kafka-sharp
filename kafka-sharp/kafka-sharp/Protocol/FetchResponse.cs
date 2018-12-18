@@ -4,13 +4,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
+using System.Linq;
 using Kafka.Common;
 using Kafka.Public;
-using LZ4;
-#if !NET_CORE
-using Snappy;
-#endif
+
 namespace Kafka.Protocol
 {
     using Deserializers = Tuple<IDeserializer, IDeserializer>;
@@ -67,13 +64,39 @@ namespace Kafka.Protocol
         }
     }
 
+    struct AbortedTransaction : IMemoryStreamSerializable
+    {
+        public long ProducerId;
+        public long FirstOffset;
+        public void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
+        {
+            BigEndianConverter.Write(stream, ProducerId);
+            BigEndianConverter.Write(stream, FirstOffset);
+        }
+
+        public void Deserialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
+        {
+            ProducerId = BigEndianConverter.ReadInt64(stream);
+            FirstOffset = BigEndianConverter.ReadInt64(stream);
+        }
+    }
+
     struct FetchPartitionResponse : IMemoryStreamSerializable
     {
         public long HighWatermarkOffset;
         public List<ResponseMessage> Messages;
         public int Partition;
         public ErrorCode ErrorCode;
+        public long LastStableOffset;
+        public long LogStartOffset;
+        public AbortedTransaction[] AbortedTransactions;
 
+        private const int HeaderSize = 4 // size
+            + 8 // baseOffset
+            + 4 // batchLength
+            + 4; // PartitionLeaderEpoch
+
+        internal CompressionCodec Compression; // Only used in test for serializing
         #region Deserialization
 
         public void Deserialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
@@ -81,9 +104,20 @@ namespace Kafka.Protocol
             Partition = BigEndianConverter.ReadInt32(stream);
             ErrorCode = (ErrorCode) BigEndianConverter.ReadInt16(stream);
             HighWatermarkOffset = BigEndianConverter.ReadInt64(stream);
+            if (version >= Basics.ApiVersion.V4)
+            {
+                LastStableOffset = BigEndianConverter.ReadInt64(stream);
+                AbortedTransactions = Basics.DeserializeArray<AbortedTransaction>(stream);
+            }
+            if (version >= Basics.ApiVersion.V5)
+            {
+                LogStartOffset = BigEndianConverter.ReadInt64(stream);
+            }
             try
             {
-                Messages = DeserializeMessageSet(stream, extra as Deserializers);
+                Messages = version >= Basics.ApiVersion.V3
+                    ? DeserializeRecordBatch(stream, extra as Deserializers)
+                    : DeserializeMessageSet(stream, extra as Deserializers);
             }
             catch (ProtocolException pEx)
             {
@@ -96,6 +130,45 @@ namespace Kafka.Protocol
         {
             var list = ResponseMessageListPool.Reserve();
             list.AddRange(LazyDeserializeMessageSet(stream, BigEndianConverter.ReadInt32(stream), deserializers));
+            return list;
+        }
+
+        internal static List<ResponseMessage> DeserializeRecordBatch(ReusableMemoryStream stream,
+            Deserializers deserializers)
+        {
+            var list = ResponseMessageListPool.Reserve();
+
+            // First of all, we need to check if it is really a recordBatch (i.e. magic byte = 2)
+            // For that, we need to fast-forward to the magic byte. Depending on its value, we go back
+            // and deserialize following the corresponding format. (Kafka is amazing).
+            var startOfBatchOffset = stream.Position;
+            stream.Position += HeaderSize;
+            var magic = stream.ReadByte();
+
+            stream.Position = startOfBatchOffset;
+            if (magic < 2)
+            {
+                // We were mistaken, this is not a recordBatch but a message set!
+                return DeserializeMessageSet(stream, deserializers);
+            }
+            // Now we know what we received is a proper recordBatch
+            var recordBatch = new RecordBatch();
+            var size = BigEndianConverter.ReadInt32(stream);
+            var endOfAllBatches = stream.Position + size;
+            if (stream.Length < endOfAllBatches)
+            {
+                throw new ProtocolException($"Fetch response advertise record batches of total size {size},"
+                    + $" but the stream only contains {stream.Length - stream.Position} byte remaining");
+            }
+            while (stream.Position < endOfAllBatches)
+            {
+                recordBatch.Deserialize(stream, deserializers, endOfAllBatches);
+                list.AddRange(recordBatch.Records.Select(record => new ResponseMessage
+                {
+                    Message = new Message { Key = record.Key, Value = record.Value, TimeStamp = record.Timestamp },
+                    Offset = record.Offset
+                }));
+            }
             return list;
         }
 
@@ -145,7 +218,7 @@ namespace Kafka.Protocol
                 var magic = stream.ReadByte();
                 if ((uint)magic > 1)
                 {
-                    throw new UnsupportedMagicByteVersion((byte) magic);
+                    throw new UnsupportedMagicByteVersion((byte) magic, "0 or 1");
                 }
                 var attributes = stream.ReadByte();
                 long timestamp = 0;
@@ -168,7 +241,7 @@ namespace Kafka.Protocol
                             TimeStamp = timestamp
                         }
                     };
-                    CheckCrc(crc, stream, crcStartPos);
+                    Crc32.CheckCrc(crc, stream, crcStartPos);
                     yield return msg;
                 }
                 else
@@ -183,10 +256,10 @@ namespace Kafka.Protocol
                     var compressedLength = BigEndianConverter.ReadInt32(stream);
                     var dataPos = stream.Position;
                     stream.Position += compressedLength;
-                    CheckCrc(crc, stream, crcStartPos);
+                    Crc32.CheckCrc(crc, stream, crcStartPos);
                     using (var uncompressedStream = stream.Pool.Reserve())
                     {
-                        Uncompress(uncompressedStream, stream.GetBuffer(), (int) dataPos, compressedLength, codec);
+                        Basics.Uncompress(uncompressedStream, stream.GetBuffer(), (int) dataPos, compressedLength, codec);
                         // Deserialize recursively
                         if (magic == 0) // v0 message
                         {
@@ -225,66 +298,39 @@ namespace Kafka.Protocol
             }
         }
 
-        static void CheckCrc(int crc, ReusableMemoryStream stream, long crcStartPos)
-        {
-            var computedCrc = (int)Crc32.Compute(stream, crcStartPos, stream.Position - crcStartPos);
-            if (computedCrc != crc)
-            {
-                throw new CrcException(
-                    string.Format("Corrupt message: CRC32 does not match. Calculated {0} but got {1}", computedCrc,
-                                  crc));
-            }
-        }
-
-        #region Compression handling
-
-        private static void Uncompress(ReusableMemoryStream uncompressed, byte[] body, int offset, int length, CompressionCodec codec)
-        {
-            try
-            {
-                if (codec == CompressionCodec.Snappy)
-                {
-#if NET_CORE
-                    throw new NotImplementedException();
-#else
-                    uncompressed.SetLength(SnappyCodec.GetUncompressedLength(body, offset, length));
-                    SnappyCodec.Uncompress(body, offset, length, uncompressed.GetBuffer(), 0);
-#endif
-                }
-                else if (codec == CompressionCodec.Gzip)
-                {
-                    using (var compressed = new MemoryStream(body, offset, length, false))
-                    {
-                        using (var zipped = new GZipStream(compressed, CompressionMode.Decompress))
-                        {
-                            using (var tmp = uncompressed.Pool.Reserve())
-                            {
-                                zipped.ReusableCopyTo(uncompressed, tmp);
-                            }
-                        }
-                    }
-                }
-                else // compression == CompressionCodec.Lz4
-                {
-                    KafkaLz4.Uncompress(uncompressed, body, offset);
-                }
-
-                uncompressed.Position = 0;
-            }
-            catch (Exception ex)
-            {
-                throw new UncompressException("Invalid compressed data.", codec, ex);
-            }
-        }
-
-        #endregion
-
         // Used only in tests, and we only support byte array data
         public void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             BigEndianConverter.Write(stream, Partition);
             BigEndianConverter.Write(stream, (short) ErrorCode);
             BigEndianConverter.Write(stream, HighWatermarkOffset);
+            if (version >= Basics.ApiVersion.V4)
+            {
+                BigEndianConverter.Write(stream, LastStableOffset);
+                Basics.WriteArray(stream, AbortedTransactions);
+            }
+            if (version >= Basics.ApiVersion.V5)
+            {
+                BigEndianConverter.Write(stream, LogStartOffset);
+            }
+
+            if (version >= Basics.ApiVersion.V3)
+            {
+                var batch = new RecordBatch
+                {
+                    CompressionCodec = Compression,
+                    Records = Messages.Select(responseMessage => new Record
+                    {
+                        Key = responseMessage.Message.Key,
+                        Value = responseMessage.Message.Value,
+                        Timestamp = responseMessage.Message.TimeStamp,
+                        KeySerializer = null,
+                        ValueSerializer = null
+                    }),
+                };
+                Basics.WriteSizeInBytes(stream, batch.Serialize);
+                return;
+            }
             Basics.WriteSizeInBytes(stream, Messages, (s, l) =>
             {
                 foreach (var m in l)

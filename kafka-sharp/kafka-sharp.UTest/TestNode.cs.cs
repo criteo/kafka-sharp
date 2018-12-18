@@ -59,7 +59,7 @@ namespace tests_kafka_sharp
 
             var node = new Node("Node", () => connection.Object,
                 new Node.Serialization(new SerializationConfig(), Compatibility.V0_8_2, Pool, new byte[0],
-                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                 new Configuration
                 {
                     ConsumeBufferingTime = TimeSpan.FromMilliseconds(15),
@@ -78,7 +78,7 @@ namespace tests_kafka_sharp
 
             node = new Node("Node", () => connection.Object,
                 new Node.Serialization(new SerializationConfig(), Compatibility.V0_10_1, Pool, new byte[0],
-                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                 new Configuration
                 {
                     ConsumeBufferingTime = TimeSpan.FromMilliseconds(15),
@@ -331,7 +331,7 @@ namespace tests_kafka_sharp
 
             var node = new Node("Node", () => connection.Object,
                 new Node.Serialization(new SerializationConfig(), Compatibility.V0_8_2, Pool, new byte[0],
-                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                 new Configuration
                 {
                     ConsumeBufferingTime = TimeSpan.FromMilliseconds(15),
@@ -350,7 +350,7 @@ namespace tests_kafka_sharp
 
             node = new Node("Node", () => connection.Object,
                 new Node.Serialization(new SerializationConfig(), Compatibility.V0_10_1, Pool, new byte[0],
-                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                 new Configuration
                 {
                     ConsumeBufferingTime = TimeSpan.FromMilliseconds(15),
@@ -684,7 +684,7 @@ namespace tests_kafka_sharp
         public void TestMetadataDecodeError()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                                 new Configuration());
             Exception ex = null;
             node.DecodeError += (n, e) =>
@@ -740,7 +740,7 @@ namespace tests_kafka_sharp
 
             var node = new Node("Node", () => connection.Object,
                 new Node.Serialization(new SerializationConfig(), Compatibility.V0_8_2, Pool, new byte[0],
-                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                 new Configuration { ProduceBufferingTime = TimeSpan.FromMilliseconds(15), ProduceBatchSize = 1, TaskScheduler = new CurrentThreadTaskScheduler()}, 1);
 
             node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
@@ -754,7 +754,7 @@ namespace tests_kafka_sharp
 
             node = new Node("Node", () => connection.Object,
                 new Node.Serialization(new SerializationConfig(), Compatibility.V0_10_1, Pool, new byte[0],
-                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                    RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                 new Configuration { ProduceBufferingTime = TimeSpan.FromMilliseconds(15), ProduceBatchSize = 1, TaskScheduler = new CurrentThreadTaskScheduler() }, 1);
 
             node.Produce(ProduceMessage.New("test", 0, new Message(), DateTime.UtcNow.AddDays(1)));
@@ -832,7 +832,7 @@ namespace tests_kafka_sharp
         public void TestProduceDecodeErrorAreAcknowledged()
         {
             var node = new Node("Pepitomustogussimo", () => new EchoConnectionMock(),
-                                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                                 new Configuration
                                     {
                                         ErrorStrategy = ErrorStrategy.Discard,
@@ -870,7 +870,7 @@ namespace tests_kafka_sharp
             // Prepare
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object,
-                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                 new Configuration
                 {
                     TaskScheduler = new CurrentThreadTaskScheduler(),
@@ -1006,7 +1006,7 @@ namespace tests_kafka_sharp
             // Prepare
             var connection = new Mock<IConnection>();
             var node = new Node("Node", () => connection.Object,
-                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100),
+                new Node.Serialization(null, Compatibility.V0_8_2, Pool, new byte[0], RequiredAcks.Leader, 1, CompressionCodec.None, 0, 100, 100),
                 new Configuration
                 {
                     TaskScheduler = new CurrentThreadTaskScheduler(),

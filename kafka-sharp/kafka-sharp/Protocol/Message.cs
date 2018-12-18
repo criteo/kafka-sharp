@@ -10,7 +10,8 @@ namespace Kafka.Protocol
     internal enum MessageVersion
     {
         V0 = 0,
-        V1 = 1
+        V1 = 1,
+        // Message V2 is implemented in RecordBatch and shall not be used here.
     }
 
     internal struct Message

@@ -29,6 +29,11 @@ namespace Kafka.Public
         int Serialize(object input, MemoryStream toStream);
     }
 
+    public interface ISizableSerializer : ISerializer
+    {
+        long SerializedSize(object input);
+    }
+
     /// <summary>
     /// Interface to custom deserialization.
     /// Implementation of this class must be threadsafe.
@@ -55,6 +60,18 @@ namespace Kafka.Public
     public interface IMemorySerializable
     {
         void Serialize(MemoryStream toStream);
+    }
+
+    /// <summary>
+    /// This defines an interface for object serializable to memory, where the
+    /// size of the serialized objects can be known in advance.
+    ///
+    /// Knowing the size of the serialized object ahead of the serialization
+    /// avoids the allocation of a temporary buffer in some cases.
+    /// </summary>
+    public interface ISizedMemorySerializable : IMemorySerializable
+    {
+        long SerializedSize();
     }
 
     /// <summary>
@@ -170,7 +187,7 @@ namespace Kafka.Public
     /// <summary>
     /// A serializer for strings.
     /// </summary>
-    public sealed class StringSerializer : ISerializer
+    public sealed class StringSerializer : ISizableSerializer
     {
         private readonly Encoding _encoding;
 
@@ -206,6 +223,15 @@ namespace Kafka.Public
             _encoding.GetBytes(data, 0, data.Length, toStream.GetBuffer(), (int) position);
             toStream.Position = position + length;
             return length;
+        }
+
+        public long SerializedSize(object input)
+        {
+            var data = input as string;
+            if (data == null)
+                throw new ArgumentException("Non string argument", nameof(input));
+
+            return _encoding.GetByteCount(data);
         }
     }
 

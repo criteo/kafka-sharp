@@ -42,8 +42,8 @@ namespace Kafka.Protocol
     // Wrong message version
     class UnsupportedMagicByteVersion : ProtocolException
     {
-        public UnsupportedMagicByteVersion(byte badMagic)
-            : base(string.Format("Unsupported magic byte version: {0}, only 0 is supported", badMagic))
+        public UnsupportedMagicByteVersion(byte badMagic, string supported)
+            : base($"Unsupported magic byte version: {badMagic}, only {supported} is supported")
         {
         }
     }
