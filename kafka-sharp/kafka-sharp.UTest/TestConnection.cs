@@ -599,7 +599,11 @@ namespace tests_kafka_sharp
                 {
                     if (te.InnerException is SocketException se)
                     {
+#if NET_CORE
+                        if (se.SocketErrorCode == (int)SocketError.Success)
+#else
                         if (se.ErrorCode == (int)SocketError.Success)
+#endif
                         {
                             numberOfConnectionError++;
                         }
