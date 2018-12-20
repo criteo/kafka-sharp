@@ -64,11 +64,7 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.ValueTuple">
-<<<<<<< HEAD
-      <HintPath>..\packages\System.ValueTuple.4.4.0\lib\net461\System.ValueTuple.dll</HintPath>
-=======
-      <HintPath>$(SolutionDir)\packages\System.ValueTuple.4.4.0\lib\net47\System.ValueTuple.dll</HintPath>
->>>>>>> c5cf473... Update TargetFrameworkVersion to net471
+      <HintPath>..\packages\System.ValueTuple.4.4.0\lib\net47\System.ValueTuple.dll</HintPath>
     </Reference>
     <Reference Include="System.Xml" />
   </ItemGroup>
