@@ -165,8 +165,8 @@ namespace tests_kafka_sharp
                 });
             }
 
-            Assert.ThrowsAsync<TimeoutException>(async () => await _cluster.RequireNewRoutingTable());
-            Assert.ThrowsAsync<TimeoutException>(async () => await _cluster.RequireNewRoutingTable());
+            Assert.Throws<TimeoutException>(() => _cluster.RequireNewRoutingTable().GetAwaiter().GetResult());
+
             Assert.AreEqual(0, _internalErrors);
         }
 
