@@ -214,7 +214,7 @@ namespace Kafka.Cluster
             // Node factory
             var clientId = Encoding.UTF8.GetBytes(configuration.ClientId);
             var serializer = new Node.Serialization(configuration.SerializationConfig, configuration.Compatibility, _pools.RequestsBuffersPool, clientId, configuration.RequiredAcks, configuration.RequestTimeoutMs,
-                                                 configuration.CompressionCodec, configuration.FetchMinBytes, configuration.FetchMaxWaitTime);
+                                                 configuration.CompressionCodec, configuration.FetchMinBytes, configuration.FetchMaxWaitTime, configuration.FetchMaxBytes);
             _nodeFactory = nodeFactory ??
                            ((h, p) =>
                             new Node(string.Format("[{0}:{1}]", h, p),
@@ -457,7 +457,7 @@ namespace Kafka.Cluster
         public void Start()
         {
             Logger.LogInformation("Bootstraping with " + _seeds);
-            Logger.LogInformation("Compatibility with " + ((_configuration.Compatibility == Compatibility.V0_10_1) ? "Kafka 0.10+" : "Kafka 0.8.2"));
+            Logger.LogInformation("Compatibility with " + GetPrettyStringOfVersion(_configuration.Compatibility));
             Logger.LogInformation(
                 string.Format("Configuration: {0} - {1} - {2} - max before overflow: {3} - produce batch size: {4} - client timeout: {5} ms",
                 _configuration.OverflowStrategy == OverflowStrategy.Block ? "blocking" : "discard",
@@ -520,6 +520,21 @@ namespace Kafka.Cluster
                 _configuration.RefreshMetadataInterval,
                 _configuration.RefreshMetadataInterval);
             _started = true;
+        }
+
+        private string GetPrettyStringOfVersion(Compatibility version)
+        {
+            switch (version)
+            {
+                case Compatibility.V0_8_2:
+                    return "Kafka 0.8.2";
+                case Compatibility.V0_10_1:
+                    return "Kafka 0.10";
+                case Compatibility.V0_11_0:
+                    return "Kafka 0.11+";
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(version), version, null);
+            }
         }
 
         public async Task Stop()

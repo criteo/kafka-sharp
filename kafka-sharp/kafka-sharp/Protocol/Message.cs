@@ -2,6 +2,7 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
+using System.Collections.Generic;
 using Kafka.Common;
 using Kafka.Public;
 
@@ -10,13 +11,15 @@ namespace Kafka.Protocol
     internal enum MessageVersion
     {
         V0 = 0,
-        V1 = 1
+        V1 = 1,
+        // Message V2 is implemented in RecordBatch and shall not be used here.
     }
 
     internal struct Message
     {
         public object Key;
         public object Value;
+        public ICollection<KafkaRecordHeader> Headers;
         public long TimeStamp;
 
         // Visible for tests

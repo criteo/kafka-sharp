@@ -3,13 +3,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO.Compression;
+using System.Linq;
 using Kafka.Common;
 using Kafka.Public;
-using LZ4;
-#if !NET_CORE
-using Snappy;
-#endif
+
 namespace Kafka.Protocol
 {
     using Serializers = Tuple<ISerializer, ISerializer>;
@@ -19,6 +16,7 @@ namespace Kafka.Protocol
         public IEnumerable<TopicData<PartitionData>> TopicsData;
         public int Timeout;
         public short RequiredAcks;
+        public string TransactionalID;
 
         #region Serialization
 
@@ -29,6 +27,10 @@ namespace Kafka.Protocol
 
         public void SerializeBody(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
+            if (version >= Basics.ApiVersion.V3)
+            {
+                Basics.SerializeString(stream, TransactionalID);
+            }
             BigEndianConverter.Write(stream, RequiredAcks);
             BigEndianConverter.Write(stream, Timeout);
             Basics.WriteArray(stream, TopicsData, extra, version);
@@ -55,12 +57,70 @@ namespace Kafka.Protocol
         public void Serialize(ReusableMemoryStream stream, object extra, Basics.ApiVersion version)
         {
             BigEndianConverter.Write(stream, Partition);
+
+            if (version >= Basics.ApiVersion.V3)
+            {
+                ISerializer keySerializer = null, valueSerializer = null;
+                if (extra is Serializers asSerializers)
+                {
+                    keySerializer = asSerializers.Item1;
+                    valueSerializer = asSerializers.Item2;
+                }
+
+                SerializeRecordBatch(stream, keySerializer, valueSerializer);
+            }
+            else
+            {
+                SerializeMessageSet(stream, extra as Serializers, version >= Basics.ApiVersion.V2 ? MessageVersion.V1 : MessageVersion.V0);
+            }
+        }
+
+        private void SerializeRecordBatch(ReusableMemoryStream stream, ISerializer keySerializer,
+            ISerializer valueSerializer)
+        {
+            // Starting Produce request V3, messages are encoded in the new RecordBatch.
+            var batch = new RecordBatch
+            {
+                CompressionCodec = CompressionCodec,
+                Records = Messages.Select(message => new Record
+                {
+                    Key = EnsureSizedSerializable(message.Key, keySerializer),
+                    Value = EnsureSizedSerializable(message.Value, valueSerializer),
+                    Headers = message.Headers,
+                    Timestamp = message.TimeStamp,
+                    // If the serializer is not compatible, we already resolved this
+                    // previously, so it's ok if the cast returns null
+                    KeySerializer = keySerializer as ISizableSerializer,
+                    ValueSerializer = valueSerializer as ISizableSerializer
+                }),
+
+            };
+
+            Basics.WriteSizeInBytes(stream, batch.Serialize);
+        }
+
+        private static object EnsureSizedSerializable(object o, ISerializer serializer)
+        {
+            if (Basics.SizeOfSerializedObject(o, serializer as ISizableSerializer) == Basics.UnknownSize)
+            {
+                using (ReusableMemoryStream buffer = new ReusableMemoryStream(null))
+                {
+                    serializer.Serialize(o, buffer);
+                    return buffer.GetBuffer();
+                }
+            }
+
+            return o;
+        }
+
+        private void SerializeMessageSet(ReusableMemoryStream stream, Serializers serializers, MessageVersion version)
+        {
             Basics.WriteSizeInBytes(stream, Messages,
                 new SerializationInfo
                 {
-                    Serializers = extra as Serializers,
+                    Serializers = serializers,
                     CompressionCodec = CompressionCodec,
-                    MessageVersion = version >= Basics.ApiVersion.V2 ? MessageVersion.V1 : MessageVersion.V0
+                    MessageVersion = version
                 }, SerializeMessages);
         }
 
@@ -72,7 +132,7 @@ namespace Kafka.Protocol
             {
                 // We always set offsets starting from 0 and increasing by one for each consecutive message.
                 // This is because in compressed messages, when message format is V1, the brokers
-                // will follow this format on disk. You're expected to do the same if you want to 
+                // will follow this format on disk. You're expected to do the same if you want to
                 // avoid offset reassignment and message recompression.
                 // When message format is V0, brokers will rewrite the offsets anyway
                 // so we use the same scheme in all cases.
@@ -106,35 +166,7 @@ namespace Kafka.Protocol
 
                     using (var compressed = stream.Pool.Reserve())
                     {
-                        switch (info.CompressionCodec)
-                        {
-                            case CompressionCodec.Gzip:
-                                using (var gzip = new GZipStream(compressed, CompressionMode.Compress, true))
-                                {
-                                    msgsetStream.WriteTo(gzip);
-                                }
-                                break;
-
-                            case CompressionCodec.Lz4:
-                                KafkaLz4.Compress(compressed, msgsetStream.GetBuffer(), (int) msgsetStream.Length);
-                                break;
-
-                            case CompressionCodec.Snappy:
-                            {
-#if NET_CORE
-                            throw new NotImplementedException();
-#else
-                                compressed.SetLength(SnappyCodec.GetMaxCompressedLength((int) msgsetStream.Length));
-                                {
-                                    int size = SnappyCodec.Compress(msgsetStream.GetBuffer(), 0,
-                                        (int) msgsetStream.Length,
-                                        compressed.GetBuffer(), 0);
-                                    compressed.SetLength(size);
-                                }
-#endif
-                            }
-                                break;
-                        }
+                        Basics.CompressStream(msgsetStream, compressed, info.CompressionCodec);
 
                         var m = new Message
                         {

@@ -35,6 +35,7 @@ namespace Kafka.Protocol
         public ErrorCode ErrorCode;
         public long Offset;
         public long Timestamp;
+        public long LogStartOffset;
 
         // Used only in tests
         public void Serialize(ReusableMemoryStream stream, object _, Basics.ApiVersion version)
@@ -46,6 +47,10 @@ namespace Kafka.Protocol
             {
                 BigEndianConverter.Write(stream, Timestamp);
             }
+            if (version >= Basics.ApiVersion.V5)
+            {
+                BigEndianConverter.Write(stream, LogStartOffset);
+            }
         }
 
         public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion version)
@@ -56,6 +61,10 @@ namespace Kafka.Protocol
             if (version >= Basics.ApiVersion.V2)
             {
                 Timestamp = BigEndianConverter.ReadInt64(stream);
+            }
+            if (version >= Basics.ApiVersion.V5)
+            {
+                LogStartOffset = BigEndianConverter.ReadInt64(stream);
             }
         }
     }

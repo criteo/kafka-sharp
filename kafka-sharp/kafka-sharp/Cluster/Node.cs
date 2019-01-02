@@ -293,18 +293,20 @@ namespace Kafka.Cluster
             private readonly short _requiredAcks;
             private readonly int _timeoutInMs;
             private readonly int _minBytes;
+            private readonly int _maxBytes;
             private readonly int _maxWait;
             private readonly CompressionCodec _compressionCodec;
             private readonly SerializationConfig _serializationConfig;
             private readonly Pool<ReusableMemoryStream> _requestPool;
             private readonly Compatibility _compatibility;
 
-            public Serialization(SerializationConfig serializationConfig, Compatibility compatibility, Pool<ReusableMemoryStream> requestPool, byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait)
+            public Serialization(SerializationConfig serializationConfig, Compatibility compatibility, Pool<ReusableMemoryStream> requestPool, byte[] clientId, RequiredAcks requiredAcks, int timeoutInMs, CompressionCodec compressionCodec, int minBytes, int maxWait, int maxBytes)
             {
                 _clientId = clientId;
                 _requiredAcks = (short) requiredAcks;
                 _timeoutInMs = timeoutInMs;
                 _minBytes = minBytes;
+                _maxBytes = maxBytes;
                 _maxWait = maxWait;
                 _compressionCodec = compressionCodec;
                 _serializationConfig = serializationConfig ?? new SerializationConfig();
@@ -314,7 +316,7 @@ namespace Kafka.Cluster
 
             public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
             {
-                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null, Basics.ApiVersion.Ignored);
+                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.Metadata, _compatibility));
             }
 
             public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
@@ -334,7 +336,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig, _compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
+                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig, GetApiVersion(RequestType.BatchedProduce, _compatibility));
             }
 
             public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
@@ -343,6 +345,7 @@ namespace Kafka.Cluster
                 {
                     MaxWaitTime = _maxWait,
                     MinBytes = _minBytes,
+                    MaxBytes = _maxBytes,
                     TopicsData = batch.Select(gt => new TopicData<FetchPartitionData>
                     {
                         TopicName = gt.Key,
@@ -354,7 +357,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, _compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
+                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.BatchedFetch, _compatibility));
             }
 
             public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
@@ -372,7 +375,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, _compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V1);
+                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.BatchedOffset, _compatibility));
             }
 
             public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version)
@@ -1092,6 +1095,7 @@ namespace Kafka.Cluster
         // Serialize a request
         private ReusableMemoryStream Serialize(int correlationId, Request request)
         {
+            var apiVersion = GetApiVersion(request.RequestType);
             switch (request.RequestType)
             {
                 case RequestType.Metadata:
@@ -1115,34 +1119,31 @@ namespace Kafka.Cluster
 
                 case RequestType.GroupCoordinator:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.GroupCoordinatorRequest.Request, Basics.ApiVersion.V0);
+                        request.RequestValue.GroupCoordinatorRequest.Request, apiVersion);
 
                 case RequestType.Heartbeat:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.HeartbeatRequest.Request, Basics.ApiVersion.V0);
+                        request.RequestValue.HeartbeatRequest.Request, apiVersion);
 
                 case RequestType.LeaveGroup:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.LeaveGroupRequest.Request, Basics.ApiVersion.V0);
+                        request.RequestValue.LeaveGroupRequest.Request, apiVersion);
 
                 case RequestType.JoinConsumerGroup:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.JoinConsumerGroupRequest.Request,
-                        _configuration.Compatibility == Compatibility.V0_8_2
-                            ? Basics.ApiVersion.V0
-                            : Basics.ApiVersion.V1);
+                        request.RequestValue.JoinConsumerGroupRequest.Request, apiVersion);
 
                 case RequestType.SyncConsumerGroup:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.SyncConsumerGroupRequest.Request, Basics.ApiVersion.V0);
+                        request.RequestValue.SyncConsumerGroupRequest.Request, apiVersion);
 
                 case RequestType.OffsetCommit:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.OffsetCommitRequest.Request, Basics.ApiVersion.V2);
+                        request.RequestValue.OffsetCommitRequest.Request, apiVersion);
 
                 case RequestType.OffsetFetch:
                     return _serialization.SerializeRequest(correlationId,
-                        request.RequestValue.OffsetFetchRequest.Request, Basics.ApiVersion.V1);
+                        request.RequestValue.OffsetFetchRequest.Request, apiVersion);
 
                 default: // Compiler requires a default case, even if all possible cases are already handled
                     throw new ArgumentOutOfRangeException("request", "Non valid RequestType enum value: " + request.RequestType);
@@ -1371,11 +1372,12 @@ namespace Kafka.Cluster
                             var latencyMs = DateTime.UtcNow.Subtract(pending.TimeStamp).TotalMilliseconds;
                             OnResponseReceived(latencyMs);
 
+                            var apiVersion = GetApiVersion(pending.Request.RequestType);
                             switch (pending.Request.RequestType)
                             {
                                 case RequestType.BatchedProduce:
                                     ProcessProduceResponse(pending.CorrelationId, data,
-                                        pending.Request.RequestValue.ProduceBatchRequest);
+                                        pending.Request.RequestValue.ProduceBatchRequest, apiVersion);
 
                                     break;
 
@@ -1386,17 +1388,17 @@ namespace Kafka.Cluster
 
                                 case RequestType.SingleOffset:
                                     ProcessSingleOffsetResponse(pending.CorrelationId, data,
-                                        pending.Request.RequestValue.OneOffsetRequest);
+                                        pending.Request.RequestValue.OneOffsetRequest, apiVersion);
                                     break;
 
                                 case RequestType.BatchedFetch:
                                     ProcessFetchResponse(pending.CorrelationId, data,
-                                        pending.Request.RequestValue.FetchBatchRequest);
+                                        pending.Request.RequestValue.FetchBatchRequest, apiVersion);
                                     break;
 
                                 case RequestType.BatchedOffset:
                                     ProcessOffsetResponse(pending.CorrelationId, data,
-                                        pending.Request.RequestValue.OffsetBatchRequest);
+                                        pending.Request.RequestValue.OffsetBatchRequest, apiVersion);
                                     break;
 
                                 case RequestType.GroupCoordinator:
@@ -1559,13 +1561,13 @@ namespace Kafka.Cluster
         /// are perfectly valid.
         /// </summary>
         private void ProcessFetchResponse(int correlationId, ReusableMemoryStream responseData,
-            IBatchByTopic<FetchMessage> originalRequest)
+            IBatchByTopic<FetchMessage> originalRequest, Basics.ApiVersion version)
         {
             var response = new CommonAcknowledgement<FetchResponse> {ReceivedDate = DateTime.UtcNow};
             try
             {
                 response.Response = _serialization.DeserializeResponse<FetchResponse>(correlationId, responseData,
-                    _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
+                    version);
             }
             catch (ProtocolException pex)
             {
@@ -1594,13 +1596,13 @@ namespace Kafka.Cluster
         /// are perfectly valid (leader change).
         /// </summary>
         private void ProcessOffsetResponse(int correlationId, ReusableMemoryStream responseData,
-            IBatchByTopic<OffsetMessage> originalRequest)
+            IBatchByTopic<OffsetMessage> originalRequest, Basics.ApiVersion version)
         {
             var response = new CommonAcknowledgement<CommonResponse<OffsetPartitionResponse>> {ReceivedDate = DateTime.UtcNow};
             try
             {
                 response.Response = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId,
-                    responseData, _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V1);
+                    responseData, version);
             }
             catch (Exception ex)
             {
@@ -1613,13 +1615,13 @@ namespace Kafka.Cluster
         }
 
         private void ProcessSingleOffsetResponse(int correlationId, ReusableMemoryStream responseData,
-            Requested<IBatchByTopic<OffsetMessage>, long>  originalRequest)
+            Requested<IBatchByTopic<OffsetMessage>, long>  originalRequest, Basics.ApiVersion version)
         {
             try
             {
                 var offsetResponse = _serialization.DeserializeCommonResponse<OffsetPartitionResponse>(correlationId,
                     responseData,
-                    _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V1);
+                    version);
                 var response = offsetResponse.TopicsResponse[0].PartitionsData.First();
                 originalRequest.Promise.SetResult(response.ErrorCode == ErrorCode.NoError ? response.Offsets[0] : -1);
                 originalRequest.Request.Dispose();
@@ -1636,7 +1638,7 @@ namespace Kafka.Cluster
         /// request because in case of error the producer may try to resend the messages.
         /// </summary>
         private void ProcessProduceResponse(int correlationId, ReusableMemoryStream responseData,
-            IBatchByTopicByPartition<ProduceMessage> originalRequest)
+            IBatchByTopicByPartition<ProduceMessage> originalRequest, Basics.ApiVersion version)
         {
             var acknowledgement = new ProduceAcknowledgement
             {
@@ -1646,7 +1648,7 @@ namespace Kafka.Cluster
             try
             {
                 acknowledgement.ProduceResponse =
-                    _serialization.DeserializeResponse<ProduceResponse>(correlationId, responseData, _configuration.Compatibility == Compatibility.V0_8_2 ? Basics.ApiVersion.V0 : Basics.ApiVersion.V2);
+                    _serialization.DeserializeResponse<ProduceResponse>(correlationId, responseData, version);
             }
             catch (Exception ex)
             {
@@ -1932,6 +1934,84 @@ namespace Kafka.Cluster
         private void OnNoMoreRequestSlot()
         {
             NoMoreRequestSlot(this);
+        }
+
+        private Basics.ApiVersion GetApiVersion(RequestType type)
+        {
+            return GetApiVersion(type, _configuration.Compatibility);
+        }
+
+        private static Basics.ApiVersion GetApiVersion(RequestType type, Compatibility compVersion)
+        {
+            switch (type)
+            {
+                case RequestType.Metadata:
+                    return Basics.ApiVersion.Ignored;
+
+                case RequestType.BatchedProduce:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return Basics.ApiVersion.V0;
+                        case Compatibility.V0_10_1:
+                            return Basics.ApiVersion.V2;
+                        case Compatibility.V0_11_0:
+                            return Basics.ApiVersion.V3;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+                case RequestType.BatchedFetch:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return Basics.ApiVersion.V0;
+                        case Compatibility.V0_10_1:
+                            return Basics.ApiVersion.V2;
+                        case Compatibility.V0_11_0:
+                            return Basics.ApiVersion.V4;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+
+                case RequestType.BatchedOffset:
+                case RequestType.SingleOffset:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return Basics.ApiVersion.V0;
+                        default:
+                            return Basics.ApiVersion.V1;
+                    }
+
+                case RequestType.GroupCoordinator:
+                    return Basics.ApiVersion.V0;
+
+                case RequestType.Heartbeat:
+                    return Basics.ApiVersion.V0;
+
+                case RequestType.LeaveGroup:
+                    return Basics.ApiVersion.V0;
+
+                case RequestType.SyncConsumerGroup:
+                    return Basics.ApiVersion.V0;
+
+                case RequestType.JoinConsumerGroup:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return Basics.ApiVersion.V0;
+                        default:
+                            return Basics.ApiVersion.V1;
+                    }
+
+                case RequestType.OffsetCommit:
+                    return Basics.ApiVersion.V2;
+
+                case RequestType.OffsetFetch:
+                    return Basics.ApiVersion.V1;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
+            }
         }
     }
 }

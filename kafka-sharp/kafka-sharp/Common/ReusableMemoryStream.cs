@@ -14,7 +14,7 @@ namespace Kafka.Common
     /// we can minimize MemoryStream/buffers creation when (de)serialing requests/responses
     /// and we can minimize the number of buffers passed to the network layers.
     /// </summary>
-    class ReusableMemoryStream : MemoryStream, IMemorySerializable, IDisposable
+    class ReusableMemoryStream : MemoryStream, ISizedMemorySerializable, IDisposable
     {
         private static int _nextId;
         private readonly int _id; // Useful to track leaks while debugging
@@ -60,6 +60,11 @@ namespace Kafka.Common
             byte[] array = this.GetBuffer();
             int length = (int) Length;
             toStream.Write(array, 0, length);
+        }
+
+        public long SerializedSize()
+        {
+            return this.Length;
         }
     }
 
