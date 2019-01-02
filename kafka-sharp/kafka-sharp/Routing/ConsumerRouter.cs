@@ -538,7 +538,7 @@ namespace Kafka.Routing
         /// <param name="table"></param>
         public void ChangeRoutingTable(RoutingTable table)
         {
-            if (_routingTable != null && _routingTable.LastRefreshed >= table.LastRefreshed) return;
+            if (_routingTable != null && _routingTable.LastRefreshed > table.LastRefreshed) return;
             Interlocked.Exchange(ref _routingTable, new RoutingTable(table));
             _innerActor.Post(new ConsumerMessage
             {

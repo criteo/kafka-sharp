@@ -25,7 +25,12 @@ namespace tests_kafka_sharp
         private void Init(Configuration configuration)
         {
             _node = new Mock<INode>();
-            _node.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(new MetadataResponse()));
+            var brokerMeta = new BrokerMeta();
+            _node.Setup(n => n.FetchMetadata())
+                .Returns(Task.FromResult(new MetadataResponse
+                {
+                    BrokersMeta = new[] {brokerMeta}, TopicsMeta = new TopicMeta[0]
+                }));
             _producer = new Mock<IProduceRouter>();
             _consumer = new Mock<IConsumeRouter>();
             var logger = new Mock<ILogger>();

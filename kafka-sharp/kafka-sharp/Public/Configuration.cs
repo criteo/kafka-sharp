@@ -240,6 +240,17 @@ namespace Kafka.Public
         public string Seeds = "";
 
         /// <summary>
+        /// Alternative to the "Seeds" configuration setting, for having dynamic discovery of the cluster.
+        /// If present, will override the "Seeds" setting.
+        /// 
+        /// Seeds are used as fallback in case the driver ends up with a topology with 0 brokers
+        /// (can potentially happen if cluster is down for some time, or metadata refresh issue).
+        /// At this point, maybe the original seed brokers are not up anymore, so having a way to
+        /// dynamically request the list of seed can solve this issue.
+        /// </summary>
+        public Func<string> SeedsGetter = null;
+
+        /// <summary>
         /// A TaskScheduler to use for all driver internal work.
         /// Useful if you want to limit the ressources taken by the driver.
         /// By default we use the default scheduler (which maps to .NET thread pool),
