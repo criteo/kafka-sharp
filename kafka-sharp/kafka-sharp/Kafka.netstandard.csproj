@@ -32,6 +32,7 @@
     <PackageReference Include="lz4net" Version="1.0.15.93" />
     <PackageReference Include="Snappy.Standard" Version="0.2.0" />
     <PackageReference Include="System.Net.NameResolution" Version="4.0.0" />
+    <PackageReference Include="System.ValueTuple" Version="4.3.0" />
   </ItemGroup>
 
   <PropertyGroup>
