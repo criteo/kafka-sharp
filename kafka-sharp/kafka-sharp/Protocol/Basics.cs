@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
-using System.Runtime.Serialization;
 using Kafka.Common;
 using Kafka.Public;
 #if !NETSTANDARD1_3
@@ -414,7 +413,7 @@ namespace Kafka.Protocol
 
                 if (expectedPosition != stream.Position)
                 {
-                    throw new SerializationException(
+                    throw new Exception(
                         "SerializedSize() returned a different value than the size of the serialized object written");
                 }
             }
