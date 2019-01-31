@@ -13,6 +13,7 @@ using Kafka.Cluster;
 using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
+using Kafka.Routing.PartitionSelection;
 using ICluster = Kafka.Cluster.ICluster;
 
 namespace Kafka.Routing
@@ -563,10 +564,12 @@ namespace Kafka.Routing
                 return;
             }
 
-            PartitionSelector selector;
-            if (!_partitioners.TryGetValue(topic, out selector))
+            if (!_partitioners.TryGetValue(topic, out var selector))
             {
-                selector = new PartitionSelector(_configuration.NumberOfMessagesBeforeRoundRobin, _randomGenerator.Next());
+                var keySerializer = _configuration.SerializationConfig.GetSerializersForTopic(topic).Item1;
+                var partitionSelectionImpl = _configuration.PartitionSelectionConfig.GetPartitionSelectionForTopic(
+                    topic, _configuration.NumberOfMessagesBeforeRoundRobin, _randomGenerator.Next(), keySerializer);
+                selector = new PartitionSelector(partitionSelectionImpl);
                 _partitioners[topic] = selector;
             }
 
@@ -577,13 +580,13 @@ namespace Kafka.Routing
                 partitions = _routingTable.GetPartitions(topic);
             }
 
-            var partition = selector.GetPartition(produceMessage.RequiredPartition, partitions, GetFilter(topic));
+            var partition = selector.GetPartition(produceMessage, partitions, GetFilter(topic));
 
             if (partition.Id == Partitions.None)
             {
                 // Retry without filters because filtered partitions should be valid, we just wanted to avoid
                 // spamming them while they're being rebalanced.
-                partition = selector.GetPartition(produceMessage.RequiredPartition, partitions);
+                partition = selector.GetPartition(produceMessage, partitions);
 
                 if (partition.Id == Partitions.None)
                 {

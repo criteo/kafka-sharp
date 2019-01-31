@@ -120,11 +120,15 @@
     <Compile Include="Public\KafkaConsumer.cs" />
     <Compile Include="Public\KafkaProducer.cs" />
     <Compile Include="Public\KafkaRecord.cs" />
+    <Compile Include="Public\PartitionSelectionConfig.cs" />
     <Compile Include="Public\Serialization.cs" />
     <Compile Include="Public\Statistics.cs" />
     <Compile Include="Routing\ConsumerGroup.cs" />
     <Compile Include="Routing\ConsumerRouter.cs" />
-    <Compile Include="Routing\PartitionSelector.cs" />
+    <Compile Include="Routing\PartitionSelection\IPartitionSelection.cs" />
+    <Compile Include="Routing\PartitionSelection\MessageKeyPartitionSelection.cs" />
+    <Compile Include="Routing\PartitionSelection\PartitionSelector.cs" />
+    <Compile Include="Routing\PartitionSelection\RoundRobinPartitionSelection.cs" />
     <Compile Include="Routing\ProducerRouter.cs" />
     <Compile Include="Routing\RoutingTable.cs" />
   </ItemGroup>
@@ -132,7 +136,7 @@
     <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it.
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
   </Target>

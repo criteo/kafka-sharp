@@ -609,8 +609,7 @@ namespace Kafka.Public
                     Key = key,
                     Value = data,
                     Headers = _configuration.Compatibility >= Compatibility.V0_11_0 ? headers : null,
-                    TimeStamp =
-                        _configuration.Compatibility >= Compatibility.V0_10_1 ? Timestamp.ToUnixTimestamp(timestamp) : 0
+                    TimeStamp = _configuration.Compatibility >= Compatibility.V0_10_1 ? Timestamp.ToUnixTimestamp(timestamp) : 0
                 },
                 partition, DateTime.UtcNow.Add(_configuration.MessageTtl));
             return true;

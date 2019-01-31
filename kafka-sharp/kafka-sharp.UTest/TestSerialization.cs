@@ -81,7 +81,6 @@ namespace tests_kafka_sharp
         {
             var message = new Message { Key = Key, Value = Value };
             message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
-            Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
             TestSerializeOneMessageCommon(message);
@@ -128,7 +127,6 @@ namespace tests_kafka_sharp
         {
             var message = new Message { Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value) };
             message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
-            Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
             TestSerializeOneMessageCommon(message);
@@ -226,7 +224,6 @@ namespace tests_kafka_sharp
         {
             var message = new Message { Key = new byte[0], Value = new byte[0] };
             message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
-            Assert.IsNull(message.Key);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
             TestSerializeOneEmptyMessageCommon(message, messageVersion);

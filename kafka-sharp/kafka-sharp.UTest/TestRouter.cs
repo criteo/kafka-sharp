@@ -183,7 +183,7 @@ namespace tests_kafka_sharp
                     n.Produce(
                         It.Is<ProduceMessage>(
                             p =>
-                                p.Message.SerializedKeyValue != null && p.Message.Key == null && p.Message.Value == null)));
+                                p.Message.SerializedKeyValue != null && p.Message.Key != null && p.Message.Value == null)));
         }
 
         [Test]

@@ -349,6 +349,13 @@ namespace Kafka.Public
         /// Switch to earliest offset or latest offset.
         /// </summary>
         public Offset OffsetOutOfRangeStrategy = Offset.Earliest;
+
+        /// <summary>
+        /// Class holding information about the partition selection strategy for
+        /// each topic. It uses the default Round Robin strategy if none is set
+        /// for a given topic.
+        /// </summary>
+        public PartitionSelectionConfig PartitionSelectionConfig = new PartitionSelectionConfig();
     }
 
     public enum Offset

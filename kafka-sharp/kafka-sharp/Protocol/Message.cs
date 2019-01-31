@@ -31,7 +31,6 @@ namespace Kafka.Protocol
         {
             SerializedKeyValue = target;
             DoSerializeKeyValue(SerializedKeyValue, serializers);
-            Key = null;
             Value = null;
         }
 
@@ -120,8 +119,7 @@ namespace Kafka.Protocol
         private static void SerializeObject(ReusableMemoryStream stream, ISerializer serializer, object theValue)
         {
             // byte[] are just copied
-            var bytes = theValue as byte[];
-            if (bytes != null)
+            if (theValue is byte[] bytes)
             {
                 byte[] array = bytes;
                 BigEndianConverter.Write(stream, array.Length);
@@ -135,8 +133,7 @@ namespace Kafka.Protocol
 
         private static void SerializerWrite(ReusableMemoryStream stream, object m, ISerializer ser)
         {
-            var serializable = m as IMemorySerializable;
-            if (serializable != null)
+            if (m is IMemorySerializable serializable)
             {
                 serializable.Serialize(stream);
             }

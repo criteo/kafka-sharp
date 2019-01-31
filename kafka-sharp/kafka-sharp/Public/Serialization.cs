@@ -236,7 +236,7 @@ namespace Kafka.Public
     }
 
     /// <summary>
-    /// A desrializer for strings.
+    /// A deserializer for strings.
     /// </summary>
     public sealed class StringDeserializer : IDeserializer
     {
