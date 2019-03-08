@@ -85,6 +85,21 @@ namespace Kafka.Public
     /// </summary>
     public class RawKafkaRecord
     {
+        public RawKafkaRecord() { }
+
+        // For testing purpose
+        public RawKafkaRecord(string topic = null, object key = null, object value = null, long offset = 0,
+            long lag = 0, int partition = 0, DateTime? timestamp = null)
+        {
+            Topic = topic;
+            Key = key;
+            Value = value;
+            Offset = offset;
+            Lag = lag;
+            Partition = partition;
+            Timestamp = timestamp.GetValueOrDefault(DateTime.MinValue);
+        }
+
         /// <summary>
         /// The topic of the record.
         /// </summary>
