@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Kafka.Cluster;
 using Kafka.Common;
 using Kafka.Public;
 
@@ -27,10 +28,17 @@ namespace Kafka.Protocol
 
         private const int MinimumValidSizeForSerializedKeyValue = 2 * 4; // At least 4 bytes for key size and 4 bytes for value size
 
-        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers)
+        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers, Compatibility compatibility)
         {
             SerializedKeyValue = target;
-            DoSerializeKeyValue(SerializedKeyValue, serializers);
+            if (Basics.GetApiVersion(Node.RequestType.BatchedProduce, compatibility) >= Basics.ApiVersion.V3)
+            {
+                DoSerializeKeyValueAsRecord(SerializedKeyValue, serializers);
+            }
+            else
+            {
+                DoSerializeKeyValue(SerializedKeyValue, serializers);
+            }
             Value = null;
         }
 
@@ -93,6 +101,12 @@ namespace Kafka.Protocol
             // Simulate an empty key & message to not send a corrupted message
             stream.Write(Basics.MinusOne32, 0, 4);
             stream.Write(Basics.MinusOne32, 0, 4);
+        }
+
+        private void DoSerializeKeyValueAsRecord(ReusableMemoryStream stream, Tuple<ISerializer, ISerializer> serializers)
+        {
+            Basics.WriteObject(stream, Key, serializers.Item1);
+            Basics.WriteObject(stream, Value, serializers.Item2);
         }
 
         private void DoSerializeKeyValue(ReusableMemoryStream stream, Tuple<ISerializer, ISerializer> serializers)

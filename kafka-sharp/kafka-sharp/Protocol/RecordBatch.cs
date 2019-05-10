@@ -1,7 +1,6 @@
 ﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-using System;
 using System.Collections.Generic;
 using Kafka.Common;
 using Kafka.Public;
@@ -301,9 +300,12 @@ namespace Kafka.Protocol
 
         public ICollection<KafkaRecordHeader> Headers;
 
+        public ReusableMemoryStream SerializedKeyValue;
+
         public ReusableMemoryStream Serialize(ReusableMemoryStream target, long baseTimestamp, long offsetDelta)
         {
-            var timestampDelta = Timestamp - baseTimestamp;
+            long timestampDelta = Timestamp - baseTimestamp;
+
             VarIntConverter.Write(target, SizeOfBodyInBytes(offsetDelta, timestampDelta));
 
             // Record attributes are always null.
@@ -312,8 +314,15 @@ namespace Kafka.Protocol
             VarIntConverter.Write(target, timestampDelta);
             VarIntConverter.Write(target, offsetDelta);
 
-            Basics.WriteObject(target, Key, KeySerializer);
-            Basics.WriteObject(target, Value, ValueSerializer);
+            if (SerializedKeyValue == null)
+            {
+                Basics.WriteObject(target, Key, KeySerializer);
+                Basics.WriteObject(target, Value, ValueSerializer);
+            }
+            else
+            {
+                target.Write(SerializedKeyValue.GetBuffer(), 0, (int)SerializedKeyValue.Length);
+            }
 
             if (Headers == null)
             {
@@ -342,24 +351,32 @@ namespace Kafka.Protocol
             size += VarIntConverter.SizeOfVarInt(offsetDelta);
             size += VarIntConverter.SizeOfVarInt(timestampDelta);
 
-            if (Key == null)
-            {
-                size += Basics.MinusOneVarInt.Length;
-            }
-            else
-            {
-                var keySize = Basics.SizeOfSerializedObject(Key, KeySerializer);
-                size += keySize + VarIntConverter.SizeOfVarInt(keySize);
-            }
 
-            if (Value == null)
+            if (SerializedKeyValue == null)
             {
-                size += Basics.MinusOneVarInt.Length;
+                if (Key == null)
+                {
+                    size += Basics.MinusOneVarInt.Length;
+                }
+                else
+                {
+                    var keySize = Basics.SizeOfSerializedObject(Key, KeySerializer);
+                    size += keySize + VarIntConverter.SizeOfVarInt(keySize);
+                }
+
+                if (Value == null)
+                {
+                    size += Basics.MinusOneVarInt.Length;
+                }
+                else
+                {
+                    var valueSize = Basics.SizeOfSerializedObject(Value, ValueSerializer);
+                    size += valueSize + VarIntConverter.SizeOfVarInt(valueSize);
+                }
             }
             else
             {
-                var valueSize = Basics.SizeOfSerializedObject(Value, ValueSerializer);
-                size += valueSize + VarIntConverter.SizeOfVarInt(valueSize);
+                size += SerializedKeyValue.Length;
             }
 
             if (Headers == null)

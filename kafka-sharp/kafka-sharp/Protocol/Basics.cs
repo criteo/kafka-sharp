@@ -362,60 +362,60 @@ namespace Kafka.Protocol
         /// <param name="serializer">serializer to use if object is not serializable</param>
         public static void WriteObject(ReusableMemoryStream stream, object o, ISerializer serializer)
         {
-            if (o is byte[] asBytes)
+            switch (o)
             {
-                SerializeBytesWithVarIntSize(stream, asBytes);
-            }
-            else if (o is string asString)
-            {
-                SerializeStringWithVarIntSize(stream, asString);
-            }
-            else
-            {
-                if (o == null)
-                {
+                case null:
                     stream.Write(MinusOneVarInt, 0, MinusOneVarInt.Length);
-                    return;
-                }
-
-                var expectedPosition = -1L;
-                if (o is ISizedMemorySerializable asSizedSerializable)
+                    break;
+                case byte[] asBytes:
+                    SerializeBytesWithVarIntSize(stream, asBytes);
+                    break;
+                case string asString:
+                    SerializeStringWithVarIntSize(stream, asString);
+                    break;
+                default:
                 {
-                    var expectedSize = asSizedSerializable.SerializedSize();
-                    VarIntConverter.Write(stream, expectedSize);
-                    expectedPosition = stream.Position + expectedSize;
-                    asSizedSerializable.Serialize(stream);
-                }
-                else if (serializer is ISizableSerializer sizableSerializer)
-                {
-                    var expectedSize = sizableSerializer.SerializedSize(o);
-                    VarIntConverter.Write(stream, expectedSize);
-                    expectedPosition = stream.Position + expectedSize;
-                    sizableSerializer.Serialize(o, stream);
-                }
-                else
-                {
-                    // If we can not know the size of the serialized object in advance, we need to use an intermediate buffer.
-                    using (var buffer = stream.Pool.Reserve())
+                    long expectedPosition;
+                    if (o is ISizedMemorySerializable asSizedSerializable)
                     {
-                        if (o is IMemorySerializable asSerializable)
+                        long expectedSize = asSizedSerializable.SerializedSize();
+                        VarIntConverter.Write(stream, expectedSize);
+                        expectedPosition = stream.Position + expectedSize;
+                        asSizedSerializable.Serialize(stream);
+                    }
+                    else if (serializer is ISizableSerializer sizableSerializer)
+                    {
+                        long expectedSize = sizableSerializer.SerializedSize(o);
+                        VarIntConverter.Write(stream, expectedSize);
+                        expectedPosition = stream.Position + expectedSize;
+                        sizableSerializer.Serialize(o, stream);
+                    }
+                    else
+                    {
+                        // If we can not know the size of the serialized object in advance, we need to use an intermediate buffer.
+                        using (var buffer = stream.Pool.Reserve())
                         {
-                            asSerializable.Serialize(buffer);
+                            if (o is IMemorySerializable asSerializable)
+                            {
+                                asSerializable.Serialize(buffer);
+                            }
+                            else
+                            {
+                                serializer.Serialize(o, buffer);
+                            }
+                            WriteObject(stream, buffer, null);
                         }
-                        else
-                        {
-                            serializer.Serialize(o, buffer);
-                        }
-                        WriteObject(stream, buffer, null);
+
+                        return;
                     }
 
-                    return;
-                }
+                    if (expectedPosition != stream.Position)
+                    {
+                        throw new Exception(
+                            "SerializedSize() returned a different value than the size of the serialized object written");
+                    }
 
-                if (expectedPosition != stream.Position)
-                {
-                    throw new Exception(
-                        "SerializedSize() returned a different value than the size of the serialized object written");
+                    break;
                 }
             }
         }

@@ -340,7 +340,7 @@ namespace Kafka.Routing
             if (_configuration.SerializationConfig.SerializeOnProduce)
             {
                 var serializers = _configuration.SerializationConfig.GetSerializersForTopic(topic);
-                message.SerializeKeyValue(_pool.Reserve(), serializers);
+                message.SerializeKeyValue(_pool.Reserve(), serializers, _configuration.Compatibility);
             }
             Route(ProduceMessage.New(topic, partition, message, expirationDate));
         }
