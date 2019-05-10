@@ -930,17 +930,17 @@ namespace tests_kafka_sharp
                 var records = Decompress(serialized, codec);
 
                 // First record
-                var firstRecordLength = VarIntConverter.ReadInt64(records);
+                var firstRecordLength = VarIntConverter.ReadAsInt64(records);
                 var startOfFirstRecord = records.Position;
                 var recordsCount = 0L;
                 Assert.AreEqual(0, records.ReadByte()); // attributes
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // TimeStampDelta
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // offsetDelta
-                Assert.AreEqual(-1, VarIntConverter.ReadInt64(records)); // keyLength
+                Assert.AreEqual(0, VarIntConverter.ReadAsInt64(records)); // TimeStampDelta
+                Assert.AreEqual(0, VarIntConverter.ReadAsInt64(records)); // offsetDelta
+                Assert.AreEqual(-1, VarIntConverter.ReadAsInt64(records)); // keyLength
                 // Since the keyLength is -1, we do not read the key
-                Assert.AreEqual(Value.Length, VarIntConverter.ReadInt64(records)); //value length
+                Assert.AreEqual(Value.Length, VarIntConverter.ReadAsInt64(records)); //value length
                 Assert.AreEqual(TheValue, deserializer.Deserialize(records, Value.Length));
-                recordsCount = VarIntConverter.ReadInt64(records);
+                recordsCount = VarIntConverter.ReadAsInt64(records);
                 Assert.AreEqual(2L, recordsCount); // Headers count
                 for (var i = 0; i < recordsCount; ++i)
                 {
@@ -951,16 +951,16 @@ namespace tests_kafka_sharp
                 Assert.AreEqual(firstRecordLength, endOfFirstRecord - startOfFirstRecord);
 
                 // Second record
-                var secondRecordLength = VarIntConverter.ReadInt64(records);
+                var secondRecordLength = VarIntConverter.ReadAsInt64(records);
                 var startOfSecondRecord = records.Position;
                 Assert.AreEqual(0, records.ReadByte()); // attributes
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // TimeStampDelta
-                Assert.AreEqual(1, VarIntConverter.ReadInt64(records)); // offsetDelta
-                Assert.AreEqual(-1, VarIntConverter.ReadInt64(records)); // keyLength
+                Assert.AreEqual(0, VarIntConverter.ReadAsInt64(records)); // TimeStampDelta
+                Assert.AreEqual(1, VarIntConverter.ReadAsInt64(records)); // offsetDelta
+                Assert.AreEqual(-1, VarIntConverter.ReadAsInt64(records)); // keyLength
                 // Since the keyLength is -1, we do not read the key
-                Assert.AreEqual(Value.Length, VarIntConverter.ReadInt64(records)); //value length
+                Assert.AreEqual(Value.Length, VarIntConverter.ReadAsInt64(records)); //value length
                 Assert.AreEqual(TheValue, deserializer.Deserialize(records, Value.Length));
-                recordsCount = VarIntConverter.ReadInt64(records);
+                recordsCount = VarIntConverter.ReadAsInt64(records);
                 Assert.AreEqual(2L, recordsCount); // Headers count
                 for (var i = 0; i < recordsCount; ++i)
                 {
@@ -2574,22 +2574,22 @@ namespace tests_kafka_sharp
                 byte[] expectedVal = expectedKeyValue[offset].Value;
 
                 // key + val + 1 byte + 5 varint
-                Assert.AreEqual(expectedKey.Length + expectedVal.Length + 6 * sizeof(byte), VarIntConverter.ReadInt64(stream), "length");
+                Assert.AreEqual(expectedKey.Length + expectedVal.Length + 6 * sizeof(byte), VarIntConverter.ReadAsInt64(stream), "length");
                 Assert.AreEqual(0, stream.ReadByte(), "attributes");
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(stream), "timestampDelta");
-                Assert.AreEqual(offset, VarIntConverter.ReadInt64(stream), "offsetDelta");
+                Assert.AreEqual(0, VarIntConverter.ReadAsInt64(stream), "timestampDelta");
+                Assert.AreEqual(offset, VarIntConverter.ReadAsInt64(stream), "offsetDelta");
 
-                Assert.AreEqual(expectedKey.Length, VarIntConverter.ReadInt64(stream), "keyLength");
+                Assert.AreEqual(expectedKey.Length, VarIntConverter.ReadAsInt64(stream), "keyLength");
                 var key = new byte[expectedKey.Length];
                 stream.Read(key, 0, key.Length);
                 Assert.AreEqual(key, expectedKey, "key");
 
-                Assert.AreEqual(expectedVal.Length, VarIntConverter.ReadInt64(stream), "valueLength");
+                Assert.AreEqual(expectedVal.Length, VarIntConverter.ReadAsInt64(stream), "valueLength");
                 var value = new byte[expectedVal.Length];
                 stream.Read(value, 0, value.Length);
                 Assert.AreEqual(value, expectedVal, "value");
 
-                Assert.AreEqual(message.Headers?.Count ?? 0, VarIntConverter.ReadInt64(stream), "headersCount");
+                Assert.AreEqual(message.Headers?.Count ?? 0, VarIntConverter.ReadAsInt64(stream), "headersCount");
 
                 offset += 1;
             }

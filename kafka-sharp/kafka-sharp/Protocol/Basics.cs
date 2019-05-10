@@ -110,7 +110,7 @@ namespace Kafka.Protocol
 
         public static byte[] DeserializeBytesWithVarIntSize(ReusableMemoryStream stream)
         {
-            var len = VarIntConverter.ReadInt32(stream);
+            var len = VarIntConverter.ReadAsInt32(stream);
             if (len == -1)
                 return null;
 
@@ -163,7 +163,7 @@ namespace Kafka.Protocol
 
         public static string DeserializeStringWithVarIntSize(ReusableMemoryStream stream)
         {
-            var len = VarIntConverter.ReadInt32(stream);
+            var len = VarIntConverter.ReadAsInt32(stream);
             // per contract, null string is represented with -1 len.
             if (len == -1)
                 return null;

@@ -251,7 +251,7 @@ namespace Kafka.Protocol
         {
             for (var i = 0; i < numberOfRecords; i++)
             {
-                var length = VarIntConverter.ReadInt32(input);
+                var length = VarIntConverter.ReadAsInt32(input);
                 if (input.Length - input.Position < length)
                 {
                     throw new ProtocolException(
@@ -259,15 +259,15 @@ namespace Kafka.Protocol
                 }
 
                 var attributes = input.ReadByte(); // ignored for now
-                var timeStampDelta = VarIntConverter.ReadInt64(input);
-                var offsetDelta = VarIntConverter.ReadInt32(input);
+                var timeStampDelta = VarIntConverter.ReadAsInt64(input);
+                var offsetDelta = VarIntConverter.ReadAsInt32(input);
 
-                var keyLength = VarIntConverter.ReadInt32(input);
+                var keyLength = VarIntConverter.ReadAsInt32(input);
                 var key = keyLength == -1 ? null : deserializers.Item1.Deserialize(input, keyLength);
-                var valueLength = VarIntConverter.ReadInt32(input);
+                var valueLength = VarIntConverter.ReadAsInt32(input);
                 var value = valueLength == -1 ? null : deserializers.Item1.Deserialize(input, valueLength);
 
-                var headersCount = VarIntConverter.ReadInt32(input);
+                var headersCount = VarIntConverter.ReadAsInt32(input);
                 var headers = new List<KafkaRecordHeader>(headersCount);
                 for (var j = 0; j < headersCount; j++)
                 {
