@@ -100,7 +100,7 @@ namespace Kafka.Protocol
                 }),
             };
 
-            Basics.WriteSizeInBytes(stream, batch.Serialize);
+            Basics.WriteWithSize(stream, batch.Serialize);
         }
 
         private static void SerializeMessageIfNotSized(ref Message msg, ISerializer keySerializer, ISerializer valueSerializer, Pool<ReusableMemoryStream> pool)
@@ -115,7 +115,7 @@ namespace Kafka.Protocol
 
         private void SerializeMessageSet(ReusableMemoryStream stream, Serializers serializers, MessageVersion version)
         {
-            Basics.WriteSizeInBytes(stream, Messages,
+            Basics.WriteWithSize(stream, Messages,
                 new SerializationInfo
                 {
                     Serializers = serializers,
@@ -137,7 +137,7 @@ namespace Kafka.Protocol
                 // When message format is V0, brokers will rewrite the offsets anyway
                 // so we use the same scheme in all cases.
                 BigEndianConverter.Write(stream, offset++);
-                Basics.WriteSizeInBytes(stream, message,
+                Basics.WriteWithSize(stream, message,
                     new SerializationInfo
                     {
                         CompressionCodec = CompressionCodec.None,
@@ -173,7 +173,7 @@ namespace Kafka.Protocol
                             Value = compressed,
                             TimeStamp = Timestamp.Now
                         };
-                        Basics.WriteSizeInBytes(stream, m,
+                        Basics.WriteWithSize(stream, m,
                             new SerializationInfo
                             {
                                 Serializers = SerializationConfig.ByteArraySerializers,

@@ -52,7 +52,7 @@ namespace Kafka.Protocol
         {
             Basics.SerializeString(stream, ProtocolName);
             var pm = ProtocolMetadata;
-            Basics.WriteSizeInBytes(stream, s => pm.Serialize(s, null, Basics.ApiVersion.Ignored));
+            Basics.WriteWithSize(stream, s => pm.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
         #region Deserialization (for test)
@@ -157,7 +157,7 @@ namespace Kafka.Protocol
         {
             Basics.SerializeString(stream, MemberId);
             var ma = MemberAssignment;
-            Basics.WriteSizeInBytes(stream, s => ma.Serialize(s, null, Basics.ApiVersion.Ignored));
+            Basics.WriteWithSize(stream, s => ma.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
         public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)

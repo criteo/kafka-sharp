@@ -328,15 +328,15 @@ namespace Kafka.Protocol
                         ValueSerializer = null
                     }),
                 };
-                Basics.WriteSizeInBytes(stream, batch.Serialize);
+                Basics.WriteWithSize(stream, batch.Serialize);
                 return;
             }
-            Basics.WriteSizeInBytes(stream, Messages, (s, l) =>
+            Basics.WriteWithSize(stream, Messages, (s, l) =>
             {
                 foreach (var m in l)
                 {
                     BigEndianConverter.Write(s, m.Offset);
-                    Basics.WriteSizeInBytes(s, m.Message,
+                    Basics.WriteWithSize(s, m.Message,
                         (st, msg) =>
                             msg.Serialize(st, CompressionCodec.None, extra as Serializers,
                                 version == Basics.ApiVersion.V2 ? MessageVersion.V1 : MessageVersion.V0));

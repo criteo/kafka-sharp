@@ -208,21 +208,21 @@ namespace Kafka.Protocol
             stream.Position = pos;
         }
 
-        public static void WriteSizeInBytes(ReusableMemoryStream stream, Action<ReusableMemoryStream> write)
+        public static void WriteWithSize(ReusableMemoryStream stream, Action<ReusableMemoryStream> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream);
             WriteHeader(stream, initPos);
         }
 
-        public static void WriteSizeInBytes<T>(ReusableMemoryStream stream, T t, Action<ReusableMemoryStream, T> write)
+        public static void WriteWithSize<T>(ReusableMemoryStream stream, T t, Action<ReusableMemoryStream, T> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream, t);
             WriteHeader(stream, initPos);
         }
 
-        public static void WriteSizeInBytes<T, U>(ReusableMemoryStream stream, T t, U u, Action<ReusableMemoryStream, T, U> write)
+        public static void WriteWithSize<T, U>(ReusableMemoryStream stream, T t, U u, Action<ReusableMemoryStream, T, U> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream, t, u);

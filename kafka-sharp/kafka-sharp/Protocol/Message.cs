@@ -141,7 +141,7 @@ namespace Kafka.Protocol
             }
             else
             {
-                Basics.WriteSizeInBytes(stream, theValue, serializer, SerializerWrite);
+                Basics.WriteWithSize(stream, theValue, serializer, SerializerWrite);
             }
         }
 

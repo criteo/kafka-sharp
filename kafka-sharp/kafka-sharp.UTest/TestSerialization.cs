@@ -2168,7 +2168,7 @@ namespace tests_kafka_sharp
             using (var serialized = new ReusableMemoryStream(null))
             {
                 BigEndianConverter.Write(serialized, (short) ErrorCode.NoError);
-                Basics.WriteSizeInBytes(serialized, stream =>
+                Basics.WriteWithSize(serialized, stream =>
                 {
                     BigEndianConverter.Write(stream, (short) 48);
                     BigEndianConverter.Write(stream, 1);

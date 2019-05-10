@@ -22,7 +22,7 @@ namespace Kafka.Protocol
         {
             Basics.SerializeString(stream, MemberId);
             var pm = Metadata;
-            Basics.WriteSizeInBytes(stream, s => pm.Serialize(s, null, Basics.ApiVersion.Ignored));
+            Basics.WriteWithSize(stream, s => pm.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
         #endregion
@@ -89,7 +89,7 @@ namespace Kafka.Protocol
         {
             BigEndianConverter.Write(stream, (short) ErrorCode);
             var ma = MemberAssignment;
-            Basics.WriteSizeInBytes(stream, s => ma.Serialize(s, null, Basics.ApiVersion.Ignored));
+            Basics.WriteWithSize(stream, s => ma.Serialize(s, null, Basics.ApiVersion.Ignored));
         }
 
         public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)
