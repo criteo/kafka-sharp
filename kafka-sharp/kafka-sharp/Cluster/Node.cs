@@ -316,7 +316,7 @@ namespace Kafka.Cluster
 
             public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
             {
-                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.Metadata, _compatibility));
+                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null, Basics.GetApiVersion(RequestType.Metadata, _compatibility));
             }
 
             public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
@@ -336,7 +336,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig, GetApiVersion(RequestType.BatchedProduce, _compatibility));
+                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig, Basics.GetApiVersion(RequestType.BatchedProduce, _compatibility));
             }
 
             public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
@@ -357,7 +357,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.BatchedFetch, _compatibility));
+                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, Basics.GetApiVersion(RequestType.BatchedFetch, _compatibility));
             }
 
             public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
@@ -375,7 +375,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.BatchedOffset, _compatibility));
+                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, Basics.GetApiVersion(RequestType.BatchedOffset, _compatibility));
             }
 
             public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version)
@@ -1938,80 +1938,7 @@ namespace Kafka.Cluster
 
         private Basics.ApiVersion GetApiVersion(RequestType type)
         {
-            return GetApiVersion(type, _configuration.Compatibility);
-        }
-
-        private static Basics.ApiVersion GetApiVersion(RequestType type, Compatibility compVersion)
-        {
-            switch (type)
-            {
-                case RequestType.Metadata:
-                    return Basics.ApiVersion.Ignored;
-
-                case RequestType.BatchedProduce:
-                    switch (compVersion)
-                    {
-                        case Compatibility.V0_8_2:
-                            return Basics.ApiVersion.V0;
-                        case Compatibility.V0_10_1:
-                            return Basics.ApiVersion.V2;
-                        case Compatibility.V0_11_0:
-                            return Basics.ApiVersion.V3;
-                        default:
-                            throw new ArgumentOutOfRangeException();
-                    }
-                case RequestType.BatchedFetch:
-                    switch (compVersion)
-                    {
-                        case Compatibility.V0_8_2:
-                            return Basics.ApiVersion.V0;
-                        case Compatibility.V0_10_1:
-                            return Basics.ApiVersion.V2;
-                        case Compatibility.V0_11_0:
-                            return Basics.ApiVersion.V4;
-                        default:
-                            throw new ArgumentOutOfRangeException();
-                    }
-
-                case RequestType.BatchedOffset:
-                case RequestType.SingleOffset:
-                    switch (compVersion)
-                    {
-                        case Compatibility.V0_8_2:
-                            return Basics.ApiVersion.V0;
-                        default:
-                            return Basics.ApiVersion.V1;
-                    }
-
-                case RequestType.GroupCoordinator:
-                    return Basics.ApiVersion.V0;
-
-                case RequestType.Heartbeat:
-                    return Basics.ApiVersion.V0;
-
-                case RequestType.LeaveGroup:
-                    return Basics.ApiVersion.V0;
-
-                case RequestType.SyncConsumerGroup:
-                    return Basics.ApiVersion.V0;
-
-                case RequestType.JoinConsumerGroup:
-                    switch (compVersion)
-                    {
-                        case Compatibility.V0_8_2:
-                            return Basics.ApiVersion.V0;
-                        default:
-                            return Basics.ApiVersion.V1;
-                    }
-
-                case RequestType.OffsetCommit:
-                    return Basics.ApiVersion.V2;
-
-                case RequestType.OffsetFetch:
-                    return Basics.ApiVersion.V1;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
-            }
+            return Basics.GetApiVersion(type, _configuration.Compatibility);
         }
     }
 }

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using Kafka.Cluster;
 using Kafka.Common;
 using Kafka.Public;
 #if !NETSTANDARD1_3
@@ -561,5 +562,78 @@ namespace Kafka.Protocol
         }
 
         #endregion
+
+        public static ApiVersion GetApiVersion(Node.RequestType type, Compatibility compVersion)
+        {
+            switch (type)
+            {
+                case Node.RequestType.Metadata:
+                    return ApiVersion.Ignored;
+
+                case Node.RequestType.BatchedProduce:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return ApiVersion.V0;
+                        case Compatibility.V0_10_1:
+                            return ApiVersion.V2;
+                        case Compatibility.V0_11_0:
+                            return ApiVersion.V3;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+                case Node.RequestType.BatchedFetch:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return ApiVersion.V0;
+                        case Compatibility.V0_10_1:
+                            return ApiVersion.V2;
+                        case Compatibility.V0_11_0:
+                            return ApiVersion.V4;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+
+                case Node.RequestType.BatchedOffset:
+                case Node.RequestType.SingleOffset:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return ApiVersion.V0;
+                        default:
+                            return ApiVersion.V1;
+                    }
+
+                case Node.RequestType.GroupCoordinator:
+                    return ApiVersion.V0;
+
+                case Node.RequestType.Heartbeat:
+                    return ApiVersion.V0;
+
+                case Node.RequestType.LeaveGroup:
+                    return ApiVersion.V0;
+
+                case Node.RequestType.SyncConsumerGroup:
+                    return ApiVersion.V0;
+
+                case Node.RequestType.JoinConsumerGroup:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return ApiVersion.V0;
+                        default:
+                            return ApiVersion.V1;
+                    }
+
+                case Node.RequestType.OffsetCommit:
+                    return ApiVersion.V2;
+
+                case Node.RequestType.OffsetFetch:
+                    return ApiVersion.V1;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
+            }
+        }
     }
 }
