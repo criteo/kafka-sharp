@@ -135,9 +135,8 @@ namespace Kafka.Protocol
             // byte[] are just copied
             if (theValue is byte[] bytes)
             {
-                byte[] array = bytes;
-                BigEndianConverter.Write(stream, array.Length);
-                stream.Write(array, 0, array.Length);
+                BigEndianConverter.Write(stream, bytes.Length);
+                stream.Write(bytes, 0, bytes.Length);
             }
             else
             {
