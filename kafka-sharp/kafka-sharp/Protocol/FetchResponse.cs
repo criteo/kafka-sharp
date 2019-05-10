@@ -152,7 +152,6 @@ namespace Kafka.Protocol
                 return DeserializeMessageSet(stream, deserializers);
             }
             // Now we know what we received is a proper recordBatch
-            var recordBatch = new RecordBatch();
             var size = BigEndianConverter.ReadInt32(stream);
             var endOfAllBatches = stream.Position + size;
             if (stream.Length < endOfAllBatches)
@@ -162,7 +161,7 @@ namespace Kafka.Protocol
             }
             while (stream.Position < endOfAllBatches)
             {
-                recordBatch.Deserialize(stream, deserializers, endOfAllBatches);
+                var recordBatch = RecordBatch.Deserialize(stream, deserializers, endOfAllBatches);
                 list.AddRange(recordBatch.Records.Select(record => new ResponseMessage
                 {
                     Message = new Message { Key = record.Key, Value = record.Value, TimeStamp = record.Timestamp },
