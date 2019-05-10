@@ -167,13 +167,9 @@ namespace Kafka.Protocol
 
         public void Serialize(ReusableMemoryStream target)
         {
-            uint crc = 0;
-            int batchLength = -1, lastOffsetDelta = -1;
-            long firstTimestamp = -1L, maxTimestamp = -1L;
-
             BigEndianConverter.Write(target, BaseOffset);
             var batchLengthPosition = target.Position;
-            BigEndianConverter.Write(target, batchLength); // placeholder for batchLength: int32
+            BigEndianConverter.Write(target, -1); // placeholder for batchLength: int32
             // The value of batchLength is the number of bytes required to read after the
             // batchLength field, we retain the current buffer position to compute it later.
             var afterBatchLengthPosition = target.Position;
@@ -183,7 +179,7 @@ namespace Kafka.Protocol
             target.WriteByte(2);
 
             var crcPosition = target.Position;
-            BigEndianConverter.Write(target, (int)crc); // placeholder for CRC: int32
+            BigEndianConverter.Write(target, 0); // placeholder for CRC: int32
             var afterCrcPosition = target.Position;
 
             short attributes = 0x0;
@@ -199,29 +195,28 @@ namespace Kafka.Protocol
             BigEndianConverter.Write(target, attributes);
 
             var lastOffsetDeltaPosition = target.Position;
-            BigEndianConverter.Write(target, lastOffsetDelta); // placeholder for LastOffsetDelta: int32
+            BigEndianConverter.Write(target, -1); // placeholder for LastOffsetDelta: int32
 
             var firstTimestampPosition = target.Position;
-            BigEndianConverter.Write(target, firstTimestamp); // placeholder for FirstTimestamp: int64
+            BigEndianConverter.Write(target, -1L); // placeholder for FirstTimestamp: int64
 
             var maxTimestampPosition = target.Position;
-            BigEndianConverter.Write(target, maxTimestamp); // placeholder for MaxTimestamp: int64
+            BigEndianConverter.Write(target, -1L); // placeholder for MaxTimestamp: int64
 
             BigEndianConverter.Write(target, ProducerId);
             BigEndianConverter.Write(target, ProducerEpoch);
             BigEndianConverter.Write(target, BaseSequence); // BaseSequence: int32
 
             var recordsCountPosition = target.Position;
-            BigEndianConverter.Write(target, lastOffsetDelta);  // RecordsCount: int32
+            BigEndianConverter.Write(target, -1);  // RecordsCount: int32
 
-            (lastOffsetDelta, firstTimestamp, maxTimestamp) = CompressionCodec == CompressionCodec.None
+            (int lastOffsetDelta, long firstTimestamp, long maxTimestamp) = CompressionCodec == CompressionCodec.None
                 ? SerializeRecords(target)
                 : SerializeRecordsWithCompression(target, CompressionCodec);
 
-
             var endPosition = target.Position;
 
-            batchLength = (int)(target.Position - afterBatchLengthPosition);
+            int batchLength = (int)(target.Position - afterBatchLengthPosition);
             target.Position = batchLengthPosition;
             BigEndianConverter.Write(target, batchLength);
 
@@ -238,7 +233,7 @@ namespace Kafka.Protocol
             BigEndianConverter.Write(target, lastOffsetDelta + 1); // actual records count
 
             // Crc is computed on the object from right after the CRC to the end of the buffer
-            crc = Crc32.ComputeCastagnoli(target, afterCrcPosition, endPosition - afterCrcPosition);
+            uint crc = Crc32.ComputeCastagnoli(target, afterCrcPosition, endPosition - afterCrcPosition);
             target.Position = crcPosition;
             BigEndianConverter.Write(target, (int)crc);
 
