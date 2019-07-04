@@ -1617,6 +1617,81 @@ namespace tests_kafka_sharp
             }
         }
 
+        [Test]
+        public void TestDeserializeFetchResponse_PartialMessageEndOfMessageSet()
+        {
+            var response = new FetchResponse
+            {
+                ThrottleTime = 47,
+                FetchPartitionResponse =
+                    new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse =
+                            new[]
+                            {
+                                new TopicData<FetchPartitionResponse>
+                                {
+                                    TopicName = "The_Wire",
+                                    PartitionsData =
+                                        new[]
+                                        {
+                                            new FetchPartitionResponse
+                                            {
+                                                ErrorCode = ErrorCode.NoError,
+                                                HighWatermarkOffset = 714,
+                                                Partition = 999999,
+                                                LastStableOffset = 404,
+                                                LogStartOffset = 200,
+                                                AbortedTransactions = new[]
+                                                {
+                                                    new AbortedTransaction {FirstOffset = 3, ProducerId = 4},
+                                                },
+                                                Messages =
+                                                    new List<ResponseMessage>
+                                                    {
+                                                        new ResponseMessage
+                                                        {
+                                                            Offset = 0,
+                                                            Message = new Message {Key = Key, Value = Value}
+                                                        },
+                                                        new ResponseMessage
+                                                        {
+                                                            Offset = 1337,
+                                                            Message = new Message {Key = Key, Value = Value}
+                                                        },
+                                                    }
+                                            }
+                                        }
+                                }
+                            }
+                    }
+            };
+
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                var config = new SerializationConfig();
+                BigEndianConverter.Write(serialized, response.ThrottleTime);
+                Basics.WriteArray(serialized, response.FetchPartitionResponse.TopicsResponse, config,
+                    Basics.ApiVersion.V5);
+
+                // Expected position of where the size of the RecordBatch will be stored
+                // We change this size to something bigger than the size of the buffer to simulate a partial message
+                // being sent by the broker (= stream length < stream position + message size)
+                serialized.Position = 84;
+                var spoofedSize = BitConverter.GetBytes(500);
+                Array.Reverse(spoofedSize);
+                serialized.Write(spoofedSize, 0, 4);
+                serialized.Position = 0;
+
+                // Test that the FetchResponse Deserialize logic will not throw on this and instead
+                // discard the RecordBatch
+                var f = new FetchResponse();
+                f.Deserialize(serialized, config, Basics.ApiVersion.V5);
+                var deserializedMessages = f.FetchPartitionResponse.TopicsResponse.First().PartitionsData.First().Messages;
+                Assert.AreEqual(0, deserializedMessages.Count);
+            }
+        }
+
         /* The following test are ordered to be run first because if we break one
          * it will most likely break all other tests. Thus when serialization tests
          * break we can quick check if it's due to basic stuff being broken or not

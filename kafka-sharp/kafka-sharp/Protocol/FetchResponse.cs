@@ -162,6 +162,12 @@ namespace Kafka.Protocol
             while (stream.Position < endOfAllBatches)
             {
                 var recordBatch = RecordBatch.Deserialize(stream, deserializers, endOfAllBatches);
+                if (recordBatch == null)
+                {
+                    // We received a partial record batch, discard it
+                    stream.Position = endOfAllBatches;
+                    break;
+                }
                 list.AddRange(recordBatch.Records.Select(record => new ResponseMessage
                 {
                     Message = new Message { Key = record.Key, Value = record.Value, TimeStamp = record.Timestamp },

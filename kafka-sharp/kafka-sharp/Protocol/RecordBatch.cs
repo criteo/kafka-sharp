@@ -51,9 +51,12 @@ namespace Kafka.Protocol
         private const int BytesNecessaryToGetLength = 8 // baseOffset
             + 4; // batchLength
 
-        // Remark: it might be the case that brokers are authorized to send us partial record batch.
-        // So if the protocol exceptions in this method are triggered, you might want to investigate and remove
-        // them altogether.
+        /// <remarks>
+        /// From the official protocol documentation available at
+        /// https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-FetchAPI
+        /// "As an optimization the server is allowed to return a partial message at the end of the message set. Clients should handle this case."
+        /// If the end of the RecordBatch exceeds the length of the whole response (= endOfAllBatches), we should discard this RecordBatch.
+        /// </remarks>
         public static RecordBatch Deserialize(ReusableMemoryStream input, Deserializers deserializers, long endOfAllBatches)
         {
             var recordBatch = new RecordBatch();
@@ -69,8 +72,8 @@ namespace Kafka.Protocol
             var endOfBatch = input.Position + batchLength;
             if (endOfAllBatches < endOfBatch)
             {
-                throw new ProtocolException(
-                    $"The record batch says it has length that stops at {endOfBatch} but the list of all batches stop at {endOfAllBatches}.");
+                // Partial message, CRCs won't match, return here so the CRC check doesn't throw
+                return null;
             }
             recordBatch.PartitionLeaderEpoch = BigEndianConverter.ReadInt32(input);
             var magic = input.ReadByte();
