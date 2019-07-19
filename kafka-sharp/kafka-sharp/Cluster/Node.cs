@@ -28,7 +28,7 @@ namespace Kafka.Cluster
     /// wants them. They're responsible for maintaining a connection to a corresponding
     /// Kafka broker.
     /// </summary>
-    interface INode
+    internal interface INode
     {
         /// <summary>
         /// A name associated to this node.
@@ -245,7 +245,6 @@ namespace Kafka.Cluster
         /// The node reached its maximum number of concurrent requests.
         /// </summary>
         event Action<INode> NoMoreRequestSlot;
-
     }
 
     /// <summary>
@@ -258,7 +257,7 @@ namespace Kafka.Cluster
     /// State change shared between send and receive actors is kept minimal (mainly correlation ids matching).
     /// Connection setup is always handled in the Send actor.
     /// </summary>
-    sealed class Node : INode
+    internal sealed class Node : INode, IEquatable<Node>
     {
         #region Serialization / Deserialization
 
@@ -693,19 +692,19 @@ namespace Kafka.Cluster
 
         #region Responses
 
-        struct ResponseData
+        private struct ResponseData
         {
             public ReusableMemoryStream Data;
             public int CorrelationId;
         }
 
-        struct ResponseException
+        private struct ResponseException
         {
             public Exception Exception;
         }
 
         [StructLayout(LayoutKind.Explicit)]
-        struct ResponseValue
+        private struct ResponseValue
         {
             [FieldOffset(0)]
             public ResponseException ResponseException;
@@ -717,14 +716,14 @@ namespace Kafka.Cluster
         /// <summary>
         /// Message types for the underlying response handler actor.
         /// </summary>
-        enum ResponseType
+        private enum ResponseType
         {
             Data,
             Stop,
             Exception
         }
 
-        struct Response
+        private struct Response
         {
             public ResponseType ResponseType;
             public IConnection Connection;
@@ -749,7 +748,7 @@ namespace Kafka.Cluster
         private readonly Configuration _configuration;
         private readonly TimeoutScheduler _timeoutScheduler;
 
-        struct Pending
+        private struct Pending
         {
             public int CorrelationId;
             public Request Request;
@@ -1939,6 +1938,25 @@ namespace Kafka.Cluster
         private Basics.ApiVersion GetApiVersion(RequestType type)
         {
             return Basics.GetApiVersion(type, _configuration.Compatibility);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as Node);
+        }
+
+        public bool Equals(Node other)
+        {
+            if (ReferenceEquals(null, other))
+                return false;
+            if (ReferenceEquals(this, other))
+                return true;
+            return string.Equals(Name, other.Name);
+        }
+
+        public override int GetHashCode()
+        {
+            return Name == null ? 0 : Name.GetHashCode();
         }
     }
 }

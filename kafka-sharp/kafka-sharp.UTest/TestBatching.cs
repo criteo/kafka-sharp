@@ -167,8 +167,8 @@ namespace tests_kafka_sharp
         [TestCase(500000, 100)]
         public void TestAccumulatorByNodeByTopic(int batchSize, int time)
         {
-            INode n1 = new NodeMock();
-            INode n2 = new NodeMock();
+            INode n1 = new NodeMock("n1");
+            INode n2 = new NodeMock("n2");
             var accumulator = new AccumulatorByNodeByTopic<Tuple<string, int>>(t => t.Item1, batchSize, TimeSpan.FromMilliseconds(time));
 
             var count = new CountdownEvent(2);
@@ -198,8 +198,8 @@ namespace tests_kafka_sharp
         [TestCase(500000, 100)]
         public void TestAccumulatorByNodeByTopicByPartition(int batchSize, int time)
         {
-            INode n1 = new NodeMock();
-            INode n2 = new NodeMock();
+            INode n1 = new NodeMock("n1");
+            INode n2 = new NodeMock("n2");
             var accumulator = new AccumulatorByNodeByTopicByPartition<Tuple<string, int, int>>(t => t.Item1, t => t.Item2, batchSize, TimeSpan.FromMilliseconds(time));
 
             var count = new CountdownEvent(2);

@@ -110,20 +110,24 @@ namespace tests_kafka_sharp
         }
     }
 
-    class NodeMock : INode
+    class NodeMock : INode, IEquatable<NodeMock>
     {
         private MetadataResponse _response;
-        public NodeMock() : this(new MetadataResponse()) { }
+        public NodeMock()
+            : this("node1")
+        { }
 
-        public NodeMock(MetadataResponse response)
+        public NodeMock(string name)
+            : this(new MetadataResponse(), name)
+        { }
+
+        public NodeMock(MetadataResponse response, string name)
         {
+            Name = name;
             _response = response;
         }
 
-        public string Name
-        {
-            get { return "Some node"; }
-        }
+        public string Name { get; set; }
 
         public bool Produce(ProduceMessage message)
         {
@@ -260,6 +264,25 @@ namespace tests_kafka_sharp
         public bool Post(IBatchByTopic<OffsetMessage> batch)
         {
             throw new NotImplementedException();
+        }
+
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as NodeMock);
+        }
+
+        public bool Equals(NodeMock other)
+        {
+            if (ReferenceEquals(null, other))
+                return false;
+            if (ReferenceEquals(this, other))
+                return true;
+            return string.Equals(Name, other.Name);
+        }
+
+        public override int GetHashCode()
+        {
+            return Name == null ? 0 : Name.GetHashCode();
         }
     }
 

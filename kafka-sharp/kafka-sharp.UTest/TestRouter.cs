@@ -243,7 +243,11 @@ namespace tests_kafka_sharp
         [Test]
         public void TestMessageAreSent_GlobalBatching()
         {
+            var name = "n1";
             var node = new Mock<INode>();
+            node.SetupGet(n => n.Name).Returns(name);
+            node.Setup(n => n.Equals(It.IsAny<INode>())).Returns((INode other) => name == other.Name);
+            node.Setup(n => n.GetHashCode()).Returns(name.GetHashCode);
             node.Setup(n => n.Post(It.IsAny<IBatchByTopicByPartition<ProduceMessage>>())).Returns(true);
             var cluster = new Mock<ICluster>();
             cluster.Setup(c => c.RequireNewRoutingTable())

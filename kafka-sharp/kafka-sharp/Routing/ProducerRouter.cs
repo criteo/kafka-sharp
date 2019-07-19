@@ -953,8 +953,8 @@ namespace Kafka.Routing
         private void OnMessageExpired(ProduceMessage message)
         {
             _cluster.Logger.LogError(string.Format(
-                "[Producer] Not able to send message before reaching TTL for [topic: {0} / partition: {1}], message expired.",
-                message.Topic, message.RequiredPartition));
+                "[Producer] Not able to send message before reaching TTL for [topic: {0} / partition: {1} (required {2})], message expired.",
+                message.Topic, message.Partition, message.RequiredPartition));
 
             ClearMessage(message.Message, shouldClearKeyValue: false);
             MessageExpired(message.Topic, message.Message);

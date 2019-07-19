@@ -639,23 +639,21 @@ namespace Kafka.Cluster
         private async Task ProcessDeadNode(INode deadNode)
         {
             Statistics.UpdateNodeDead(GetNodeId(deadNode));
-            BrokerMeta m;
-            if (!_nodes.TryGetValue(deadNode, out m))
-            {
-                Logger.LogWarning(string.Format("Kafka unknown node dead, the node makes itself known as: {0}.",
-                                              deadNode.Name));
-                return;
-            }
-            Logger.LogWarning(string.Format("Kafka node {0} is dead, refreshing metadata.", GetNodeName(deadNode)));
+            Logger.LogWarning(_nodes.TryGetValue(deadNode, out var brokerMeta)
+                ? $"Kafka node {GetNodeName(deadNode)} is dead, refreshing metadata."
+                : $"Kafka unknown node dead, the node makes itself known as: {deadNode.Name}.");
+
             if (_routingTable != null)
             {
                 _routingTable = new RoutingTable(_routingTable, deadNode);
                 RoutingTableChange(_routingTable);
             }
             _nodes.Remove(deadNode);
-            deadNode.Stop();
-            _nodesByHostPort.Remove(BuildKey(m.Host, m.Port));
-            _nodesById.Remove(m.Id);
+            var _ = deadNode.Stop(); // Fire and forget
+
+            if (brokerMeta == null) return;
+            _nodesByHostPort.Remove(BuildKey(brokerMeta.Host, brokerMeta.Port));
+            _nodesById.Remove(brokerMeta.Id);
             await CheckNoMoreNodes();
             RefreshMetadata();
         }
@@ -921,6 +919,7 @@ namespace Kafka.Cluster
             {
                 var node = _nodesByHostPort[host];
                 _nodesByHostPort.Remove(host);
+                Logger.LogInformation($"Removing broker '{node.Name}' from the cluster in response to new topology");
                 _nodes.Remove(node);
                 node.Stop();
             }

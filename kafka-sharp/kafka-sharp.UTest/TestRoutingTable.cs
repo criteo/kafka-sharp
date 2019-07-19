@@ -58,11 +58,11 @@ namespace tests_kafka_sharp
         [Test]
         public void TestSignalDeadNode()
         {
-            var node = new NodeMock();
+            var node = new NodeMock("n1");
             var routes = new Dictionary<string, Partition[]>
             {
                 {"test1p", new[] {new Partition {Id = 0, Leader = node}}},
-                {"test2p", new[] {new Partition {Id = 1, Leader = new NodeMock()}, new Partition {Id = 2, Leader = node}, new Partition {Id = 3, Leader = new NodeMock()}}},
+                {"test2p", new[] {new Partition {Id = 1, Leader = new NodeMock("n2")}, new Partition {Id = 2, Leader = node}, new Partition {Id = 3, Leader = new NodeMock("n3")}}},
             };
             var routingTable = new RoutingTable(routes);
 
