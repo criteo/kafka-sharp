@@ -13,6 +13,24 @@ namespace Kafka.Public
         public const int None = -1;
         public const int All = -2;
         public const int Any = -3;
+
+        /// <summary>
+        /// Format partition in a printable way
+        /// </summary>
+        public static string Format(int partition)
+        {
+            switch (partition)
+            {
+                case None:
+                    return "none";
+                case All:
+                    return "all";
+                case Any:
+                    return "any";
+                default:
+                    return partition.ToString();
+            }
+        }
     }
 
     /// <summary>

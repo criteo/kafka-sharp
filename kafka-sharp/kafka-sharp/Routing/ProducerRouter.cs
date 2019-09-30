@@ -361,7 +361,7 @@ namespace Kafka.Routing
                 _cluster.Logger.LogError(
                     string.Format(
                         "[Producer] Failed to route message, discarding message for [topic: {0} / partition: {1}]",
-                        message.Topic, message.Partition));
+                        message.Topic, Partitions.Format(message.Partition)));
                 OnMessageDiscarded(message);
             }
         }
@@ -779,7 +779,7 @@ namespace Kafka.Routing
                             _cluster.Logger.LogError(
                                 string.Format(
                                     "[Producer] Irrecoverable error, discarding message for [topic: {0} / partition: {1}]",
-                                    pm.Topic, pm.Partition));
+                                    pm.Topic, Partitions.Format(pm.Partition)));
                             OnMessageDiscarded(pm);
                         }
                         else
@@ -858,7 +858,7 @@ namespace Kafka.Routing
                 _cluster.Logger.LogError(
                     string.Format(
                         "[Producer] Too many postponed messages, discarding message for [topic: {0} / partition: {1}]",
-                        produceMessage.Topic, produceMessage.RequiredPartition));
+                        produceMessage.Topic, Partitions.Format(produceMessage.RequiredPartition)));
                 OnMessageDiscarded(produceMessage);
                 return;
             }
@@ -876,7 +876,7 @@ namespace Kafka.Routing
                 {
                     _cluster.Logger.LogError(
                         string.Format("[Producer] No node available for [topic: {0} / partition: {1}], postponing messages.",
-                            produceMessage.Topic, produceMessage.RequiredPartition));
+                            produceMessage.Topic, Partitions.Format(produceMessage.RequiredPartition)));
                 }
                 else
                 {
@@ -954,7 +954,7 @@ namespace Kafka.Routing
         {
             _cluster.Logger.LogError(string.Format(
                 "[Producer] Not able to send message before reaching TTL for [topic: {0} / partition: {1} (required {2})], message expired.",
-                message.Topic, message.Partition, message.RequiredPartition));
+                message.Topic, Partitions.Format(message.Partition), Partitions.Format(message.RequiredPartition)));
 
             ClearMessage(message.Message, shouldClearKeyValue: false);
             MessageExpired(message.Topic, message.Message);
