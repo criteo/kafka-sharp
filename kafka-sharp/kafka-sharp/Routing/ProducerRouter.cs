@@ -568,7 +568,8 @@ namespace Kafka.Routing
             {
                 var keySerializer = _configuration.SerializationConfig.GetSerializersForTopic(topic).Item1;
                 var partitionSelectionImpl = _configuration.PartitionSelectionConfig.GetPartitionSelectionForTopic(
-                    topic, _configuration.NumberOfMessagesBeforeRoundRobin, _randomGenerator.Next(), keySerializer);
+                    topic, _configuration.NumberOfMessagesBeforeRoundRobin, _randomGenerator.Next(),
+                    keySerializer, _cluster.Logger);
                 selector = new PartitionSelector(partitionSelectionImpl);
                 _partitioners[topic] = selector;
             }

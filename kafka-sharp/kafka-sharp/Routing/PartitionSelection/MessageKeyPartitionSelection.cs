@@ -9,18 +9,20 @@ namespace Kafka.Routing.PartitionSelection
 {
     internal class MessageKeyPartitionSelection : IPartitionSelection
     {
-        private static readonly ILogger Logger = LoggerManager.Instance;
         private const int LogSamplingPercentage = 99;
 
         private readonly ISerializer _keySerializer;
         private readonly IPartitionSelection _roundRobinSelection;
+        private readonly ILogger _logger;
         private readonly Pool<ReusableMemoryStream> _messageKeyBuffersPool;
         private readonly Random _rnd;
 
-        public MessageKeyPartitionSelection(ISerializer keySerializer, IPartitionSelection roundRobinSelection)
+        public MessageKeyPartitionSelection(ISerializer keySerializer, IPartitionSelection roundRobinSelection,
+            ILogger logger)
         {
             _keySerializer = keySerializer;
             _roundRobinSelection = roundRobinSelection;
+            _logger = logger;
             _rnd = new Random();
             _messageKeyBuffersPool = new Pool<ReusableMemoryStream>(
                 limit: 100,
@@ -61,7 +63,7 @@ namespace Kafka.Routing.PartitionSelection
 
             if (_rnd.Next(0, 100) >= LogSamplingPercentage)
             {
-                Logger.LogError($"{typeof(MessageKeyPartitionSelection)} cannot determine partition as message's "
+                _logger.LogError($"{typeof(MessageKeyPartitionSelection)} cannot determine partition as message's "
                     + "key is null. Falling back to round robin selection");
             }
 

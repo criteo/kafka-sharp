@@ -40,7 +40,8 @@ namespace Kafka.Public
             _selectionStrategyByTopic.Add(topic, strategy);
         }
 
-        internal IPartitionSelection GetPartitionSelectionForTopic(string topic, int delay, int startSeed, ISerializer keySerializer)
+        internal IPartitionSelection GetPartitionSelectionForTopic(string topic, int delay, int startSeed,
+            ISerializer keySerializer, ILogger logger)
         {
             if (!_selectionStrategyByTopic.TryGetValue(topic, out var selectionStrategy))
             {
@@ -53,7 +54,7 @@ namespace Kafka.Public
                 return roundRobinSelection;
             }
 
-            return new MessageKeyPartitionSelection(keySerializer, roundRobinSelection);
+            return new MessageKeyPartitionSelection(keySerializer, roundRobinSelection, logger);
         }
     }
 }

@@ -5,6 +5,7 @@ using Kafka.Protocol;
 using Kafka.Public;
 using Kafka.Routing;
 using Kafka.Routing.PartitionSelection;
+using Moq;
 using NUnit.Framework;
 
 namespace tests_kafka_sharp
@@ -24,7 +25,7 @@ namespace tests_kafka_sharp
                 new Partition {Id = 1, Leader = nodeMock},
                 new Partition {Id = 2, Leader = nodeMock},
             };
-            var partitionStrategy = new MessageKeyPartitionSelection(Serializer, RoundRobinPartitionSelection);
+            var partitionStrategy = new MessageKeyPartitionSelection(Serializer, RoundRobinPartitionSelection, Mock.Of<ILogger>());
             var partitioner = new PartitionSelector(partitionStrategy);
             var message1 = ProduceMessage.New(string.Empty, Partitions.Any, new Message { Key = "ThisIsMyKey" }, new DateTime());
             var message2 = ProduceMessage.New(string.Empty, Partitions.Any, new Message { Key = "ThisIsMyOtherKey" }, new DateTime());
@@ -50,7 +51,7 @@ namespace tests_kafka_sharp
                 new Partition {Id = 1, Leader = nodeMock},
                 new Partition {Id = 2, Leader = nodeMock},
             };
-            var partitionStrategy = new MessageKeyPartitionSelection(Serializer, RoundRobinPartitionSelection);
+            var partitionStrategy = new MessageKeyPartitionSelection(Serializer, RoundRobinPartitionSelection, Mock.Of<ILogger>());
             var partitioner = new PartitionSelector(partitionStrategy);
             var message = ProduceMessage.New(string.Empty, Partitions.Any, new Message { Key = null }, new DateTime());
 
@@ -71,7 +72,7 @@ namespace tests_kafka_sharp
                 new Partition {Id = 2, Leader = nodeMock},
             };
             var blacklistedPartitions = new Dictionary<int, DateTime> { { partitionIdBlacklisted, DateTime.MaxValue } };
-            var partitionStrategy = new MessageKeyPartitionSelection(Serializer, RoundRobinPartitionSelection);
+            var partitionStrategy = new MessageKeyPartitionSelection(Serializer, RoundRobinPartitionSelection, Mock.Of<ILogger>());
             var partitioner = new PartitionSelector(partitionStrategy);
             var message = ProduceMessage.New(string.Empty, Partitions.Any, new Message { Key = "ThisIsMyKey" }, new DateTime());
 
