@@ -12,6 +12,8 @@ namespace tests_kafka_sharp
     [TestFixture]
     internal class TestGeneral
     {
+        private static ISerializer Serializer = new StringSerializer();
+
         private static ClusterClient InitCluster(Configuration configuration, ILogger logger, MetadataResponse metadata, bool forceErrors = false, bool forceConnectionErrors = false, int responseDelay = 0)
         {
             TestData.Reset();
@@ -36,6 +38,7 @@ namespace tests_kafka_sharp
                 ErrorStrategy = ErrorStrategy.Discard,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
+            configuration.SerializationConfig.SetDefaultSerializers(Serializer, Serializer);
             const int expectedLatency = 5;
             var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, forceErrors: false, forceConnectionErrors: false, responseDelay: expectedLatency);
 
@@ -106,6 +109,7 @@ namespace tests_kafka_sharp
                 ErrorStrategy = ErrorStrategy.Discard,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
+            configuration.SerializationConfig.SetDefaultSerializers(Serializer, Serializer);
             TestMultipleProduce(configuration);
         }
 
@@ -120,6 +124,7 @@ namespace tests_kafka_sharp
                 Seeds = "localhost:1,localhost:2,localhost:3",
                 BatchStrategy = BatchStrategy.Global
             };
+            configuration.SerializationConfig.SetDefaultSerializers(Serializer, Serializer);
             TestMultipleProduce(configuration);
         }
 
@@ -134,6 +139,7 @@ namespace tests_kafka_sharp
                 Seeds = "localhost:1,localhost:2,localhost:3",
                 TaskScheduler = new ActionBlockTaskScheduler(1)
             };
+            configuration.SerializationConfig.SetDefaultSerializers(Serializer, Serializer);
             TestMultipleProduce(configuration);
         }
 
@@ -196,6 +202,7 @@ namespace tests_kafka_sharp
                 MaxSuccessiveNodeErrors = 10,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
+            configuration.SerializationConfig.SetDefaultSerializers(Serializer, Serializer);
             var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, forceErrors: false, forceConnectionErrors: true);
 
             cluster.Produce("topic1", "key", "value");
@@ -245,6 +252,7 @@ namespace tests_kafka_sharp
                 ErrorStrategy = ErrorStrategy.Retry,
                 Seeds = "localhost:1,localhost:2,localhost:3"
             };
+            configuration.SerializationConfig.SetDefaultSerializers(Serializer, Serializer);
             var cluster = InitCluster(configuration, logger, TestData.TestMetadataResponse, forceErrors: true, forceConnectionErrors: true);
 
             cluster.Produce("topic1", "key", "value");

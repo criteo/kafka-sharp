@@ -152,7 +152,6 @@ namespace Kafka.Protocol
                 return DeserializeMessageSet(stream, deserializers);
             }
             // Now we know what we received is a proper recordBatch
-            var recordBatch = new RecordBatch();
             var size = BigEndianConverter.ReadInt32(stream);
             var endOfAllBatches = stream.Position + size;
             if (stream.Length < endOfAllBatches)
@@ -162,7 +161,13 @@ namespace Kafka.Protocol
             }
             while (stream.Position < endOfAllBatches)
             {
-                recordBatch.Deserialize(stream, deserializers, endOfAllBatches);
+                var recordBatch = RecordBatch.Deserialize(stream, deserializers, endOfAllBatches);
+                if (recordBatch == null)
+                {
+                    // We received a partial record batch, discard it
+                    stream.Position = endOfAllBatches;
+                    break;
+                }
                 list.AddRange(recordBatch.Records.Select(record => new ResponseMessage
                 {
                     Message = new Message { Key = record.Key, Value = record.Value, TimeStamp = record.Timestamp },
@@ -328,15 +333,15 @@ namespace Kafka.Protocol
                         ValueSerializer = null
                     }),
                 };
-                Basics.WriteSizeInBytes(stream, batch.Serialize);
+                Basics.WriteWithSize(stream, batch.Serialize);
                 return;
             }
-            Basics.WriteSizeInBytes(stream, Messages, (s, l) =>
+            Basics.WriteWithSize(stream, Messages, (s, l) =>
             {
                 foreach (var m in l)
                 {
                     BigEndianConverter.Write(s, m.Offset);
-                    Basics.WriteSizeInBytes(s, m.Message,
+                    Basics.WriteWithSize(s, m.Message,
                         (st, msg) =>
                             msg.Serialize(st, CompressionCodec.None, extra as Serializers,
                                 version == Basics.ApiVersion.V2 ? MessageVersion.V1 : MessageVersion.V0));

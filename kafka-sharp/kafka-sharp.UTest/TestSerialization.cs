@@ -80,13 +80,95 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageWithPreserializedKeyValue()
         {
             var message = new Message { Key = Key, Value = Value };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
-            Assert.IsNull(message.Key);
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), Compatibility.V0_8_2);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
             TestSerializeOneMessageCommon(message);
             message.SerializedKeyValue.Dispose();
         }
+
+        [Test]
+        [TestCase(true)]
+        [TestCase(false)]
+        public void TestSerializeRecordBatch(bool withPreserializing)
+        {
+            var messages = new[] {new Message {Key = Key, Value = Value}, new Message {Key = Key, Value = Value}};
+            if (withPreserializing)
+                PreserializeMessage(messages, Compatibility.V0_11_0);
+
+            using (var stream = new ReusableMemoryStream(null))
+            {
+                var set = new PartitionData
+                {
+                    Partition = 42,
+                    CompressionCodec = CompressionCodec.None,
+                    Messages = messages,
+                };
+                set.Serialize(stream, SerializationConfig.ByteArraySerializers, Basics.ApiVersion.V3);
+                stream.Position = 0;
+
+                CheckRecordBatch(stream, set, new [] {(Key, Value), (Key, Value)});
+
+                Assert.AreEqual(stream.Length, stream.Position);
+            }
+        }
+
+        [Test]
+        [TestCase(true)]
+        [TestCase(false)]
+        public void TestSerializeRecordBatchMemorySerializable(bool withPreserializing)
+        {
+            var val = new SimpleSerializable(Encoding.UTF8.GetBytes("toto"));
+            var messages = new[] {new Message {Key = Key, Value = val}, new Message {Key = Key, Value = val}};
+            if (withPreserializing)
+                PreserializeMessage(messages, Compatibility.V0_11_0);
+
+            var pool = new Pool<ReusableMemoryStream>(() => new ReusableMemoryStream(Pool), (m, b) => { m.SetLength(0); });
+            using (var stream = new ReusableMemoryStream(pool))
+            {
+                var set = new PartitionData
+                {
+                    Partition = 42,
+                    CompressionCodec = CompressionCodec.None,
+                    Messages = messages,
+                };
+                set.Serialize(stream, SerializationConfig.ByteArraySerializers, Basics.ApiVersion.V3);
+                stream.Position = 0;
+
+                CheckRecordBatch(stream, set, new [] {(Key, val.Data), (Key, val.Data)});
+
+                Assert.AreEqual(stream.Length, stream.Position);
+            }
+        }
+
+        [Test]
+        [TestCase(true)]
+        [TestCase(false)]
+        public void TestSerializeRecordBatchSizedMemorySerializable(bool withPreserializing)
+        {
+            var val = new SimpleSizedSerializable(Encoding.UTF8.GetBytes("toto"));
+            var messages = new[] {new Message {Key = Key, Value = val}, new Message {Key = Key, Value = val}};
+
+            if (withPreserializing)
+                PreserializeMessage(messages, Compatibility.V0_11_0);
+
+            using (var stream = new ReusableMemoryStream(null))
+            {
+                var set = new PartitionData
+                {
+                    Partition = 42,
+                    CompressionCodec = CompressionCodec.None,
+                    Messages = messages,
+                };
+                set.Serialize(stream, SerializationConfig.ByteArraySerializers, Basics.ApiVersion.V3);
+                stream.Position = 0;
+
+                CheckRecordBatch(stream, set, new [] {(Key, val.Data), (Key, val.Data)});
+
+                Assert.AreEqual(stream.Length, stream.Position);
+            }
+        }
+
 
         class SimpleSerializable : IMemorySerializable
         {
@@ -127,8 +209,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneMessageIMemorySerializableWithPreserializedKeyValue()
         {
             var message = new Message { Key = new SimpleSerializable(Key), Value = new SimpleSerializable(Value) };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
-            Assert.IsNull(message.Key);
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), Compatibility.V0_8_2);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
             TestSerializeOneMessageCommon(message);
@@ -225,8 +306,7 @@ namespace tests_kafka_sharp
         public void TestSerializeOneEmptyMessageWithPreserializedKeyValue(MessageVersion messageVersion)
         {
             var message = new Message { Key = new byte[0], Value = new byte[0] };
-            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null));
-            Assert.IsNull(message.Key);
+            message.SerializeKeyValue(new ReusableMemoryStream(null), new Tuple<ISerializer, ISerializer>(null, null), Compatibility.V0_8_2);
             Assert.IsNull(message.Value);
             Assert.IsNotNull(message.SerializedKeyValue);
             TestSerializeOneEmptyMessageCommon(message, messageVersion);
@@ -254,7 +334,7 @@ namespace tests_kafka_sharp
         {
             var logger = new TestLogger();
             var message = new Message { Key = Key, Value = Value };
-            message.SerializeKeyValue(new ReusableMemoryStream(null, logger), new Tuple<ISerializer, ISerializer>(null, null));
+            message.SerializeKeyValue(new ReusableMemoryStream(null, logger), new Tuple<ISerializer, ISerializer>(null, null), Compatibility.V0_8_2);
 
             // Simulate a buffer with no data
             message.SerializedKeyValue = new ReusableMemoryStream(null, logger);
@@ -850,17 +930,17 @@ namespace tests_kafka_sharp
                 var records = Decompress(serialized, codec);
 
                 // First record
-                var firstRecordLength = VarIntConverter.ReadInt64(records);
+                var firstRecordLength = VarIntConverter.ReadAsInt64(records);
                 var startOfFirstRecord = records.Position;
                 var recordsCount = 0L;
                 Assert.AreEqual(0, records.ReadByte()); // attributes
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // TimeStampDelta
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // offsetDelta
-                Assert.AreEqual(-1, VarIntConverter.ReadInt64(records)); // keyLength
+                Assert.AreEqual(0, VarIntConverter.ReadAsInt64(records)); // TimeStampDelta
+                Assert.AreEqual(0, VarIntConverter.ReadAsInt64(records)); // offsetDelta
+                Assert.AreEqual(-1, VarIntConverter.ReadAsInt64(records)); // keyLength
                 // Since the keyLength is -1, we do not read the key
-                Assert.AreEqual(Value.Length, VarIntConverter.ReadInt64(records)); //value length
+                Assert.AreEqual(Value.Length, VarIntConverter.ReadAsInt64(records)); //value length
                 Assert.AreEqual(TheValue, deserializer.Deserialize(records, Value.Length));
-                recordsCount = VarIntConverter.ReadInt64(records);
+                recordsCount = VarIntConverter.ReadAsInt64(records);
                 Assert.AreEqual(2L, recordsCount); // Headers count
                 for (var i = 0; i < recordsCount; ++i)
                 {
@@ -871,16 +951,16 @@ namespace tests_kafka_sharp
                 Assert.AreEqual(firstRecordLength, endOfFirstRecord - startOfFirstRecord);
 
                 // Second record
-                var secondRecordLength = VarIntConverter.ReadInt64(records);
+                var secondRecordLength = VarIntConverter.ReadAsInt64(records);
                 var startOfSecondRecord = records.Position;
                 Assert.AreEqual(0, records.ReadByte()); // attributes
-                Assert.AreEqual(0, VarIntConverter.ReadInt64(records)); // TimeStampDelta
-                Assert.AreEqual(1, VarIntConverter.ReadInt64(records)); // offsetDelta
-                Assert.AreEqual(-1, VarIntConverter.ReadInt64(records)); // keyLength
+                Assert.AreEqual(0, VarIntConverter.ReadAsInt64(records)); // TimeStampDelta
+                Assert.AreEqual(1, VarIntConverter.ReadAsInt64(records)); // offsetDelta
+                Assert.AreEqual(-1, VarIntConverter.ReadAsInt64(records)); // keyLength
                 // Since the keyLength is -1, we do not read the key
-                Assert.AreEqual(Value.Length, VarIntConverter.ReadInt64(records)); //value length
+                Assert.AreEqual(Value.Length, VarIntConverter.ReadAsInt64(records)); //value length
                 Assert.AreEqual(TheValue, deserializer.Deserialize(records, Value.Length));
-                recordsCount = VarIntConverter.ReadInt64(records);
+                recordsCount = VarIntConverter.ReadAsInt64(records);
                 Assert.AreEqual(2L, recordsCount); // Headers count
                 for (var i = 0; i < recordsCount; ++i)
                 {
@@ -1537,6 +1617,81 @@ namespace tests_kafka_sharp
             }
         }
 
+        [Test]
+        public void TestDeserializeFetchResponse_PartialMessageEndOfMessageSet()
+        {
+            var response = new FetchResponse
+            {
+                ThrottleTime = 47,
+                FetchPartitionResponse =
+                    new CommonResponse<FetchPartitionResponse>
+                    {
+                        TopicsResponse =
+                            new[]
+                            {
+                                new TopicData<FetchPartitionResponse>
+                                {
+                                    TopicName = "The_Wire",
+                                    PartitionsData =
+                                        new[]
+                                        {
+                                            new FetchPartitionResponse
+                                            {
+                                                ErrorCode = ErrorCode.NoError,
+                                                HighWatermarkOffset = 714,
+                                                Partition = 999999,
+                                                LastStableOffset = 404,
+                                                LogStartOffset = 200,
+                                                AbortedTransactions = new[]
+                                                {
+                                                    new AbortedTransaction {FirstOffset = 3, ProducerId = 4},
+                                                },
+                                                Messages =
+                                                    new List<ResponseMessage>
+                                                    {
+                                                        new ResponseMessage
+                                                        {
+                                                            Offset = 0,
+                                                            Message = new Message {Key = Key, Value = Value}
+                                                        },
+                                                        new ResponseMessage
+                                                        {
+                                                            Offset = 1337,
+                                                            Message = new Message {Key = Key, Value = Value}
+                                                        },
+                                                    }
+                                            }
+                                        }
+                                }
+                            }
+                    }
+            };
+
+            using (var serialized = new ReusableMemoryStream(null))
+            {
+                var config = new SerializationConfig();
+                BigEndianConverter.Write(serialized, response.ThrottleTime);
+                Basics.WriteArray(serialized, response.FetchPartitionResponse.TopicsResponse, config,
+                    Basics.ApiVersion.V5);
+
+                // Expected position of where the size of the RecordBatch will be stored
+                // We change this size to something bigger than the size of the buffer to simulate a partial message
+                // being sent by the broker (= stream length < stream position + message size)
+                serialized.Position = 84;
+                var spoofedSize = BitConverter.GetBytes(500);
+                Array.Reverse(spoofedSize);
+                serialized.Write(spoofedSize, 0, 4);
+                serialized.Position = 0;
+
+                // Test that the FetchResponse Deserialize logic will not throw on this and instead
+                // discard the RecordBatch
+                var f = new FetchResponse();
+                f.Deserialize(serialized, config, Basics.ApiVersion.V5);
+                var deserializedMessages = f.FetchPartitionResponse.TopicsResponse.First().PartitionsData.First().Messages;
+                Assert.AreEqual(0, deserializedMessages.Count);
+            }
+        }
+
         /* The following test are ordered to be run first because if we break one
          * it will most likely break all other tests. Thus when serialization tests
          * break we can quick check if it's due to basic stuff being broken or not
@@ -2088,7 +2243,7 @@ namespace tests_kafka_sharp
             using (var serialized = new ReusableMemoryStream(null))
             {
                 BigEndianConverter.Write(serialized, (short) ErrorCode.NoError);
-                Basics.WriteSizeInBytes(serialized, stream =>
+                Basics.WriteWithSize(serialized, stream =>
                 {
                     BigEndianConverter.Write(stream, (short) 48);
                     BigEndianConverter.Write(stream, 1);
@@ -2458,6 +2613,69 @@ namespace tests_kafka_sharp
             public long SerializedSize(object input)
             {
                 return Value.Length;
+            }
+        }
+
+        private static void CheckRecordBatch(ReusableMemoryStream stream, PartitionData expected, (byte[] Key, byte[] Value)[] expectedKeyValue)
+        {
+            Assert.AreEqual(expected.Partition, BigEndianConverter.ReadInt32(stream), "partition");
+            Assert.AreEqual(stream.Length - 2 * sizeof(int), BigEndianConverter.ReadInt32(stream), "size");
+            Assert.AreEqual(0, BigEndianConverter.ReadInt64(stream), "baseOffset");
+            Assert.AreEqual(stream.Length - (3 * sizeof(int) + sizeof(long)), BigEndianConverter.ReadInt32(stream), "batchLength");
+            Assert.AreEqual(-1, BigEndianConverter.ReadInt32(stream), "partitionLeaderEpoch");
+            Assert.AreEqual(2, stream.ReadByte(), "magic");
+
+            int crcRead = BigEndianConverter.ReadInt32(stream);
+            int crcComputed = (int)Crc32.ComputeCastagnoli(stream, stream.Position, stream.Length - stream.Position);
+            Assert.AreEqual(crcComputed, crcRead, "crc");
+
+            short attributes = BigEndianConverter.ReadInt16(stream);
+            Assert.AreEqual(0, attributes, "attributes");
+
+            Message[] messages = expected.Messages.ToArray();
+
+            Assert.AreEqual(messages.Length - 1, BigEndianConverter.ReadInt32(stream), "lastOffsetDelta");
+            Assert.AreEqual(0, BigEndianConverter.ReadInt64(stream), "firstTimestamp");
+            Assert.AreEqual(0, BigEndianConverter.ReadInt64(stream), "maxTimestamp");
+            Assert.AreEqual(-1, BigEndianConverter.ReadInt64(stream), "producerId");
+            Assert.AreEqual(-1, BigEndianConverter.ReadInt16(stream), "producerEpoch");
+            Assert.AreEqual(-1, BigEndianConverter.ReadInt32(stream), "baseSequence");
+            Assert.AreEqual(messages.Length, BigEndianConverter.ReadInt32(stream), "recordsCount");
+
+            int offset = 0;
+            foreach (var message in messages)
+            {
+                byte[] expectedKey = expectedKeyValue[offset].Key;
+                byte[] expectedVal = expectedKeyValue[offset].Value;
+
+                // key + val + 1 byte + 5 varint
+                Assert.AreEqual(expectedKey.Length + expectedVal.Length + 6 * sizeof(byte), VarIntConverter.ReadAsInt64(stream), "length");
+                Assert.AreEqual(0, stream.ReadByte(), "attributes");
+                Assert.AreEqual(0, VarIntConverter.ReadAsInt64(stream), "timestampDelta");
+                Assert.AreEqual(offset, VarIntConverter.ReadAsInt64(stream), "offsetDelta");
+
+                Assert.AreEqual(expectedKey.Length, VarIntConverter.ReadAsInt64(stream), "keyLength");
+                var key = new byte[expectedKey.Length];
+                stream.Read(key, 0, key.Length);
+                Assert.AreEqual(key, expectedKey, "key");
+
+                Assert.AreEqual(expectedVal.Length, VarIntConverter.ReadAsInt64(stream), "valueLength");
+                var value = new byte[expectedVal.Length];
+                stream.Read(value, 0, value.Length);
+                Assert.AreEqual(value, expectedVal, "value");
+
+                Assert.AreEqual(message.Headers?.Count ?? 0, VarIntConverter.ReadAsInt64(stream), "headersCount");
+
+                offset += 1;
+            }
+        }
+
+        private void PreserializeMessage(Message[] messages, Compatibility compat)
+        {
+            for (int i = 0; i < messages.Length; i++)
+            {
+                messages[i].SerializeKeyValue(new ReusableMemoryStream(Pool),
+                    new Tuple<ISerializer, ISerializer>(null, null), compat);
             }
         }
     }

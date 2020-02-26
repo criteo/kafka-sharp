@@ -65,10 +65,13 @@ namespace tests_kafka_sharp
         private Mock<INode> GenerateNodeMock(int port)
         {
             var nodeMock = new Mock<INode>();
-            nodeMock.Setup(n => n.Name).Returns("localhost:" + port);
+            var name = "localhost:" + port;
+            nodeMock.Setup(n => n.Name).Returns(name);
             nodeMock.Setup(n => n.FetchMetadata()).Returns(Task.FromResult(TestData.TestMetadataResponse));
             nodeMock.Setup(n => n.FetchMetadata(It.IsAny<IEnumerable<string>>())).Returns(Task.FromResult(TestData.TestMetadataResponse));
             nodeMock.Setup(n => n.Stop()).Returns(Task.FromResult(true));
+            nodeMock.Setup(n => n.Equals(It.IsAny<INode>())).Returns((INode other) => name == other.Name);
+            nodeMock.Setup(n => n.GetHashCode()).Returns(name.GetHashCode);
             return nodeMock;
         }
 

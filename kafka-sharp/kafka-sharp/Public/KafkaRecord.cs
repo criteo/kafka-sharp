@@ -13,6 +13,24 @@ namespace Kafka.Public
         public const int None = -1;
         public const int All = -2;
         public const int Any = -3;
+
+        /// <summary>
+        /// Format partition in a printable way
+        /// </summary>
+        public static string Format(int partition)
+        {
+            switch (partition)
+            {
+                case None:
+                    return "none";
+                case All:
+                    return "all";
+                case Any:
+                    return "any";
+                default:
+                    return partition.ToString();
+            }
+        }
     }
 
     /// <summary>
@@ -85,6 +103,21 @@ namespace Kafka.Public
     /// </summary>
     public class RawKafkaRecord
     {
+        public RawKafkaRecord() { }
+
+        // For testing purpose
+        public RawKafkaRecord(string topic = null, object key = null, object value = null, long offset = 0,
+            long lag = 0, int partition = 0, DateTime? timestamp = null)
+        {
+            Topic = topic;
+            Key = key;
+            Value = value;
+            Offset = offset;
+            Lag = lag;
+            Partition = partition;
+            Timestamp = timestamp.GetValueOrDefault(DateTime.MinValue);
+        }
+
         /// <summary>
         /// The topic of the record.
         /// </summary>

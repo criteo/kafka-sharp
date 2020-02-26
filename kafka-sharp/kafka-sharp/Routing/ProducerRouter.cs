@@ -13,6 +13,7 @@ using Kafka.Cluster;
 using Kafka.Common;
 using Kafka.Protocol;
 using Kafka.Public;
+using Kafka.Routing.PartitionSelection;
 using ICluster = Kafka.Cluster.ICluster;
 
 namespace Kafka.Routing
@@ -339,7 +340,7 @@ namespace Kafka.Routing
             if (_configuration.SerializationConfig.SerializeOnProduce)
             {
                 var serializers = _configuration.SerializationConfig.GetSerializersForTopic(topic);
-                message.SerializeKeyValue(_pool.Reserve(), serializers);
+                message.SerializeKeyValue(_pool.Reserve(), serializers, _configuration.Compatibility);
             }
             Route(ProduceMessage.New(topic, partition, message, expirationDate));
         }
@@ -360,7 +361,7 @@ namespace Kafka.Routing
                 _cluster.Logger.LogError(
                     string.Format(
                         "[Producer] Failed to route message, discarding message for [topic: {0} / partition: {1}]",
-                        message.Topic, message.Partition));
+                        message.Topic, Partitions.Format(message.Partition)));
                 OnMessageDiscarded(message);
             }
         }
@@ -563,10 +564,13 @@ namespace Kafka.Routing
                 return;
             }
 
-            PartitionSelector selector;
-            if (!_partitioners.TryGetValue(topic, out selector))
+            if (!_partitioners.TryGetValue(topic, out var selector))
             {
-                selector = new PartitionSelector(_configuration.NumberOfMessagesBeforeRoundRobin, _randomGenerator.Next());
+                var keySerializer = _configuration.SerializationConfig.GetSerializersForTopic(topic).Item1;
+                var partitionSelectionImpl = _configuration.PartitionSelectionConfig.GetPartitionSelectionForTopic(
+                    topic, _configuration.NumberOfMessagesBeforeRoundRobin, _randomGenerator.Next(),
+                    keySerializer, _cluster.Logger);
+                selector = new PartitionSelector(partitionSelectionImpl);
                 _partitioners[topic] = selector;
             }
 
@@ -577,13 +581,13 @@ namespace Kafka.Routing
                 partitions = _routingTable.GetPartitions(topic);
             }
 
-            var partition = selector.GetPartition(produceMessage.RequiredPartition, partitions, GetFilter(topic));
+            var partition = selector.GetPartition(produceMessage, partitions, GetFilter(topic));
 
             if (partition.Id == Partitions.None)
             {
                 // Retry without filters because filtered partitions should be valid, we just wanted to avoid
                 // spamming them while they're being rebalanced.
-                partition = selector.GetPartition(produceMessage.RequiredPartition, partitions);
+                partition = selector.GetPartition(produceMessage, partitions);
 
                 if (partition.Id == Partitions.None)
                 {
@@ -776,7 +780,7 @@ namespace Kafka.Routing
                             _cluster.Logger.LogError(
                                 string.Format(
                                     "[Producer] Irrecoverable error, discarding message for [topic: {0} / partition: {1}]",
-                                    pm.Topic, pm.Partition));
+                                    pm.Topic, Partitions.Format(pm.Partition)));
                             OnMessageDiscarded(pm);
                         }
                         else
@@ -855,7 +859,7 @@ namespace Kafka.Routing
                 _cluster.Logger.LogError(
                     string.Format(
                         "[Producer] Too many postponed messages, discarding message for [topic: {0} / partition: {1}]",
-                        produceMessage.Topic, produceMessage.RequiredPartition));
+                        produceMessage.Topic, Partitions.Format(produceMessage.RequiredPartition)));
                 OnMessageDiscarded(produceMessage);
                 return;
             }
@@ -873,7 +877,7 @@ namespace Kafka.Routing
                 {
                     _cluster.Logger.LogError(
                         string.Format("[Producer] No node available for [topic: {0} / partition: {1}], postponing messages.",
-                            produceMessage.Topic, produceMessage.RequiredPartition));
+                            produceMessage.Topic, Partitions.Format(produceMessage.RequiredPartition)));
                 }
                 else
                 {
@@ -950,8 +954,8 @@ namespace Kafka.Routing
         private void OnMessageExpired(ProduceMessage message)
         {
             _cluster.Logger.LogError(string.Format(
-                "[Producer] Not able to send message before reaching TTL for [topic: {0} / partition: {1}], message expired.",
-                message.Topic, message.RequiredPartition));
+                "[Producer] Not able to send message before reaching TTL for [topic: {0} / partition: {1} (required {2})], message expired.",
+                message.Topic, Partitions.Format(message.Partition), Partitions.Format(message.RequiredPartition)));
 
             ClearMessage(message.Message, shouldClearKeyValue: false);
             MessageExpired(message.Topic, message.Message);

@@ -85,7 +85,7 @@ namespace Kafka.Common
             Write(stream, i ? 1L : 0L);
         }
 
-        public static long ReadInt64(MemoryStream stream)
+        public static long ReadAsInt64(MemoryStream stream)
         {
             ulong asZigZag = 0L; // Result value
             int i = 0; // Number of bits written
@@ -122,24 +122,24 @@ namespace Kafka.Common
             return (long)(asZigZag >> 1);
         }
 
-        public static int ReadInt32(MemoryStream stream)
+        public static int ReadAsInt32(MemoryStream stream)
         {
-            return checked((int)ReadInt64(stream));
+            return checked((int)ReadAsInt64(stream));
         }
 
-        public static short ReadInt16(MemoryStream stream)
+        public static short ReadAsInt16(MemoryStream stream)
         {
-            return checked((short)ReadInt64(stream));
+            return checked((short)ReadAsInt64(stream));
         }
 
-        public static byte ReadByte(MemoryStream stream)
+        public static byte ReadAsByte(MemoryStream stream)
         {
-            return checked((byte)ReadInt64(stream));
+            return checked((byte)ReadAsInt64(stream));
         }
 
-        public static bool ReadBool(MemoryStream stream)
+        public static bool ReadAsBool(MemoryStream stream)
         {
-            return ReadInt64(stream) != 0;
+            return ReadAsInt64(stream) != 0;
         }
     }
 }

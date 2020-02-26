@@ -13,7 +13,7 @@ namespace Kafka.Protocol
 
         public override string ToString()
         {
-            return string.Format("[Id:{0} Host:{1} Port:{2}]", Id, Host, Port);
+            return string.Format("(Id:{0} Host:{1} Port:{2})", Id, Host, Port);
         }
 
         public void Deserialize(ReusableMemoryStream stream, object _, Basics.ApiVersion __)

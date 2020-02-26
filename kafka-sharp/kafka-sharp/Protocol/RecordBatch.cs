@@ -1,7 +1,6 @@
 ﻿// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-using System;
 using System.Collections.Generic;
 using Kafka.Common;
 using Kafka.Public;
@@ -52,15 +51,128 @@ namespace Kafka.Protocol
         private const int BytesNecessaryToGetLength = 8 // baseOffset
             + 4; // batchLength
 
+        /// <remarks>
+        /// From the official protocol documentation available at
+        /// https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-FetchAPI
+        /// "As an optimization the server is allowed to return a partial message at the end of the message set. Clients should handle this case."
+        /// If the end of the RecordBatch exceeds the length of the whole response (= endOfAllBatches), we should discard this RecordBatch.
+        /// </remarks>
+        public static RecordBatch Deserialize(ReusableMemoryStream input, Deserializers deserializers, long endOfAllBatches)
+        {
+            var recordBatch = new RecordBatch();
+
+            if (input.Position + BytesNecessaryToGetLength > endOfAllBatches)
+            {
+                throw new ProtocolException(
+                    $"Trying to read a batch record at {input.Position} and the end of all batches is {endOfAllBatches}."
+                    + $" There is not enough bytes remaining to even read the first fields...");
+            }
+            recordBatch.BaseOffset = BigEndianConverter.ReadInt64(input);
+            var batchLength = BigEndianConverter.ReadInt32(input);
+            var endOfBatch = input.Position + batchLength;
+            if (endOfAllBatches < endOfBatch)
+            {
+                // Partial message, CRCs won't match, return here so the CRC check doesn't throw
+                return null;
+            }
+            recordBatch.PartitionLeaderEpoch = BigEndianConverter.ReadInt32(input);
+            var magic = input.ReadByte();
+            // Current magic value is 2
+            if ((uint) magic != 2)
+            {
+                throw new UnsupportedMagicByteVersion((byte) magic, "2");
+            }
+
+            var crc = (uint) BigEndianConverter.ReadInt32(input);
+            var afterCrcPosition = input.Position; // The crc is calculated starting from this position
+            Crc32.CheckCrcCastagnoli((int)crc, input, afterCrcPosition, endOfBatch - afterCrcPosition);
+
+            var attributes = BigEndianConverter.ReadInt16(input);
+
+            recordBatch.CompressionCodec = (CompressionCodec) (attributes & CompressionCodecMask);
+            recordBatch.IsTransactional = (attributes & TransactionalFlagMask) != 0;
+            recordBatch.IsControl = (attributes & ControlFlagMask) != 0;
+            recordBatch.TimestampType = (attributes & TimestampTypeMask) > 0
+                ? TimestampType.LogAppendTime
+                : TimestampType.CreateTime;
+
+            var lastOffsetDelta = BigEndianConverter.ReadInt32(input);
+
+            var firstTimestamp = BigEndianConverter.ReadInt64(input);
+            var maxTimestamp = BigEndianConverter.ReadInt64(input);
+
+            recordBatch.ProducerId = BigEndianConverter.ReadInt64(input);
+            recordBatch.ProducerEpoch = BigEndianConverter.ReadInt16(input);
+            recordBatch.BaseSequence = BigEndianConverter.ReadInt32(input);
+
+            var numberOfRecords = BigEndianConverter.ReadInt32(input);
+            recordBatch.Records = DeserializeRecords(recordBatch, input, numberOfRecords, endOfBatch, firstTimestamp, deserializers);
+
+            return recordBatch;
+        }
+
+        public static IEnumerable<Record> DeserializeRecords(RecordBatch recordBatch, ReusableMemoryStream input, int numberOfRecords, long endOfBatch,
+            long firstTimeStamp, Deserializers deserializers)
+        {
+            if (recordBatch.CompressionCodec == CompressionCodec.None)
+            {
+                return DeserializeRecordsUncompressed(recordBatch, input, numberOfRecords, endOfBatch, firstTimeStamp,
+                    deserializers);
+            }
+            using (var uncompressedStream = input.Pool.Reserve())
+            {
+                Basics.Uncompress(uncompressedStream, input.GetBuffer(), (int) input.Position,
+                    (int) (endOfBatch - input.Position), recordBatch.CompressionCodec);
+                input.Position = endOfBatch;
+                return new List<Record>(DeserializeRecordsUncompressed(recordBatch, uncompressedStream, numberOfRecords, endOfBatch, firstTimeStamp,
+                    deserializers)); // We use a list here to force iteration to take place, so that we can release uncompressedStream
+            }
+        }
+
+        public static IEnumerable<Record> DeserializeRecordsUncompressed(RecordBatch recordBatch, ReusableMemoryStream input, int numberOfRecords, long endOfBatch,
+            long firstTimeStamp, Deserializers deserializers)
+        {
+            for (var i = 0; i < numberOfRecords; i++)
+            {
+                var length = VarIntConverter.ReadAsInt32(input);
+                if (input.Length - input.Position < length)
+                {
+                    throw new ProtocolException(
+                        $"Record said it was of length {length}, but actually only {input.Length - input.Position} bytes remain");
+                }
+
+                var attributes = input.ReadByte(); // ignored for now
+                var timeStampDelta = VarIntConverter.ReadAsInt64(input);
+                var offsetDelta = VarIntConverter.ReadAsInt32(input);
+
+                var keyLength = VarIntConverter.ReadAsInt32(input);
+                var key = keyLength == -1 ? null : deserializers.Item1.Deserialize(input, keyLength);
+                var valueLength = VarIntConverter.ReadAsInt32(input);
+                var value = valueLength == -1 ? null : deserializers.Item1.Deserialize(input, valueLength);
+
+                var headersCount = VarIntConverter.ReadAsInt32(input);
+                var headers = new List<KafkaRecordHeader>(headersCount);
+                for (var j = 0; j < headersCount; j++)
+                {
+                    headers.Add(Record.DeserializeHeader(input));
+                }
+
+                yield return new Record
+                {
+                    Headers = headers,
+                    Key = key,
+                    Timestamp = firstTimeStamp + timeStampDelta,
+                    Value = value,
+                    Offset = recordBatch.BaseOffset + offsetDelta
+                };
+            }
+        }
+
         public void Serialize(ReusableMemoryStream target)
         {
-            uint crc = 0;
-            int batchLength = -1, lastOffsetDelta = -1;
-            long firstTimestamp = -1L, maxTimestamp = -1L;
-
             BigEndianConverter.Write(target, BaseOffset);
             var batchLengthPosition = target.Position;
-            BigEndianConverter.Write(target, batchLength); // placeholder for batchLength: int32
+            BigEndianConverter.Write(target, -1); // placeholder for batchLength: int32
             // The value of batchLength is the number of bytes required to read after the
             // batchLength field, we retain the current buffer position to compute it later.
             var afterBatchLengthPosition = target.Position;
@@ -70,7 +182,7 @@ namespace Kafka.Protocol
             target.WriteByte(2);
 
             var crcPosition = target.Position;
-            BigEndianConverter.Write(target, (int)crc); // placeholder for CRC: int32
+            BigEndianConverter.Write(target, 0); // placeholder for CRC: int32
             var afterCrcPosition = target.Position;
 
             short attributes = 0x0;
@@ -86,29 +198,28 @@ namespace Kafka.Protocol
             BigEndianConverter.Write(target, attributes);
 
             var lastOffsetDeltaPosition = target.Position;
-            BigEndianConverter.Write(target, lastOffsetDelta); // placeholder for LastOffsetDelta: int32
+            BigEndianConverter.Write(target, -1); // placeholder for LastOffsetDelta: int32
 
             var firstTimestampPosition = target.Position;
-            BigEndianConverter.Write(target, firstTimestamp); // placeholder for FirstTimestamp: int64
+            BigEndianConverter.Write(target, -1L); // placeholder for FirstTimestamp: int64
 
             var maxTimestampPosition = target.Position;
-            BigEndianConverter.Write(target, maxTimestamp); // placeholder for MaxTimestamp: int64
+            BigEndianConverter.Write(target, -1L); // placeholder for MaxTimestamp: int64
 
             BigEndianConverter.Write(target, ProducerId);
             BigEndianConverter.Write(target, ProducerEpoch);
             BigEndianConverter.Write(target, BaseSequence); // BaseSequence: int32
 
             var recordsCountPosition = target.Position;
-            BigEndianConverter.Write(target, lastOffsetDelta);  // RecordsCount: int32
+            BigEndianConverter.Write(target, -1);  // RecordsCount: int32
 
-            (lastOffsetDelta, firstTimestamp, maxTimestamp) = CompressionCodec == CompressionCodec.None
+            (int lastOffsetDelta, long firstTimestamp, long maxTimestamp) = CompressionCodec == CompressionCodec.None
                 ? SerializeRecords(target)
                 : SerializeRecordsWithCompression(target, CompressionCodec);
 
-
             var endPosition = target.Position;
 
-            batchLength = (int)(target.Position - afterBatchLengthPosition);
+            int batchLength = (int)(target.Position - afterBatchLengthPosition);
             target.Position = batchLengthPosition;
             BigEndianConverter.Write(target, batchLength);
 
@@ -125,7 +236,7 @@ namespace Kafka.Protocol
             BigEndianConverter.Write(target, lastOffsetDelta + 1); // actual records count
 
             // Crc is computed on the object from right after the CRC to the end of the buffer
-            crc = Crc32.ComputeCastagnoli(target, afterCrcPosition, endPosition - afterCrcPosition);
+            uint crc = Crc32.ComputeCastagnoli(target, afterCrcPosition, endPosition - afterCrcPosition);
             target.Position = crcPosition;
             BigEndianConverter.Write(target, (int)crc);
 
@@ -175,116 +286,6 @@ namespace Kafka.Protocol
                 }
             }
         }
-
-        // Remark: it might be the case that brokers are authorized to send us partial record batch.
-        // So if the protocol exceptions in this method are triggered, you might want to investigate and remove
-        // them altogether.
-        public void Deserialize(ReusableMemoryStream input, Deserializers deserializers, long endOfAllBatches)
-        {
-            if (input.Position + BytesNecessaryToGetLength > endOfAllBatches)
-            {
-                throw new ProtocolException(
-                    $"Trying to read a batch record at {input.Position} and the end of all batches is {endOfAllBatches}."
-                    + $" There is not enough bytes remaining to even read the first fields...");
-            }
-            BaseOffset = BigEndianConverter.ReadInt64(input);
-            var batchLength = BigEndianConverter.ReadInt32(input);
-            var endOfBatch = input.Position + batchLength;
-            if (endOfAllBatches < endOfBatch)
-            {
-                throw new ProtocolException(
-                    $"The record batch says it has length that stops at {endOfBatch} but the list of all batches stop at {endOfAllBatches}.");
-            }
-            PartitionLeaderEpoch = BigEndianConverter.ReadInt32(input);
-            var magic = input.ReadByte();
-            // Current magic value is 2
-            if ((uint) magic != 2)
-            {
-                throw new UnsupportedMagicByteVersion((byte) magic, "2");
-            }
-
-            var crc = (uint) BigEndianConverter.ReadInt32(input);
-            var afterCrcPosition = input.Position; // The crc is calculated starting from this position
-            Crc32.CheckCrcCastagnoli((int)crc, input, afterCrcPosition, endOfBatch - afterCrcPosition);
-
-            var attributes = BigEndianConverter.ReadInt16(input);
-
-            CompressionCodec = (CompressionCodec) (attributes & CompressionCodecMask);
-            IsTransactional = (attributes & TransactionalFlagMask) != 0;
-            IsControl = (attributes & ControlFlagMask) != 0;
-            TimestampType = (attributes & TimestampTypeMask) > 0
-                ? TimestampType.LogAppendTime
-                : TimestampType.CreateTime;
-
-            var lastOffsetDelta = BigEndianConverter.ReadInt32(input);
-
-            var firstTimestamp = BigEndianConverter.ReadInt64(input);
-            var maxTimestamp = BigEndianConverter.ReadInt64(input);
-
-            ProducerId = BigEndianConverter.ReadInt64(input);
-            ProducerEpoch = BigEndianConverter.ReadInt16(input);
-            BaseSequence = BigEndianConverter.ReadInt32(input);
-
-            var numberOfRecords = BigEndianConverter.ReadInt32(input);
-            Records = DeserializeRecords(input, numberOfRecords, endOfBatch, firstTimestamp, deserializers);
-        }
-
-        public IEnumerable<Record> DeserializeRecords(ReusableMemoryStream input, int numberOfRecords, long endOfBatch,
-            long firstTimeStamp, Deserializers deserializers)
-        {
-            if (CompressionCodec == CompressionCodec.None)
-            {
-                return DeserializeRecordsUncompressed(input, numberOfRecords, endOfBatch, firstTimeStamp,
-                    deserializers);
-            }
-            using (var uncompressedStream = input.Pool.Reserve())
-            {
-                Basics.Uncompress(uncompressedStream, input.GetBuffer(), (int) input.Position,
-                    (int) (endOfBatch - input.Position), CompressionCodec);
-                input.Position = endOfBatch;
-                return new List<Record>(DeserializeRecordsUncompressed(uncompressedStream, numberOfRecords, endOfBatch, firstTimeStamp,
-                    deserializers)); // We use a list here to force iteration to take place, so that we can release uncompressedStream
-            }
-        }
-
-        public IEnumerable<Record> DeserializeRecordsUncompressed(ReusableMemoryStream input, int numberOfRecords, long endOfBatch,
-            long firstTimeStamp, Deserializers deserializers)
-        {
-            for (var i = 0; i < numberOfRecords; i++)
-            {
-                var length = VarIntConverter.ReadInt32(input);
-                if (input.Length - input.Position < length)
-                {
-                    throw new ProtocolException(
-                        $"Record said it was of length {length}, but actually only {input.Length - input.Position} bytes remain");
-                }
-
-                var attributes = input.ReadByte(); // ignored for now
-                var timeStampDelta = VarIntConverter.ReadInt64(input);
-                var offsetDelta = VarIntConverter.ReadInt32(input);
-
-                var keyLength = VarIntConverter.ReadInt32(input);
-                var key = keyLength == -1 ? null : deserializers.Item1.Deserialize(input, keyLength);
-                var valueLength = VarIntConverter.ReadInt32(input);
-                var value = valueLength == -1 ? null : deserializers.Item1.Deserialize(input, valueLength);
-
-                var headersCount = VarIntConverter.ReadInt32(input);
-                var headers = new List<KafkaRecordHeader>(headersCount);
-                for (var j = 0; j < headersCount; j++)
-                {
-                    headers.Add(Record.DeserializeHeader(input));
-                }
-
-                yield return new Record
-                {
-                    Headers = headers,
-                    Key = key,
-                    Timestamp = firstTimeStamp + timeStampDelta,
-                    Value = value,
-                    Offset = BaseOffset + offsetDelta
-                };
-            }
-        }
     }
 
     internal struct Record
@@ -301,9 +302,12 @@ namespace Kafka.Protocol
 
         public ICollection<KafkaRecordHeader> Headers;
 
+        public ReusableMemoryStream SerializedKeyValue;
+
         public ReusableMemoryStream Serialize(ReusableMemoryStream target, long baseTimestamp, long offsetDelta)
         {
-            var timestampDelta = Timestamp - baseTimestamp;
+            long timestampDelta = Timestamp - baseTimestamp;
+
             VarIntConverter.Write(target, SizeOfBodyInBytes(offsetDelta, timestampDelta));
 
             // Record attributes are always null.
@@ -312,8 +316,15 @@ namespace Kafka.Protocol
             VarIntConverter.Write(target, timestampDelta);
             VarIntConverter.Write(target, offsetDelta);
 
-            Basics.WriteObject(target, Key, KeySerializer);
-            Basics.WriteObject(target, Value, ValueSerializer);
+            if (SerializedKeyValue == null)
+            {
+                Basics.WriteObject(target, Key, KeySerializer);
+                Basics.WriteObject(target, Value, ValueSerializer);
+            }
+            else
+            {
+                target.Write(SerializedKeyValue.GetBuffer(), 0, (int)SerializedKeyValue.Length);
+            }
 
             if (Headers == null)
             {
@@ -342,24 +353,32 @@ namespace Kafka.Protocol
             size += VarIntConverter.SizeOfVarInt(offsetDelta);
             size += VarIntConverter.SizeOfVarInt(timestampDelta);
 
-            if (Key == null)
-            {
-                size += Basics.MinusOneVarInt.Length;
-            }
-            else
-            {
-                var keySize = Basics.SizeOfSerializedObject(Key, KeySerializer);
-                size += keySize + VarIntConverter.SizeOfVarInt(keySize);
-            }
 
-            if (Value == null)
+            if (SerializedKeyValue == null)
             {
-                size += Basics.MinusOneVarInt.Length;
+                if (Key == null)
+                {
+                    size += Basics.MinusOneVarInt.Length;
+                }
+                else
+                {
+                    var keySize = Basics.SizeOfSerializedObject(Key, KeySerializer);
+                    size += keySize + VarIntConverter.SizeOfVarInt(keySize);
+                }
+
+                if (Value == null)
+                {
+                    size += Basics.MinusOneVarInt.Length;
+                }
+                else
+                {
+                    var valueSize = Basics.SizeOfSerializedObject(Value, ValueSerializer);
+                    size += valueSize + VarIntConverter.SizeOfVarInt(valueSize);
+                }
             }
             else
             {
-                var valueSize = Basics.SizeOfSerializedObject(Value, ValueSerializer);
-                size += valueSize + VarIntConverter.SizeOfVarInt(valueSize);
+                size += SerializedKeyValue.Length;
             }
 
             if (Headers == null)

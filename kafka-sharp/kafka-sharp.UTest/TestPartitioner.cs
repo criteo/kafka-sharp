@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Kafka.Cluster;
+using Kafka.Protocol;
 using Kafka.Public;
 using Kafka.Routing;
+using Kafka.Routing.PartitionSelection;
 using NUnit.Framework;
 
 namespace tests_kafka_sharp
@@ -27,13 +30,16 @@ namespace tests_kafka_sharp
                     new Partition {Id = 3, Leader = nodeMock},
                     new Partition {Id = 4, Leader = nodeMock},
                 };
-            var partitioner = new PartitionSelector(delay);
+            var partitionStrategy = new RoundRobinPartitionSelection(delay);
+            var partitioner = new PartitionSelector(partitionStrategy);
             delay = delay <= 0 ? 1 : delay;
             foreach (var partition in partitions)
             {
                 for (var j = 0; j < delay; ++j)
                 {
-                    Assert.AreEqual(partition.Id, partitioner.GetPartition(Partitions.Any, partitions).Id);
+                    Assert.AreEqual(partition.Id, partitioner
+                        .GetPartition(ProduceMessage.New(string.Empty, Partitions.Any, new Message(), new DateTime()), partitions)
+                        .Id);
                 }
             }
         }
@@ -42,8 +48,10 @@ namespace tests_kafka_sharp
         public void TestRoundRobinPartitionAssignNoPartitionReturnsNone()
         {
             var partitions = new Partition[0];
-            var partitioner = new PartitionSelector();
-            Assert.AreEqual(0, Partition.None.CompareTo(partitioner.GetPartition(Partitions.Any, partitions)));
+            var partitionStrategy = new RoundRobinPartitionSelection();
+            var partitioner = new PartitionSelector(partitionStrategy);
+            Assert.AreEqual(0, Partition.None.CompareTo(partitioner.GetPartition(
+                ProduceMessage.New(string.Empty, Partitions.Any, new Message(), new DateTime()), partitions)));
         }
 
         [Test]
@@ -62,15 +70,16 @@ namespace tests_kafka_sharp
             filter[0] = DateTime.UtcNow;
             filter[2] = DateTime.UtcNow;
             filter[4] = DateTime.UtcNow;
-            var partitioner = new PartitionSelector();
+            var partitionStrategy = new RoundRobinPartitionSelection();
+            var partitioner = new PartitionSelector(partitionStrategy);
 
-            var partition = partitioner.GetPartition(Partitions.Any, partitions, filter);
+            var partition = partitioner.GetPartition(ProduceMessage.New(string.Empty, Partitions.Any, new Message(), new DateTime()),partitions, filter);
             Assert.AreEqual(1, partition.Id);
 
-            partition = partitioner.GetPartition(Partitions.Any, partitions, filter);
+            partition = partitioner.GetPartition(ProduceMessage.New(string.Empty, Partitions.Any, new Message(), new DateTime()), partitions, filter);
             Assert.AreEqual(3, partition.Id);
 
-            partition = partitioner.GetPartition(Partitions.Any, partitions, filter);
+            partition = partitioner.GetPartition(ProduceMessage.New(string.Empty, Partitions.Any, new Message(), new DateTime()), partitions, filter);
             Assert.AreEqual(1, partition.Id);
         }
 
@@ -93,9 +102,10 @@ namespace tests_kafka_sharp
 
             int delay = partitions.Length + 2;
 
-            var partitioner = new PartitionSelector(delay);
+            var partitionStrategy = new RoundRobinPartitionSelection(delay);
+            var partitioner = new PartitionSelector(partitionStrategy);
 
-            var partition = partitioner.GetPartition(Partitions.Any, partitions, filter);
+            var partition = partitioner.GetPartition(ProduceMessage.New(string.Empty, Partitions.Any, new Message(), new DateTime()), partitions, filter);
 
             Assert.AreEqual(1, partition.Id);
 
@@ -128,7 +138,8 @@ namespace tests_kafka_sharp
             // Pick a delay greater than the number of partitions
             int delay = partitions.Length + 2;
 
-            var partitioner = new PartitionSelector(delay);
+            var partitionStrategy = new RoundRobinPartitionSelection(delay);
+            var partitioner = new PartitionSelector(partitionStrategy);
 
             var firstBatch = GetPartitions(delay, partitioner, partitions, filter);
 
@@ -152,7 +163,8 @@ namespace tests_kafka_sharp
 
             var partitions = Enumerable.Range(0, 10).Select(i => new Partition { Id = i, Leader = nodeMock }).ToArray();
 
-            var partitioner = new PartitionSelector(1, int.MaxValue);
+            var partitionStrategy = new RoundRobinPartitionSelection(delay: 1, startSeed: int.MaxValue);
+            var partitioner = new PartitionSelector(partitionStrategy);
 
             var batch = GetPartitions(partitions.Length, partitioner, partitions, null);
 
@@ -180,12 +192,14 @@ namespace tests_kafka_sharp
                     new Partition {Id = 3, Leader = nodeMock},
                     new Partition {Id = 4, Leader = nodeMock},
                 };
-            var partitioner = new PartitionSelector(delay, startSeed);
+            var partitionStrategy = new RoundRobinPartitionSelection(delay: delay, startSeed: startSeed);
+            var partitioner = new PartitionSelector(partitionStrategy);
             foreach (var partition in partitions)
             {
                 for (var j = 0; j < delay; ++j)
                 {
-                    Assert.AreEqual((partition.Id + startSeed) % partitions.Length, partitioner.GetPartition(Partitions.Any, partitions).Id);
+                    Assert.AreEqual((partition.Id + startSeed) % partitions.Length, partitioner.GetPartition(
+                        ProduceMessage.New(string.Empty, Partitions.Any, new Message(), new DateTime()), partitions).Id);
                 }
             }
         }
@@ -196,7 +210,7 @@ namespace tests_kafka_sharp
 
             for (int i = 0; i < count; i++)
             {
-                result.Add(partitioner.GetPartition(Partitions.Any, partitions, filter));
+                result.Add(partitioner.GetPartition(ProduceMessage.New(string.Empty, Partitions.Any, new Message(), new DateTime()), partitions, filter));
             }
 
             return result;

@@ -69,6 +69,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="TestMessageKeyPartitionSelection.cs" />
     <Compile Include="TestVarIntConverter.cs" />
     <Compile Include="TestBatching.cs" />
     <Compile Include="TestClient.cs" />

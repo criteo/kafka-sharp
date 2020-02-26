@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using Kafka.Cluster;
 using Kafka.Common;
 using Kafka.Public;
 #if !NETSTANDARD1_3
@@ -109,7 +110,7 @@ namespace Kafka.Protocol
 
         public static byte[] DeserializeBytesWithVarIntSize(ReusableMemoryStream stream)
         {
-            var len = VarIntConverter.ReadInt32(stream);
+            var len = VarIntConverter.ReadAsInt32(stream);
             if (len == -1)
                 return null;
 
@@ -162,7 +163,7 @@ namespace Kafka.Protocol
 
         public static string DeserializeStringWithVarIntSize(ReusableMemoryStream stream)
         {
-            var len = VarIntConverter.ReadInt32(stream);
+            var len = VarIntConverter.ReadAsInt32(stream);
             // per contract, null string is represented with -1 len.
             if (len == -1)
                 return null;
@@ -207,21 +208,21 @@ namespace Kafka.Protocol
             stream.Position = pos;
         }
 
-        public static void WriteSizeInBytes(ReusableMemoryStream stream, Action<ReusableMemoryStream> write)
+        public static void WriteWithSize(ReusableMemoryStream stream, Action<ReusableMemoryStream> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream);
             WriteHeader(stream, initPos);
         }
 
-        public static void WriteSizeInBytes<T>(ReusableMemoryStream stream, T t, Action<ReusableMemoryStream, T> write)
+        public static void WriteWithSize<T>(ReusableMemoryStream stream, T t, Action<ReusableMemoryStream, T> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream, t);
             WriteHeader(stream, initPos);
         }
 
-        public static void WriteSizeInBytes<T, U>(ReusableMemoryStream stream, T t, U u, Action<ReusableMemoryStream, T, U> write)
+        public static void WriteWithSize<T, U>(ReusableMemoryStream stream, T t, U u, Action<ReusableMemoryStream, T, U> write)
         {
             var initPos = ReserveHeader(stream);
             write(stream, t, u);
@@ -361,60 +362,60 @@ namespace Kafka.Protocol
         /// <param name="serializer">serializer to use if object is not serializable</param>
         public static void WriteObject(ReusableMemoryStream stream, object o, ISerializer serializer)
         {
-            if (o is byte[] asBytes)
+            switch (o)
             {
-                SerializeBytesWithVarIntSize(stream, asBytes);
-            }
-            else if (o is string asString)
-            {
-                SerializeStringWithVarIntSize(stream, asString);
-            }
-            else
-            {
-                if (o == null)
-                {
+                case null:
                     stream.Write(MinusOneVarInt, 0, MinusOneVarInt.Length);
-                    return;
-                }
-
-                var expectedPosition = -1L;
-                if (o is ISizedMemorySerializable asSizedSerializable)
+                    break;
+                case byte[] asBytes:
+                    SerializeBytesWithVarIntSize(stream, asBytes);
+                    break;
+                case string asString:
+                    SerializeStringWithVarIntSize(stream, asString);
+                    break;
+                default:
                 {
-                    var expectedSize = asSizedSerializable.SerializedSize();
-                    VarIntConverter.Write(stream, expectedSize);
-                    expectedPosition = stream.Position + expectedSize;
-                    asSizedSerializable.Serialize(stream);
-                }
-                else if (serializer is ISizableSerializer sizableSerializer)
-                {
-                    var expectedSize = sizableSerializer.SerializedSize(o);
-                    VarIntConverter.Write(stream, expectedSize);
-                    expectedPosition = stream.Position + expectedSize;
-                    sizableSerializer.Serialize(o, stream);
-                }
-                else
-                {
-                    // If we can not know the size of the serialized object in advance, we need to use an intermediate buffer.
-                    using (var buffer = stream.Pool.Reserve())
+                    long expectedPosition;
+                    if (o is ISizedMemorySerializable asSizedSerializable)
                     {
-                        if (o is IMemorySerializable asSerializable)
+                        long expectedSize = asSizedSerializable.SerializedSize();
+                        VarIntConverter.Write(stream, expectedSize);
+                        expectedPosition = stream.Position + expectedSize;
+                        asSizedSerializable.Serialize(stream);
+                    }
+                    else if (serializer is ISizableSerializer sizableSerializer)
+                    {
+                        long expectedSize = sizableSerializer.SerializedSize(o);
+                        VarIntConverter.Write(stream, expectedSize);
+                        expectedPosition = stream.Position + expectedSize;
+                        sizableSerializer.Serialize(o, stream);
+                    }
+                    else
+                    {
+                        // If we can not know the size of the serialized object in advance, we need to use an intermediate buffer.
+                        using (var buffer = stream.Pool.Reserve())
                         {
-                            asSerializable.Serialize(buffer);
+                            if (o is IMemorySerializable asSerializable)
+                            {
+                                asSerializable.Serialize(buffer);
+                            }
+                            else
+                            {
+                                serializer.Serialize(o, buffer);
+                            }
+                            WriteObject(stream, buffer, null);
                         }
-                        else
-                        {
-                            serializer.Serialize(o, buffer);
-                        }
-                        WriteObject(stream, buffer, null);
+
+                        return;
                     }
 
-                    return;
-                }
+                    if (expectedPosition != stream.Position)
+                    {
+                        throw new Exception(
+                            "SerializedSize() returned a different value than the size of the serialized object written");
+                    }
 
-                if (expectedPosition != stream.Position)
-                {
-                    throw new Exception(
-                        "SerializedSize() returned a different value than the size of the serialized object written");
+                    break;
                 }
             }
         }
@@ -561,5 +562,78 @@ namespace Kafka.Protocol
         }
 
         #endregion
+
+        public static ApiVersion GetApiVersion(Node.RequestType type, Compatibility compVersion)
+        {
+            switch (type)
+            {
+                case Node.RequestType.Metadata:
+                    return ApiVersion.Ignored;
+
+                case Node.RequestType.BatchedProduce:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return ApiVersion.V0;
+                        case Compatibility.V0_10_1:
+                            return ApiVersion.V2;
+                        case Compatibility.V0_11_0:
+                            return ApiVersion.V3;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+                case Node.RequestType.BatchedFetch:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return ApiVersion.V0;
+                        case Compatibility.V0_10_1:
+                            return ApiVersion.V2;
+                        case Compatibility.V0_11_0:
+                            return ApiVersion.V4;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+
+                case Node.RequestType.BatchedOffset:
+                case Node.RequestType.SingleOffset:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return ApiVersion.V0;
+                        default:
+                            return ApiVersion.V1;
+                    }
+
+                case Node.RequestType.GroupCoordinator:
+                    return ApiVersion.V0;
+
+                case Node.RequestType.Heartbeat:
+                    return ApiVersion.V0;
+
+                case Node.RequestType.LeaveGroup:
+                    return ApiVersion.V0;
+
+                case Node.RequestType.SyncConsumerGroup:
+                    return ApiVersion.V0;
+
+                case Node.RequestType.JoinConsumerGroup:
+                    switch (compVersion)
+                    {
+                        case Compatibility.V0_8_2:
+                            return ApiVersion.V0;
+                        default:
+                            return ApiVersion.V1;
+                    }
+
+                case Node.RequestType.OffsetCommit:
+                    return ApiVersion.V2;
+
+                case Node.RequestType.OffsetFetch:
+                    return ApiVersion.V1;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
+            }
+        }
     }
 }

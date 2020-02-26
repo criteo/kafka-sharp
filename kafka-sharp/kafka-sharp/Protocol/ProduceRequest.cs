@@ -82,40 +82,40 @@ namespace Kafka.Protocol
             var batch = new RecordBatch
             {
                 CompressionCodec = CompressionCodec,
-                Records = Messages.Select(message => new Record
+                Records = Messages.Select(message =>
                 {
-                    Key = EnsureSizedSerializable(message.Key, keySerializer),
-                    Value = EnsureSizedSerializable(message.Value, valueSerializer),
-                    Headers = message.Headers,
-                    Timestamp = message.TimeStamp,
-                    // If the serializer is not compatible, we already resolved this
-                    // previously, so it's ok if the cast returns null
-                    KeySerializer = keySerializer as ISizableSerializer,
-                    ValueSerializer = valueSerializer as ISizableSerializer
+                    SerializeMessageIfNotSized(ref message, keySerializer, valueSerializer, stream.Pool);
+                    return new Record
+                    {
+                        Key = message.Key,
+                        Value = message.Value,
+                        Headers = message.Headers,
+                        Timestamp = message.TimeStamp,
+                        // If the serializer is not compatible, we already resolved this
+                        // previously, so it's ok if the cast returns null
+                        KeySerializer = keySerializer as ISizableSerializer,
+                        ValueSerializer = valueSerializer as ISizableSerializer,
+                        SerializedKeyValue = message.SerializedKeyValue,
+                    };
                 }),
-
             };
 
-            Basics.WriteSizeInBytes(stream, batch.Serialize);
+            Basics.WriteWithSize(stream, batch.Serialize);
         }
 
-        private static object EnsureSizedSerializable(object o, ISerializer serializer)
+        private static void SerializeMessageIfNotSized(ref Message msg, ISerializer keySerializer, ISerializer valueSerializer, Pool<ReusableMemoryStream> pool)
         {
-            if (Basics.SizeOfSerializedObject(o, serializer as ISizableSerializer) == Basics.UnknownSize)
+            if (msg.SerializedKeyValue == null
+                && (Basics.SizeOfSerializedObject(msg.Key, keySerializer as ISizableSerializer) == Basics.UnknownSize
+                    || Basics.SizeOfSerializedObject(msg.Value, valueSerializer as ISizableSerializer) == Basics.UnknownSize))
             {
-                using (ReusableMemoryStream buffer = new ReusableMemoryStream(null))
-                {
-                    serializer.Serialize(o, buffer);
-                    return buffer.GetBuffer();
-                }
+                msg.SerializeKeyValue(pool.Reserve(), new Serializers(keySerializer, valueSerializer), Compatibility.V0_11_0);
             }
-
-            return o;
         }
 
         private void SerializeMessageSet(ReusableMemoryStream stream, Serializers serializers, MessageVersion version)
         {
-            Basics.WriteSizeInBytes(stream, Messages,
+            Basics.WriteWithSize(stream, Messages,
                 new SerializationInfo
                 {
                     Serializers = serializers,
@@ -137,7 +137,7 @@ namespace Kafka.Protocol
                 // When message format is V0, brokers will rewrite the offsets anyway
                 // so we use the same scheme in all cases.
                 BigEndianConverter.Write(stream, offset++);
-                Basics.WriteSizeInBytes(stream, message,
+                Basics.WriteWithSize(stream, message,
                     new SerializationInfo
                     {
                         CompressionCodec = CompressionCodec.None,
@@ -173,7 +173,7 @@ namespace Kafka.Protocol
                             Value = compressed,
                             TimeStamp = Timestamp.Now
                         };
-                        Basics.WriteSizeInBytes(stream, m,
+                        Basics.WriteWithSize(stream, m,
                             new SerializationInfo
                             {
                                 Serializers = SerializationConfig.ByteArraySerializers,

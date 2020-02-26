@@ -68,7 +68,7 @@ namespace Kafka.Routing
             var tmp = new List<Partition>();
             foreach (var kv in fromTable._routes)
             {
-                tmp.AddRange(kv.Value.Where(partition => partition.Leader != deadNode));
+                tmp.AddRange(kv.Value.Where(partition => !Equals(partition.Leader, deadNode)));
                 _routes.Add(kv.Key, tmp.ToArray());
                 tmp.Clear();
             }

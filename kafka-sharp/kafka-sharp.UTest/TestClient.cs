@@ -26,11 +26,15 @@ namespace tests_kafka_sharp
         {
             _node = new Mock<INode>();
             var brokerMeta = new BrokerMeta();
+            brokerMeta.Host = "brokerHost";
             _node.Setup(n => n.FetchMetadata())
                 .Returns(Task.FromResult(new MetadataResponse
                 {
                     BrokersMeta = new[] {brokerMeta}, TopicsMeta = new TopicMeta[0]
                 }));
+            _node.Setup(n => n.Equals(It.IsAny<object>())).Returns(true);
+            _node.Setup(n => n.Equals(It.IsAny<INode>())).Returns(true);
+            _node.Setup(n => n.GetHashCode()).Returns(0);
             _producer = new Mock<IProduceRouter>();
             _consumer = new Mock<IConsumeRouter>();
             var logger = new Mock<ILogger>();

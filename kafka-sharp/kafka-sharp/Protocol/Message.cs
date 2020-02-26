@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Kafka.Cluster;
 using Kafka.Common;
 using Kafka.Public;
 
@@ -27,11 +28,17 @@ namespace Kafka.Protocol
 
         private const int MinimumValidSizeForSerializedKeyValue = 2 * 4; // At least 4 bytes for key size and 4 bytes for value size
 
-        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers)
+        public void SerializeKeyValue(ReusableMemoryStream target, Tuple<ISerializer, ISerializer> serializers, Compatibility compatibility)
         {
             SerializedKeyValue = target;
-            DoSerializeKeyValue(SerializedKeyValue, serializers);
-            Key = null;
+            if (Basics.GetApiVersion(Node.RequestType.BatchedProduce, compatibility) >= Basics.ApiVersion.V3)
+            {
+                DoSerializeKeyValueAsRecord(SerializedKeyValue, serializers);
+            }
+            else
+            {
+                DoSerializeKeyValue(SerializedKeyValue, serializers);
+            }
             Value = null;
         }
 
@@ -96,6 +103,12 @@ namespace Kafka.Protocol
             stream.Write(Basics.MinusOne32, 0, 4);
         }
 
+        private void DoSerializeKeyValueAsRecord(ReusableMemoryStream stream, Tuple<ISerializer, ISerializer> serializers)
+        {
+            Basics.WriteObject(stream, Key, serializers.Item1);
+            Basics.WriteObject(stream, Value, serializers.Item2);
+        }
+
         private void DoSerializeKeyValue(ReusableMemoryStream stream, Tuple<ISerializer, ISerializer> serializers)
         {
             if (Key == null)
@@ -120,23 +133,20 @@ namespace Kafka.Protocol
         private static void SerializeObject(ReusableMemoryStream stream, ISerializer serializer, object theValue)
         {
             // byte[] are just copied
-            var bytes = theValue as byte[];
-            if (bytes != null)
+            if (theValue is byte[] bytes)
             {
-                byte[] array = bytes;
-                BigEndianConverter.Write(stream, array.Length);
-                stream.Write(array, 0, array.Length);
+                BigEndianConverter.Write(stream, bytes.Length);
+                stream.Write(bytes, 0, bytes.Length);
             }
             else
             {
-                Basics.WriteSizeInBytes(stream, theValue, serializer, SerializerWrite);
+                Basics.WriteWithSize(stream, theValue, serializer, SerializerWrite);
             }
         }
 
         private static void SerializerWrite(ReusableMemoryStream stream, object m, ISerializer ser)
         {
-            var serializable = m as IMemorySerializable;
-            if (serializable != null)
+            if (m is IMemorySerializable serializable)
             {
                 serializable.Serialize(stream);
             }

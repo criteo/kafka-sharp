@@ -48,41 +48,41 @@ namespace tests_kafka_sharp
         [TestCase(new byte[] { 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02 })]
         public void TestReadInt64Overflows(byte[] value)
         {
-            Assert.Throws<OverflowException>(() => VarIntConverter.ReadInt64(new MemoryStream(value)));
+            Assert.Throws<OverflowException>(() => VarIntConverter.ReadAsInt64(new MemoryStream(value)));
         }
 
         [Test]
         public void TestReadInt64()
         {
-            RunReadIntTestFor(VarIntConverter.ReadInt64, long.MinValue, long.MaxValue);
+            RunReadIntTestFor(VarIntConverter.ReadAsInt64, long.MinValue, long.MaxValue);
         }
 
         [Test]
         public void TestReadInt32()
         {
-            RunReadIntTestFor(VarIntConverter.ReadInt32, int.MinValue, int.MaxValue);
+            RunReadIntTestFor(VarIntConverter.ReadAsInt32, int.MinValue, int.MaxValue);
         }
 
         [Test]
         public void TestReadInt16()
         {
-            RunReadIntTestFor(VarIntConverter.ReadInt16, short.MinValue, short.MaxValue);
+            RunReadIntTestFor(VarIntConverter.ReadAsInt16, short.MinValue, short.MaxValue);
         }
 
         [Test]
         public void TestReadByte()
         {
-            RunReadIntTestFor(VarIntConverter.ReadByte, byte.MinValue, byte.MaxValue, true);
+            RunReadIntTestFor(VarIntConverter.ReadAsByte, byte.MinValue, byte.MaxValue, true);
         }
 
         [Test]
         public void TestReadBool()
         {
-            Assert.IsFalse(VarIntConverter.ReadBool(new MemoryStream(new byte[] { 0x00 })));
+            Assert.IsFalse(VarIntConverter.ReadAsBool(new MemoryStream(new byte[] { 0x00 })));
 
-            Assert.IsTrue(VarIntConverter.ReadBool(new MemoryStream(new byte[] { 0x01 })));
-            Assert.IsTrue(VarIntConverter.ReadBool(new MemoryStream(new byte[] { 0x02 })));
-            Assert.IsTrue(VarIntConverter.ReadBool(new MemoryStream(new byte[] { 0x80, 0x01 })));
+            Assert.IsTrue(VarIntConverter.ReadAsBool(new MemoryStream(new byte[] { 0x01 })));
+            Assert.IsTrue(VarIntConverter.ReadAsBool(new MemoryStream(new byte[] { 0x02 })));
+            Assert.IsTrue(VarIntConverter.ReadAsBool(new MemoryStream(new byte[] { 0x80, 0x01 })));
         }
 
         private void RunReadIntTestFor<TInteger>(Func<MemoryStream, TInteger> readFunc, TInteger minValue,

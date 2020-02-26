@@ -28,7 +28,7 @@ namespace Kafka.Cluster
     /// wants them. They're responsible for maintaining a connection to a corresponding
     /// Kafka broker.
     /// </summary>
-    interface INode
+    internal interface INode
     {
         /// <summary>
         /// A name associated to this node.
@@ -245,7 +245,6 @@ namespace Kafka.Cluster
         /// The node reached its maximum number of concurrent requests.
         /// </summary>
         event Action<INode> NoMoreRequestSlot;
-
     }
 
     /// <summary>
@@ -258,7 +257,7 @@ namespace Kafka.Cluster
     /// State change shared between send and receive actors is kept minimal (mainly correlation ids matching).
     /// Connection setup is always handled in the Send actor.
     /// </summary>
-    sealed class Node : INode
+    internal sealed class Node : INode, IEquatable<Node>
     {
         #region Serialization / Deserialization
 
@@ -316,7 +315,7 @@ namespace Kafka.Cluster
 
             public ReusableMemoryStream SerializeMetadataAllRequest(int correlationId)
             {
-                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.Metadata, _compatibility));
+                return new TopicRequest().Serialize(_requestPool.Reserve(), correlationId, _clientId, null, Basics.GetApiVersion(RequestType.Metadata, _compatibility));
             }
 
             public ReusableMemoryStream SerializeProduceBatch(int correlationId, IEnumerable<IGrouping<string, IGrouping<int, ProduceMessage>>> batch)
@@ -336,7 +335,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig, GetApiVersion(RequestType.BatchedProduce, _compatibility));
+                return produceRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, _serializationConfig, Basics.GetApiVersion(RequestType.BatchedProduce, _compatibility));
             }
 
             public ReusableMemoryStream SerializeFetchBatch(int correlationId, IEnumerable<IGrouping<string, FetchMessage>> batch)
@@ -357,7 +356,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.BatchedFetch, _compatibility));
+                return fetchRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, Basics.GetApiVersion(RequestType.BatchedFetch, _compatibility));
             }
 
             public ReusableMemoryStream SerializeOffsetBatch(int correlationId, IEnumerable<IGrouping<string, OffsetMessage>> batch)
@@ -375,7 +374,7 @@ namespace Kafka.Cluster
                         })
                     })
                 };
-                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, GetApiVersion(RequestType.BatchedOffset, _compatibility));
+                return offsetRequest.Serialize(_requestPool.Reserve(), correlationId, _clientId, null, Basics.GetApiVersion(RequestType.BatchedOffset, _compatibility));
             }
 
             public ReusableMemoryStream SerializeRequest(int correlationId, ISerializableRequest request, Basics.ApiVersion version)
@@ -693,19 +692,19 @@ namespace Kafka.Cluster
 
         #region Responses
 
-        struct ResponseData
+        private struct ResponseData
         {
             public ReusableMemoryStream Data;
             public int CorrelationId;
         }
 
-        struct ResponseException
+        private struct ResponseException
         {
             public Exception Exception;
         }
 
         [StructLayout(LayoutKind.Explicit)]
-        struct ResponseValue
+        private struct ResponseValue
         {
             [FieldOffset(0)]
             public ResponseException ResponseException;
@@ -717,14 +716,14 @@ namespace Kafka.Cluster
         /// <summary>
         /// Message types for the underlying response handler actor.
         /// </summary>
-        enum ResponseType
+        private enum ResponseType
         {
             Data,
             Stop,
             Exception
         }
 
-        struct Response
+        private struct Response
         {
             public ResponseType ResponseType;
             public IConnection Connection;
@@ -749,7 +748,7 @@ namespace Kafka.Cluster
         private readonly Configuration _configuration;
         private readonly TimeoutScheduler _timeoutScheduler;
 
-        struct Pending
+        private struct Pending
         {
             public int CorrelationId;
             public Request Request;
@@ -1938,80 +1937,26 @@ namespace Kafka.Cluster
 
         private Basics.ApiVersion GetApiVersion(RequestType type)
         {
-            return GetApiVersion(type, _configuration.Compatibility);
+            return Basics.GetApiVersion(type, _configuration.Compatibility);
         }
 
-        private static Basics.ApiVersion GetApiVersion(RequestType type, Compatibility compVersion)
+        public override bool Equals(object obj)
         {
-            switch (type)
-            {
-                case RequestType.Metadata:
-                    return Basics.ApiVersion.Ignored;
+            return Equals(obj as Node);
+        }
 
-                case RequestType.BatchedProduce:
-                    switch (compVersion)
-                    {
-                        case Compatibility.V0_8_2:
-                            return Basics.ApiVersion.V0;
-                        case Compatibility.V0_10_1:
-                            return Basics.ApiVersion.V2;
-                        case Compatibility.V0_11_0:
-                            return Basics.ApiVersion.V3;
-                        default:
-                            throw new ArgumentOutOfRangeException();
-                    }
-                case RequestType.BatchedFetch:
-                    switch (compVersion)
-                    {
-                        case Compatibility.V0_8_2:
-                            return Basics.ApiVersion.V0;
-                        case Compatibility.V0_10_1:
-                            return Basics.ApiVersion.V2;
-                        case Compatibility.V0_11_0:
-                            return Basics.ApiVersion.V4;
-                        default:
-                            throw new ArgumentOutOfRangeException();
-                    }
+        public bool Equals(Node other)
+        {
+            if (ReferenceEquals(null, other))
+                return false;
+            if (ReferenceEquals(this, other))
+                return true;
+            return string.Equals(Name, other.Name);
+        }
 
-                case RequestType.BatchedOffset:
-                case RequestType.SingleOffset:
-                    switch (compVersion)
-                    {
-                        case Compatibility.V0_8_2:
-                            return Basics.ApiVersion.V0;
-                        default:
-                            return Basics.ApiVersion.V1;
-                    }
-
-                case RequestType.GroupCoordinator:
-                    return Basics.ApiVersion.V0;
-
-                case RequestType.Heartbeat:
-                    return Basics.ApiVersion.V0;
-
-                case RequestType.LeaveGroup:
-                    return Basics.ApiVersion.V0;
-
-                case RequestType.SyncConsumerGroup:
-                    return Basics.ApiVersion.V0;
-
-                case RequestType.JoinConsumerGroup:
-                    switch (compVersion)
-                    {
-                        case Compatibility.V0_8_2:
-                            return Basics.ApiVersion.V0;
-                        default:
-                            return Basics.ApiVersion.V1;
-                    }
-
-                case RequestType.OffsetCommit:
-                    return Basics.ApiVersion.V2;
-
-                case RequestType.OffsetFetch:
-                    return Basics.ApiVersion.V1;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
-            }
+        public override int GetHashCode()
+        {
+            return Name == null ? 0 : Name.GetHashCode();
         }
     }
 }

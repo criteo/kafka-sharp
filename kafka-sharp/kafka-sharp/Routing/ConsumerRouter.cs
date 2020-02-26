@@ -710,8 +710,10 @@ namespace Kafka.Routing
                         {
                             // Means the cluster is kind of dead, ignore and retry, there's not much else
                             // to do anyway since we won't be able to send more fetch requests until
-                            // some node is available.
+                            // some node is available. Also wait an arbitrary amount of time before trying
+                            // again so we don't hammer the cluster.
                             // TODO: be verbose?
+                            await Task.Delay(TimeSpan.FromSeconds(2));
                         }
                     }
             }
