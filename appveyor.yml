@@ -22,9 +22,8 @@ cache:
 - '%USERPROFILE%\.nuget\packages'
 deploy:
 - provider: NuGet
-  name: production
   api_key:
-    secure: eG/1njQ1jmg8cuYYVjmO2+7cB/gfRx3QvUnKNK7J0NXL1yLtvCn+aBSmiJtFSJwv
+    secure: zPPFd3VfauVBkWzlhniGLohV/zJzSCR7EzY/xgfGKE+vddJY3HmFHPDHRI14k47I
   on:
     branch: master
     appveyor_repo_tag: true
