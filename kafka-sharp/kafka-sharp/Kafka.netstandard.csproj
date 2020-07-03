@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard1.6</TargetFrameworks>
+    <TargetFrameworks>netstandard2.0</TargetFrameworks>
     <AssemblyName>kafka-sharp</AssemblyName>
     <AssemblyDescription>High Performance .NET Kafka Client</AssemblyDescription>
     <PackageId>kafka-sharp</PackageId>
@@ -22,10 +22,6 @@
     <Owners>Criteo</Owners>
     <Description>High Performance .NET Kafka Client</Description>
   </PropertyGroup>
-
-  <ItemGroup>
-    <None Include="../../LICENSE" Pack="true" PackagePath=""/>
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Reactive.Core" Version="3.1.1" />
