@@ -1,5 +1,11 @@
 # "High Performance" .NET Kafka Driver
 
+This is a fork that upgrades the project to target .NET Standard 2.0 and `System.Reactive` v4.
+
+[The link to the merge request to the original project](https://github.com/criteo/kafka-sharp/pull/54)
+
+[The link to the NuGet package of this fork](https://www.nuget.org/packages/TheMulti0.kafka-sharp/)
+
 A .NET implementation of the Apache Kafka client side protocol geared toward performance (both
 throughput and memory wise). It is especially suited for scenarios where applications
 are streaming a large number of messages across a fair number of topics.
