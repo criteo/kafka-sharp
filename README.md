@@ -1,3 +1,12 @@
+# Consider using confluentinc/confluent-kafka-dotnet
+
+kafka-sharp was built at a time where there was no other .NET Kafka driver
+available. As the Kafka protocol evolved a lot, it became costly to maintain.
+Also, new use-cases arised at Criteo for which this software was not design
+for. For these reasons, we've started to migrate to
+[confluent-kafka-dotnet](https://github.com/confluentinc/confluent-kafka-dotnet)
+and recommend our users to do so.
+
 # "High Performance" .NET Kafka Driver
 
 A .NET implementation of the Apache Kafka client side protocol geared toward performance (both
