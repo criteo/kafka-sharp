@@ -1,3 +1,14 @@
+# UPDATE 2022: project no longer maintained
+
+kafka-sharp was built at a time where there was no .NET Kafka driver available
+matching our performance requirements. As the Kafka protocol evolved a lot, it
+became costly to maintain. In the meantime, the team behind Kafka has developed
+their own driver and [in 2019 the version 1.0 was released](https://github.com/confluentinc/confluent-kafka-dotnet/releases/tag/v1.0.0)
+Also, new use-cases arised at Criteo for which this software was not design
+for. For these reasons, Criteo migrated to [confluent-kafka-dotnet](https://github.com/confluentinc/confluent-kafka-dotnet)
+and this project is no longer maintained. Users should consider moving to
+the official driver.
+
 # "High Performance" .NET Kafka Driver
 
 A .NET implementation of the Apache Kafka client side protocol geared toward performance (both
